@@ -38,6 +38,12 @@ public sealed class TextCreationService
 
     public bool CreateTextWithJig(Point3d initialPosition, string content, double height = 1.45)
     {
+        Point3d centerPosition = ObtenerCentroEntreLineas(initialPosition) ?? initialPosition;
+        return CreateTextWithJigAtFixedCenter(centerPosition, content, height);
+    }
+
+    public bool CreateTextWithJigAtFixedCenter(Point3d centerPosition, string content, double height = 1.45)
+    {
         Document? document = Application.DocumentManager.MdiActiveDocument;
         if (document is null || string.IsNullOrWhiteSpace(content))
             return false;
@@ -48,11 +54,6 @@ public sealed class TextCreationService
 
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
             database.CurrentSpaceId, OpenMode.ForWrite);
-
-        // El primer clic determina la posicion definitiva del centro.
-        // Si cae entre dos bordes paralelos, se calcula automaticamente su centro.
-        Point3d centerPosition = ObtenerCentroEntreLineas(transaction, currentSpace, initialPosition)
-            ?? initialPosition;
 
         var text = new DBText
         {
@@ -69,8 +70,8 @@ public sealed class TextCreationService
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
-        // A partir de este punto el centro queda bloqueado.
-        // El movimiento del mouse solo controla la rotacion.
+        // El centro ya fue calculado antes de entrar al jig.
+        // Desde este punto el mouse solamente controla la rotacion.
         var jig = new NomenclaturaTextJig(text, centerPosition, ObtenerModoOrto());
         PromptResult result = editor.Drag(jig);
 
@@ -85,11 +86,18 @@ public sealed class TextCreationService
         return true;
     }
 
-    private static Point3d? ObtenerCentroEntreLineas(
-        Transaction transaction,
-        BlockTableRecord currentSpace,
-        Point3d clickPoint)
+    private static Point3d? ObtenerCentroEntreLineas(Point3d clickPoint)
     {
+        Document? document = Application.DocumentManager.MdiActiveDocument;
+        if (document is null)
+            return null;
+
+        Database database = document.Database;
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
+            database.CurrentSpaceId, OpenMode.ForRead);
+
         var candidates = new List<LineCandidate>();
 
         foreach (ObjectId objectId in currentSpace)
@@ -111,9 +119,11 @@ public sealed class TextCreationService
                     if (polyline.GetSegmentType(i) != SegmentType.Line)
                         continue;
 
-                    Point3d start = polyline.GetPoint3dAt(i);
-                    Point3d end = polyline.GetPoint3dAt(i + 1);
-                    AgregarSegmento(candidates, start, end, clickPoint);
+                    AgregarSegmento(
+                        candidates,
+                        polyline.GetPoint3dAt(i),
+                        polyline.GetPoint3dAt(i + 1),
+                        clickPoint);
                 }
 
                 if (polyline.Closed && polyline.NumberOfVertices > 1)
@@ -121,9 +131,11 @@ public sealed class TextCreationService
                     int last = polyline.NumberOfVertices - 1;
                     if (polyline.GetSegmentType(last) == SegmentType.Line)
                     {
-                        Point3d start = polyline.GetPoint3dAt(last);
-                        Point3d end = polyline.GetPoint3dAt(0);
-                        AgregarSegmento(candidates, start, end, clickPoint);
+                        AgregarSegmento(
+                            candidates,
+                            polyline.GetPoint3dAt(last),
+                            polyline.GetPoint3dAt(0),
+                            clickPoint);
                     }
                 }
             }
@@ -166,17 +178,15 @@ public sealed class TextCreationService
         if (bestFirst is null || bestSecond is null)
             return null;
 
+        transaction.Commit();
+
         return new Point3d(
             (bestFirst.Projection.X + bestSecond.Projection.X) / 2.0,
             (bestFirst.Projection.Y + bestSecond.Projection.Y) / 2.0,
             (bestFirst.Projection.Z + bestSecond.Projection.Z) / 2.0);
     }
 
-    private static void AgregarSegmento(
-        List<LineCandidate> candidates,
-        Point3d start,
-        Point3d end,
-        Point3d clickPoint)
+    private static void AgregarSegmento(List<LineCandidate> candidates, Point3d start, Point3d end, Point3d clickPoint)
     {
         Vector3d vector = end - start;
         if (vector.Length <= Tolerance.Global.EqualPoint)
@@ -190,11 +200,7 @@ public sealed class TextCreationService
             candidates.Add(new LineCandidate(start, direction, projection, distance));
     }
 
-    private static Point3d ProyectarSobreSegmento(
-        Point3d start,
-        Point3d end,
-        Point3d point,
-        Vector3d direction)
+    private static Point3d ProyectarSobreSegmento(Point3d start, Point3d end, Point3d point, Vector3d direction)
     {
         double length = start.DistanceTo(end);
         double parameter = (point - start).DotProduct(direction);
@@ -230,16 +236,11 @@ public sealed class TextCreationService
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
     {
-        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(
-            database.Clayer, OpenMode.ForRead);
+        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(database.Clayer, OpenMode.ForRead);
         return layer.Name;
     }
 
-    private sealed record LineCandidate(
-        Point3d Origin,
-        Vector3d Direction,
-        Point3d Projection,
-        double Distance);
+    private sealed record LineCandidate(Point3d Origin, Vector3d Direction, Point3d Projection, double Distance);
 
     private sealed class NomenclaturaTextJig : EntityJig
     {
@@ -248,8 +249,7 @@ public sealed class TextCreationService
         private readonly bool _orthoEnabled;
         private double _currentRotation;
 
-        public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled)
-            : base(text)
+        public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled) : base(text)
         {
             _text = text;
             _center = center;
@@ -286,8 +286,6 @@ public sealed class TextCreationService
 
         protected override bool Update()
         {
-            // IMPORTANTE: nunca modificamos Position ni AlignmentPoint.
-            // El centro permanece exactamente donde se calculo con el primer clic.
             _text.Position = _center;
             _text.AlignmentPoint = _center;
             _text.Rotation = _currentRotation;
