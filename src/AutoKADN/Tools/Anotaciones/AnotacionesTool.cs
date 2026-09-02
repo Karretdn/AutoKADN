@@ -104,19 +104,22 @@ public sealed class AnotacionesTool
 
     private static string? SelectAnnotationType(Editor editor)
     {
+        // Usamos identificadores internos cortos y únicos para que AutoCAD no
+        // pueda confundir la selección visual con otra palabra del menú.
+        // El texto mostrado al usuario sigue siendo exactamente el solicitado.
         var options = new PromptKeywordOptions(
-            "\nSeleccione tipo de anotación [LIBRE/CAMISA/PANTALLA/CRUCE_CON_TOPO/EMPEDRADO/VIGA_EN_CONCRETO/ESPIRAL] (ESC o clic derecho para cancelar): ")
+            "\nSeleccione tipo de anotación [ESPIRAL/CAMISA/PANTALLA/CRUCE CON TOPO/EMPEDRADO/VIGA EN CONCRETO/LIBRE] (ESC o clic derecho para cancelar): ")
         {
             AllowNone = true
         };
 
-        options.Keywords.Add("LIBRE");
-        options.Keywords.Add("CAMISA");
-        options.Keywords.Add("PANTALLA");
-        options.Keywords.Add("CRUCE_CON_TOPO");
-        options.Keywords.Add("EMPEDRADO");
-        options.Keywords.Add("VIGA_EN_CONCRETO");
-        options.Keywords.Add("ESPIRAL");
+        options.Keywords.Add("ESPIRAL", "ESPIRAL", "ESPIRAL", true);
+        options.Keywords.Add("CAMISA", "CAMISA", "CAMISA", true);
+        options.Keywords.Add("PANTALLA", "PANTALLA", "PANTALLA", true);
+        options.Keywords.Add("CRUCE_TOPO", "CRUCE_TOPO", "CRUCE CON TOPO", true);
+        options.Keywords.Add("EMPEDRADO", "EMPEDRADO", "EMPEDRADO", true);
+        options.Keywords.Add("VIGA_CONCRETO", "VIGA_CONCRETO", "VIGA EN CONCRETO", true);
+        options.Keywords.Add("LIBRE", "LIBRE", "LIBRE", true);
 
         PromptResult result = editor.GetKeywords(options);
         return result.Status == PromptStatus.OK ? result.StringResult : null;
@@ -134,16 +137,16 @@ public sealed class AnotacionesTool
         {
             "CAMISA" => "CAMISA",
             "PANTALLA" => "PANTALLA",
-            "CRUCE_CON_TOPO" => "CRUCE CON TOPO",
+            "CRUCE_TOPO" => "CRUCE CON TOPO",
             "EMPEDRADO" => "EMPEDRADO",
-            "VIGA_EN_CONCRETO" => "VIGA EN CONCRETO",
+            "VIGA_CONCRETO" => "VIGA EN CONCRETO",
             _ => type
         };
 
         PromptStringOptions options = new PromptStringOptions(
             $"\n{label} - ingrese el valor de LONG.: (ENTER para aceptar, ESC o clic derecho para cancelar): ")
         {
-            AllowSpaces = true
+            AllowSpaces = false
         };
 
         PromptResult result = editor.GetString(options);
@@ -154,7 +157,8 @@ public sealed class AnotacionesTool
         if (value.Length == 0)
             return null;
 
-        return $"{label}\\PLONG.: {value}";
+        // Todas las anotaciones de longitud llevan ML pegado al valor.
+        return $"{label}\\PLONG.: {value}ML";
     }
 
     private static string? ReadFreeText(Editor editor)
@@ -187,20 +191,27 @@ public sealed class AnotacionesTool
 
     private static string? ReadSpiral(Editor editor)
     {
+        // ESPIRAL se procesa de forma independiente y secuencial.
+        // Cada campo es numérico y acepta cero; los ceros se omiten del resultado.
         string? pipe = ReadNumber(editor, "METROS DE TUBERIA DE 3/4\"?");
-        if (pipe is null) return null;
+        if (pipe is null)
+            return null;
 
         string? unions = ReadNumber(editor, "CANTIDAD DE UNIONES DE 3/4\"?");
-        if (unions is null) return null;
+        if (unions is null)
+            return null;
 
         string? tees = ReadNumber(editor, "CANTIDAD DE TEE DE 3/4\"?");
-        if (tees is null) return null;
+        if (tees is null)
+            return null;
 
         string? valves = ReadNumber(editor, "VALVULA DE 3/4\"?");
-        if (valves is null) return null;
+        if (valves is null)
+            return null;
 
         string? saddles = ReadNumber(editor, "SILLETA?");
-        if (saddles is null) return null;
+        if (saddles is null)
+            return null;
 
         string saddleDiameter = string.Empty;
         if (!IsZero(saddles))
@@ -208,18 +219,21 @@ public sealed class AnotacionesTool
             PromptStringOptions diameterOptions = new PromptStringOptions(
                 "DIAMETRO DE SILLETA? (puede escribir signos y números): ")
             {
-                AllowSpaces = true
+                AllowSpaces = false
             };
+
             PromptResult diameterResult = editor.GetString(diameterOptions);
             if (diameterResult.Status != PromptStatus.OK)
                 return null;
+
             saddleDiameter = diameterResult.StringResult.Trim();
             if (saddleDiameter.Length == 0)
                 return null;
         }
 
         string? peExt = ReadYesNo(editor, "PE.EXT.? [Y/N]: ");
-        if (peExt is null) return null;
+        if (peExt is null)
+            return null;
 
         var lines = new List<string>();
 
@@ -235,6 +249,12 @@ public sealed class AnotacionesTool
             lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
         if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase))
             lines.Add("PE.EXT.");
+
+        if (lines.Count == 0)
+        {
+            editor.WriteMessage("\nESPIRAL: no se generó ninguna línea porque todas las cantidades fueron cero y PE.EXT. fue N.\n");
+            return string.Empty;
+        }
 
         return string.Join("\\P", lines);
     }
@@ -253,8 +273,15 @@ public sealed class AnotacionesTool
                 return null;
 
             string value = result.StringResult.Trim();
-            if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number) && number >= 0.0)
+            if (double.TryParse(
+                    value,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out double number)
+                && number >= 0.0)
+            {
                 return value;
+            }
 
             editor.WriteMessage("\nIngrese una cantidad numérica mayor o igual a cero.\n");
         }
@@ -275,7 +302,11 @@ public sealed class AnotacionesTool
 
     private static bool IsZero(string value)
     {
-        return double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number)
+        return double.TryParse(
+                   value,
+                   System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out double number)
                && Math.Abs(number) <= 1e-12;
     }
 
