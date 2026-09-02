@@ -42,6 +42,12 @@ public sealed class CotaTool
         string? type = SelectType(editor);
         if (type is null) return;
 
+        if (type.Equals("UBICACION", StringComparison.OrdinalIgnoreCase))
+        {
+            new UbicacionTool().Run();
+            return;
+        }
+
         while (CreateDimensionFromLine(document, editor, type)) { }
     }
 
@@ -51,9 +57,10 @@ public sealed class CotaTool
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC] (ESC o clic derecho para cancelar): ") { AllowNone = true };
+            var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC/Ubicacion] (ESC o clic derecho para cancelar): ") { AllowNone = true };
             options.Keywords.Add("Longitud");
             options.Keywords.Add("UC");
+            options.Keywords.Add("Ubicacion");
             PromptResult result = editor.GetKeywords(options);
             return result.Status == PromptStatus.OK ? result.StringResult : null;
         }
@@ -62,9 +69,6 @@ public sealed class CotaTool
 
     private static bool CreateDimensionFromLine(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, string type)
     {
-        // GetEntity mantiene el cursor de selección de objetos (pickbox), sin activar
-        // el snap de puntos de línea. La lógica de búsqueda sigue aceptando LINE y
-        // tramos rectos de POLYLINE y determina el tramo según el punto exacto elegido.
         object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
         PromptEntityResult entityResult;
         try
