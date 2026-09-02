@@ -24,11 +24,9 @@ public sealed class CotaTool
             return;
 
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
-
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
-
             while (true)
             {
                 if (!CreateDimensionFromLine(document, editor, type))
@@ -49,7 +47,6 @@ public sealed class CotaTool
         };
         options.Keywords.Add("Longitud");
         options.Keywords.Add("UC");
-
         PromptResult result = editor.GetKeywords(options);
         return result.Status == PromptStatus.OK ? result.StringResult : null;
     }
@@ -70,12 +67,8 @@ public sealed class CotaTool
         if (pointResult.Status != PromptStatus.OK)
             return false;
 
-        if (!FindLineAtPoint(
-                document.Database,
-                pointResult.Value,
-                out Point3d startPoint,
-                out Point3d endPoint,
-                out Vector3d direction))
+        if (!FindLineAtPoint(document.Database, pointResult.Value,
+                out Point3d startPoint, out Point3d endPoint, out Vector3d direction))
         {
             editor.WriteMessage("\nEl punto seleccionado no corresponde a una línea válida.\n");
             return true;
@@ -86,27 +79,21 @@ public sealed class CotaTool
         Point3d dimensionLinePoint = midpoint + normal * OffsetFromLine;
         double rotation = Math.Atan2(direction.Y, direction.X);
 
-        ObjectId dimensionId = CreateDimension(
-            document.Database,
-            startPoint,
-            endPoint,
-            dimensionLinePoint,
-            rotation);
-
+        ObjectId dimensionId = CreateDimension(document.Database,
+            startPoint, endPoint, dimensionLinePoint, rotation);
         if (dimensionId == ObjectId.Null)
             return true;
 
         editor.Regen();
 
-        // La cota aparece inmediatamente. ENTER conserva la medición real;
-        // cualquier texto escrito se convierte en el texto mostrado.
+        // La cota aparece primero. El usuario puede sobrescribir el texto;
+        // ENTER vacío conserva el valor calculado por AutoCAD.
         var textOptions = new PromptStringOptions(
             "\nTexto de cota (ENTER para conservar la medida): ")
         {
             AllowSpaces = true,
             AllowNone = true
         };
-
         PromptResult textResult = editor.GetString(textOptions);
         if (textResult.Status == PromptStatus.Cancel)
         {
@@ -124,11 +111,17 @@ public sealed class CotaTool
             return false;
         }
 
-        short colorIndex = SelectColor(editor);
-        if (colorIndex < 0)
+        // COTA de Longitud usa el color propio de la capa. COTA UC, además,
+        // permite seleccionar explícitamente el atributo de color solicitado.
+        short colorIndex = 256;
+        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
         {
-            EraseDimension(document.Database, dimensionId);
-            return false;
+            colorIndex = SelectColor(editor);
+            if (colorIndex < 0)
+            {
+                EraseDimension(document.Database, dimensionId);
+                return false;
+            }
         }
 
         SetDimensionAppearance(document.Database, dimensionId, layerName, colorIndex);
@@ -147,7 +140,7 @@ public sealed class CotaTool
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
             database.CurrentSpaceId, OpenMode.ForWrite);
 
-        // Se usa exactamente el estilo de cota actualmente configurado en el DWG.
+        // El estilo es exactamente el DimStyle actualmente activo en el DWG.
         var dimension = new RotatedDimension(
             rotation,
             startPoint,
@@ -181,23 +174,23 @@ public sealed class CotaTool
 
         foreach (ObjectId objectId in currentSpace)
         {
-            if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
-            {
-                Point3d closest = line.GetClosestPointTo(point, false);
-                double distance = closest.DistanceTo(point);
-                if (distance > PointTolerance || distance >= bestDistance)
-                    continue;
+            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Line line)
+                continue;
 
-                Vector3d vector = line.EndPoint - line.StartPoint;
-                if (vector.Length <= Tolerance.Global.EqualPoint)
-                    continue;
+            Point3d closest = line.GetClosestPointTo(point, false);
+            double distance = closest.DistanceTo(point);
+            if (distance > PointTolerance || distance >= bestDistance)
+                continue;
 
-                startPoint = line.StartPoint;
-                endPoint = line.EndPoint;
-                direction = vector.GetNormal();
-                bestDistance = distance;
-                found = true;
-            }
+            Vector3d vector = line.EndPoint - line.StartPoint;
+            if (vector.Length <= Tolerance.Global.EqualPoint)
+                continue;
+
+            startPoint = line.StartPoint;
+            endPoint = line.EndPoint;
+            direction = vector.GetNormal();
+            bestDistance = distance;
+            found = true;
         }
 
         transaction.Commit();
@@ -224,7 +217,7 @@ public sealed class CotaTool
 
         if (available.Count == 0)
         {
-            editor.WriteMessage($"\nNo existe ninguna capa disponible para {type}.\n");
+            editor.WriteMessage($"\nNo existe ninguna capa disponible para {type}: {string.Join(", ", preferred)}.\n");
             return null;
         }
 
@@ -233,7 +226,6 @@ public sealed class CotaTool
         {
             AllowNone = false
         };
-
         foreach (string name in available)
             options.Keywords.Add(name);
 
@@ -248,7 +240,6 @@ public sealed class CotaTool
         {
             AllowNone = false
         };
-
         options.Keywords.Add("Verde");
         options.Keywords.Add("Rojo");
         options.Keywords.Add("Gris");
@@ -299,7 +290,6 @@ public sealed class CotaTool
             dimension.LayerId = layerId;
             dimension.ColorIndex = colorIndex;
         }
-
         transaction.Commit();
     }
 
