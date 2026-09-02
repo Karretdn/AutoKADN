@@ -5,11 +5,6 @@ using Autodesk.AutoCAD.Geometry;
 
 namespace AutoKADN.Tools.Anotaciones;
 
-/// <summary>
-/// Herramienta ANOTACIONES.
-/// Dibuja una línea de referencia y permite crear anotaciones LIBRE,
-/// de longitud o ESPIRAL.
-/// </summary>
 public sealed class AnotacionesTool
 {
     private const double TextHeight = 2.40;
@@ -18,8 +13,7 @@ public sealed class AnotacionesTool
     public void Run()
     {
         var document = Application.DocumentManager.MdiActiveDocument;
-        if (document is null)
-            return;
+        if (document is null) return;
 
         Editor editor = document.Editor;
         object originalShortcutMenu = Application.GetSystemVariable("SHORTCUTMENU");
@@ -31,12 +25,10 @@ public sealed class AnotacionesTool
 
             while (true)
             {
-                if (!GetReferenceLine(editor, out Point3d startPoint, out Point3d endPoint))
-                    return;
+                if (!GetReferenceLine(editor, out Point3d startPoint, out Point3d endPoint)) return;
 
                 ObjectId lineId = CreateReferenceLine(document.Database, startPoint, endPoint);
-                if (lineId == ObjectId.Null)
-                    return;
+                if (lineId == ObjectId.Null) return;
 
                 string? type = SelectAnnotationType(editor);
                 if (type is null)
@@ -69,27 +61,21 @@ public sealed class AnotacionesTool
         startPoint = Point3d.Origin;
         endPoint = Point3d.Origin;
 
-        PromptPointOptions firstOptions = new PromptPointOptions(
-            "\nPrimer punto de la línea (ESC o clic derecho para salir): ")
+        var firstOptions = new PromptPointOptions("\nPrimer punto de la línea (ESC o clic derecho para salir): ")
         {
             AllowNone = true
         };
-
         PromptPointResult first = editor.GetPoint(firstOptions);
-        if (first.Status != PromptStatus.OK)
-            return false;
+        if (first.Status != PromptStatus.OK) return false;
 
-        PromptPointOptions secondOptions = new PromptPointOptions(
-            "\nSegundo punto de la línea (ESC o clic derecho para salir): ")
+        var secondOptions = new PromptPointOptions("\nSegundo punto de la línea (ESC o clic derecho para salir): ")
         {
             BasePoint = first.Value,
             UseBasePoint = true,
             AllowNone = true
         };
-
         PromptPointResult second = editor.GetPoint(secondOptions);
-        if (second.Status != PromptStatus.OK)
-            return false;
+        if (second.Status != PromptStatus.OK) return false;
 
         if (first.Value.DistanceTo(second.Value) <= Tolerance.Global.EqualPoint)
         {
@@ -104,22 +90,22 @@ public sealed class AnotacionesTool
 
     private static string? SelectAnnotationType(Editor editor)
     {
-        // Usamos identificadores internos cortos y únicos para que AutoCAD no
-        // pueda confundir la selección visual con otra palabra del menú.
-        // El texto mostrado al usuario sigue siendo exactamente el solicitado.
         var options = new PromptKeywordOptions(
             "\nSeleccione tipo de anotación [ESPIRAL/CAMISA/PANTALLA/CRUCE CON TOPO/EMPEDRADO/VIGA EN CONCRETO/LIBRE] (ESC o clic derecho para cancelar): ")
         {
             AllowNone = true
         };
 
-        options.Keywords.Add("ESPIRAL", "ESPIRAL", "ESPIRAL", true);
-        options.Keywords.Add("CAMISA", "CAMISA", "CAMISA", true);
-        options.Keywords.Add("PANTALLA", "PANTALLA", "PANTALLA", true);
-        options.Keywords.Add("CRUCE_TOPO", "CRUCE_TOPO", "CRUCE CON TOPO", true);
-        options.Keywords.Add("EMPEDRADO", "EMPEDRADO", "EMPEDRADO", true);
-        options.Keywords.Add("VIGA_CONCRETO", "VIGA_CONCRETO", "VIGA EN CONCRETO", true);
-        options.Keywords.Add("LIBRE", "LIBRE", "LIBRE", true);
+        // AutoCAD 2022 expone el overload de 5 parámetros:
+        // globalName, localName, displayName, enabled, visible.
+        // Los nombres internos son únicos para evitar cualquier cruce entre etiquetas.
+        options.Keywords.Add("ESPIRAL", "ESPIRAL", "ESPIRAL", true, true);
+        options.Keywords.Add("CAMISA", "CAMISA", "CAMISA", true, true);
+        options.Keywords.Add("PANTALLA", "PANTALLA", "PANTALLA", true, true);
+        options.Keywords.Add("CRUCE_TOPO", "CRUCE_TOPO", "CRUCE CON TOPO", true, true);
+        options.Keywords.Add("EMPEDRADO", "EMPEDRADO", "EMPEDRADO", true, true);
+        options.Keywords.Add("VIGA_CONCRETO", "VIGA_CONCRETO", "VIGA EN CONCRETO", true, true);
+        options.Keywords.Add("LIBRE", "LIBRE", "LIBRE", true, true);
 
         PromptResult result = editor.GetKeywords(options);
         return result.Status == PromptStatus.OK ? result.StringResult : null;
@@ -143,21 +129,16 @@ public sealed class AnotacionesTool
             _ => type
         };
 
-        PromptStringOptions options = new PromptStringOptions(
-            $"\n{label} - ingrese el valor de LONG.: (ENTER para aceptar, ESC o clic derecho para cancelar): ")
+        var options = new PromptStringOptions($"\n{label} - ingrese el valor de LONG.: (ENTER para aceptar, ESC o clic derecho para cancelar): ")
         {
             AllowSpaces = false
         };
-
         PromptResult result = editor.GetString(options);
-        if (result.Status != PromptStatus.OK)
-            return null;
+        if (result.Status != PromptStatus.OK) return null;
 
         string value = result.StringResult.Trim();
-        if (value.Length == 0)
-            return null;
+        if (value.Length == 0) return null;
 
-        // Todas las anotaciones de longitud llevan ML pegado al valor.
         return $"{label}\\PLONG.: {value}ML";
     }
 
@@ -168,11 +149,7 @@ public sealed class AnotacionesTool
 
         while (true)
         {
-            var options = new PromptStringOptions("Texto: ")
-            {
-                AllowSpaces = true
-            };
-
+            var options = new PromptStringOptions("Texto: ") { AllowSpaces = true };
             PromptResult result = editor.GetString(options);
             if (result.Status != PromptStatus.OK)
                 return lines.Count == 0 ? null : string.Join("\\P", lines);
@@ -180,7 +157,6 @@ public sealed class AnotacionesTool
             string line = result.StringResult.TrimEnd();
             if (line.Length == 0)
             {
-                // ENTER no cancela: conserva el renglón vacío y permite continuar escribiendo.
                 lines.Add(string.Empty);
                 continue;
             }
@@ -191,64 +167,45 @@ public sealed class AnotacionesTool
 
     private static string? ReadSpiral(Editor editor)
     {
-        // ESPIRAL se procesa de forma independiente y secuencial.
-        // Cada campo es numérico y acepta cero; los ceros se omiten del resultado.
         string? pipe = ReadNumber(editor, "METROS DE TUBERIA DE 3/4\"?");
-        if (pipe is null)
-            return null;
+        if (pipe is null) return null;
 
         string? unions = ReadNumber(editor, "CANTIDAD DE UNIONES DE 3/4\"?");
-        if (unions is null)
-            return null;
+        if (unions is null) return null;
 
         string? tees = ReadNumber(editor, "CANTIDAD DE TEE DE 3/4\"?");
-        if (tees is null)
-            return null;
+        if (tees is null) return null;
 
         string? valves = ReadNumber(editor, "VALVULA DE 3/4\"?");
-        if (valves is null)
-            return null;
+        if (valves is null) return null;
 
         string? saddles = ReadNumber(editor, "SILLETA?");
-        if (saddles is null)
-            return null;
+        if (saddles is null) return null;
 
         string saddleDiameter = string.Empty;
         if (!IsZero(saddles))
         {
-            PromptStringOptions diameterOptions = new PromptStringOptions(
-                "DIAMETRO DE SILLETA? (puede escribir signos y números): ")
+            var diameterOptions = new PromptStringOptions("DIAMETRO DE SILLETA? (puede escribir signos y números): ")
             {
                 AllowSpaces = false
             };
-
             PromptResult diameterResult = editor.GetString(diameterOptions);
-            if (diameterResult.Status != PromptStatus.OK)
-                return null;
+            if (diameterResult.Status != PromptStatus.OK) return null;
 
             saddleDiameter = diameterResult.StringResult.Trim();
-            if (saddleDiameter.Length == 0)
-                return null;
+            if (saddleDiameter.Length == 0) return null;
         }
 
         string? peExt = ReadYesNo(editor, "PE.EXT.? [Y/N]: ");
-        if (peExt is null)
-            return null;
+        if (peExt is null) return null;
 
         var lines = new List<string>();
-
-        if (!IsZero(pipe))
-            lines.Add($"{pipe}ML TUBERIA 3/4\"");
-        if (!IsZero(unions))
-            lines.Add($"{unions} UNIONES DE 3/4\"");
-        if (!IsZero(tees))
-            lines.Add($"{tees} TEE DE 3/4\"");
-        if (!IsZero(valves))
-            lines.Add($"{valves} VALVULA DE 3/4\"");
-        if (!IsZero(saddles))
-            lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
-        if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase))
-            lines.Add("PE.EXT.");
+        if (!IsZero(pipe)) lines.Add($"{pipe}ML TUBERIA 3/4\"");
+        if (!IsZero(unions)) lines.Add($"{unions} UNIONES DE 3/4\"");
+        if (!IsZero(tees)) lines.Add($"{tees} TEE DE 3/4\"");
+        if (!IsZero(valves)) lines.Add($"{valves} VALVULA DE 3/4\"");
+        if (!IsZero(saddles)) lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
+        if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase)) lines.Add("PE.EXT.");
 
         if (lines.Count == 0)
         {
@@ -261,27 +218,16 @@ public sealed class AnotacionesTool
 
     private static string? ReadNumber(Editor editor, string prompt)
     {
-        var options = new PromptStringOptions($"\n{prompt} (número): ")
-        {
-            AllowSpaces = false
-        };
-
+        var options = new PromptStringOptions($"\n{prompt} (número): ") { AllowSpaces = false };
         while (true)
         {
             PromptResult result = editor.GetString(options);
-            if (result.Status != PromptStatus.OK)
-                return null;
+            if (result.Status != PromptStatus.OK) return null;
 
             string value = result.StringResult.Trim();
-            if (double.TryParse(
-                    value,
-                    System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out double number)
+            if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number)
                 && number >= 0.0)
-            {
                 return value;
-            }
 
             editor.WriteMessage("\nIngrese una cantidad numérica mayor o igual a cero.\n");
         }
@@ -289,24 +235,16 @@ public sealed class AnotacionesTool
 
     private static string? ReadYesNo(Editor editor, string prompt)
     {
-        var options = new PromptKeywordOptions(prompt)
-        {
-            AllowNone = false
-        };
+        var options = new PromptKeywordOptions(prompt) { AllowNone = false };
         options.Keywords.Add("Y");
         options.Keywords.Add("N");
-
         PromptResult result = editor.GetKeywords(options);
         return result.Status == PromptStatus.OK ? result.StringResult : null;
     }
 
     private static bool IsZero(string value)
     {
-        return double.TryParse(
-                   value,
-                   System.Globalization.NumberStyles.Float,
-                   System.Globalization.CultureInfo.InvariantCulture,
-                   out double number)
+        return double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number)
                && Math.Abs(number) <= 1e-12;
     }
 
@@ -314,12 +252,7 @@ public sealed class AnotacionesTool
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
-
-        var line = new Line(startPoint, endPoint)
-        {
-            ColorIndex = 256
-        };
-
+        var line = new Line(startPoint, endPoint) { ColorIndex = 256 };
         currentSpace.AppendEntity(line);
         transaction.AddNewlyCreatedDBObject(line, true);
         transaction.Commit();
@@ -333,11 +266,9 @@ public sealed class AnotacionesTool
 
         Vector3d direction = (endPoint - startPoint).GetNormal();
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
-        if (normal.Y < 0.0)
-            normal = -normal;
+        if (normal.Y < 0.0) normal = -normal;
 
         Point3d textPoint = endPoint + normal * TextOffset;
-
         var mtext = new MText
         {
             Location = textPoint,
@@ -355,9 +286,7 @@ public sealed class AnotacionesTool
 
     private static void EraseEntity(Database database, ObjectId objectId)
     {
-        if (objectId == ObjectId.Null)
-            return;
-
+        if (objectId == ObjectId.Null) return;
         using Transaction transaction = database.TransactionManager.StartTransaction();
         if (transaction.GetObject(objectId, OpenMode.ForWrite, false) is Entity entity)
             entity.Erase();
