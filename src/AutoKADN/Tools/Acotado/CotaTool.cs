@@ -79,9 +79,7 @@ public sealed class CotaTool
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
 
-        // La cota siempre se coloca en el lado superior del elemento en el
-        // sistema de coordenadas actual. Esto evita que unas cotas aparezcan
-        // arriba y otras abajo dependiendo del orden de los vértices.
+        // Mantener la línea de cota en el lado superior del elemento.
         if (normal.Y < 0.0)
             normal = -normal;
 
@@ -123,12 +121,16 @@ public sealed class CotaTool
             return true;
         }
 
-        // El color lo determina la capa seleccionada. La cota queda ByLayer.
         if (!SetDimensionAppearance(document.Database, dimensionId, layerName))
         {
             EraseDimension(document.Database, dimensionId);
             return true;
         }
+
+        // Forzar el texto al centro geométrico de la línea de cota, tanto
+        // horizontalmente como verticalmente. Esto prevalece sobre un estilo
+        // que tenga DIMTAD=1 (texto arriba).
+        CenterDimensionText(document.Database, dimensionId, dimensionLinePoint);
 
         editor.Regen();
         return true;
@@ -153,7 +155,9 @@ public sealed class CotaTool
             string.Empty,
             database.Dimstyle)
         {
-            Dimscale = OverallDimensionScale
+            Dimscale = OverallDimensionScale,
+            Dimtad = 0,
+            Dimjust = 0
         };
 
         currentSpace.AppendEntity(dimension);
@@ -218,8 +222,6 @@ public sealed class CotaTool
                 database.LayerTableId,
                 OpenMode.ForRead);
 
-            // Recorremos la tabla real y conservamos el nombre exacto del DWG.
-            // Así la selección posterior usa el ObjectId real de la capa.
             foreach (ObjectId layerId in table)
             {
                 if (transaction.GetObject(layerId, OpenMode.ForRead) is not LayerTableRecord layer)
@@ -247,11 +249,14 @@ public sealed class CotaTool
             return null;
         }
 
-        editor.WriteMessage("\nCAPAS DISPONIBLES:\n");
-        for (int index = 0; index < available.Count; index++)
-            editor.WriteMessage($"  {index + 1}. {available[index]}\n");
+        // El nombre de cada capa queda dentro del mismo prompt que el número.
+        // Así nunca se debe elegir 1 o 2 a ciegas.
+        string menu = string.Join(
+            " / ",
+            available.Select((name, index) => $"{index + 1}={name}"));
 
-        var options = new PromptIntegerOptions("Seleccione el número de la capa: ")
+        var options = new PromptIntegerOptions(
+            $"\nSeleccione capa [{menu}]: ")
         {
             AllowNone = false,
             AllowZero = false,
@@ -313,6 +318,23 @@ public sealed class CotaTool
         dimension.ColorIndex = 256;
         transaction.Commit();
         return true;
+    }
+
+    private static void CenterDimensionText(
+        Database database,
+        ObjectId dimensionId,
+        Point3d dimensionLinePoint)
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+
+        if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is Dimension dimension)
+        {
+            dimension.Dimtad = 0;
+            dimension.Dimjust = 0;
+            dimension.TextPosition = dimensionLinePoint;
+        }
+
+        transaction.Commit();
     }
 
     private static void EraseDimension(Database database, ObjectId dimensionId)
