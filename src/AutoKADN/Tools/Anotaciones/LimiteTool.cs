@@ -23,8 +23,6 @@ public sealed class LimiteTool
 
         try
         {
-            // NEAREST queda activo únicamente durante LIMIK para que el clic
-            // quede exactamente asociado al eje de la línea.
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
                 "OSMODE", NearestObjectSnap);
 
@@ -36,7 +34,6 @@ public sealed class LimiteTool
                 entityOptions.AddAllowedClass(typeof(Line), true);
                 entityOptions.AddAllowedClass(typeof(Polyline), true);
 
-                // PRIMER Y ÚNICO CLIC: determina el punto exacto del eje.
                 PromptEntityResult entityResult = editor.GetEntity(entityOptions);
                 if (entityResult.Status != PromptStatus.OK)
                     return;
@@ -52,17 +49,11 @@ public sealed class LimiteTool
                     continue;
                 }
 
-                // Después del clic solamente se escoge el tipo. Al escogerlo,
-                // el texto se crea inmediatamente: no hay segundo clic/jig.
                 string? limite = SeleccionarLimite(editor);
                 if (limite is null)
                     return;
 
-                CrearTexto(
-                    document.Database,
-                    pointOnLine,
-                    direction,
-                    limite);
+                CrearTexto(document.Database, pointOnLine, direction, limite);
             }
         }
         finally
@@ -141,7 +132,6 @@ public sealed class LimiteTool
                 return false;
 
             direction = vector.GetNormal();
-
             double distanceAlong = Math.Max(
                 0.0,
                 Math.Min(vector.Length, (closestPoint - start).DotProduct(direction)));
@@ -156,8 +146,6 @@ public sealed class LimiteTool
 
     private static Point3d CalcularPosicionTexto(Point3d pointOnLine, Vector3d direction)
     {
-        // El clic define el punto del eje. El texto se desplaza 1.10 unidades
-        // perpendicularmente para quedar encima de la línea, no sobre ella.
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
         return pointOnLine + normal * OffsetFromLine;
     }
@@ -166,7 +154,6 @@ public sealed class LimiteTool
     {
         double rotation = Math.Atan2(direction.Y, direction.X);
 
-        // Mantener lectura natural sin perder el paralelismo con la línea.
         if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
             rotation += rotation > 0.0 ? -Math.PI : Math.PI;
 
@@ -197,7 +184,7 @@ public sealed class LimiteTool
             TextString = content,
             Height = TextHeight,
             Layer = layer.Name,
-            ColorIndex = 4,
+            ColorIndex = 256,
             HorizontalMode = TextHorizontalMode.TextCenter,
             VerticalMode = TextVerticalMode.TextVerticalMid,
             AlignmentPoint = textPosition,
