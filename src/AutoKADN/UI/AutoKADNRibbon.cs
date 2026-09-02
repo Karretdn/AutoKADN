@@ -24,11 +24,11 @@ public sealed class AutoKADNRibbon
 
     private static void OnRibbonInitialized(object? sender, RibbonItemEventArgs e)
     {
-        if (e.Item is RibbonControl)
-        {
-            ComponentManager.ItemInitialized -= OnRibbonInitialized;
-            Instance.CreateTab();
-        }
+        if (ComponentManager.Ribbon is null)
+            return;
+
+        ComponentManager.ItemInitialized -= OnRibbonInitialized;
+        Instance.CreateTab();
     }
 
     private void CreateTab()
@@ -111,8 +111,12 @@ public sealed class AutoKADNRibbon
     private sealed class RibbonCommandHandler : ICommand
     {
         private readonly string _command;
-        public RibbonCommandHandler(string command) => _command = command;
-        public event EventHandler? CanExecuteChanged;
+
+        public RibbonCommandHandler(string command)
+        {
+            _command = command;
+        }
+
         public bool CanExecute(object? parameter) => true;
 
         public void Execute(object? parameter)
@@ -121,8 +125,7 @@ public sealed class AutoKADNRibbon
             if (document is null) return;
 
             // Toda herramienta de AutoKADN es exclusiva: al pulsar otra herramienta
-            // se envía una cancelación equivalente a ESC antes de iniciar el nuevo comando.
-            // Los dos Ctrl+C cubren tanto prompts como jigs activos.
+            // se cancela cualquier comando/jig activo antes de iniciar el nuevo.
             document.SendStringToExecute($"\u0003\u0003{_command} ", true, false, false);
         }
     }
