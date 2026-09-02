@@ -45,7 +45,7 @@ public sealed class LimiteTool
             }
 
             Point3d textPosition = CalcularPosicionTexto(pointOnLine, direction);
-            double rotation = Math.Atan2(direction.Y, direction.X) + Math.PI / 2.0;
+            double rotation = CalcularRotacionParalela(direction);
 
             if (!CrearTextoConGiro(editor, document.Database, textPosition, rotation, limite))
                 return;
@@ -136,6 +136,17 @@ public sealed class LimiteTool
         return pointOnLine + normal * OffsetFromLine;
     }
 
+    private static double CalcularRotacionParalela(Vector3d direction)
+    {
+        double rotation = Math.Atan2(direction.Y, direction.X);
+
+        // Mantener el texto legible: nunca queda boca abajo.
+        if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
+            rotation += rotation > 0.0 ? -Math.PI : Math.PI;
+
+        return rotation;
+    }
+
     private static bool CrearTextoConGiro(
         Editor editor,
         Database database,
@@ -194,7 +205,7 @@ public sealed class LimiteTool
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
             var options = new JigPromptPointOptions(
-                "\nHaga clic para confirmar el límite (ESC para salir): ")
+                "\nConfirme la posición del límite y haga clic (ESC para salir): ")
             {
                 UseBasePoint = true,
                 BasePoint = _position,
