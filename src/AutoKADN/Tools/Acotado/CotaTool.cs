@@ -78,6 +78,13 @@ public sealed class CotaTool
 
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
+
+        // La cota siempre se coloca en el lado superior del elemento en el
+        // sistema de coordenadas actual. Esto evita que unas cotas aparezcan
+        // arriba y otras abajo dependiendo del orden de los vértices.
+        if (normal.Y < 0.0)
+            normal = -normal;
+
         Point3d dimensionLinePoint = midpoint + normal * OffsetFromLine;
         double rotation = Math.Atan2(direction.Y, direction.X);
 
@@ -116,18 +123,8 @@ public sealed class CotaTool
             return true;
         }
 
-        short colorIndex = 256;
-        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
-        {
-            colorIndex = SelectColor(editor);
-            if (colorIndex < 0)
-            {
-                EraseDimension(document.Database, dimensionId);
-                return true;
-            }
-        }
-
-        if (!SetDimensionAppearance(document.Database, dimensionId, layerName, colorIndex))
+        // El color lo determina la capa seleccionada. La cota queda ByLayer.
+        if (!SetDimensionAppearance(document.Database, dimensionId, layerName))
         {
             EraseDimension(document.Database, dimensionId);
             return true;
@@ -214,84 +211,60 @@ public sealed class CotaTool
             : ["COTA_1-2", "COTA_3-4"];
 
         var available = new List<string>();
+
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
-            LayerTable table = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+            LayerTable table = (LayerTable)transaction.GetObject(
+                database.LayerTableId,
+                OpenMode.ForRead);
+
+            // Recorremos la tabla real y conservamos el nombre exacto del DWG.
+            // Así la selección posterior usa el ObjectId real de la capa.
             foreach (ObjectId layerId in table)
             {
-                if (transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer)
+                if (transaction.GetObject(layerId, OpenMode.ForRead) is not LayerTableRecord layer)
+                    continue;
+
+                foreach (string preferredName in preferred)
                 {
-                    foreach (string preferredName in preferred)
+                    if (string.Equals(layer.Name, preferredName, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (string.Equals(layer.Name, preferredName, StringComparison.OrdinalIgnoreCase))
-                        {
+                        if (!available.Contains(layer.Name, StringComparer.OrdinalIgnoreCase))
                             available.Add(layer.Name);
-                            break;
-                        }
+                        break;
                     }
                 }
             }
+
             transaction.Commit();
         }
 
         if (available.Count == 0)
         {
-            editor.WriteMessage($"\nNo existe ninguna capa disponible para {type}: {string.Join(", ", preferred)}.\n");
+            editor.WriteMessage(
+                $"\nNo se encontraron las capas requeridas para {type}. " +
+                $"Se buscaron: {string.Join(" y ", preferred)}\n");
             return null;
         }
 
-        var options = new PromptIntegerOptions("\nSeleccione capa por número: ")
+        editor.WriteMessage("\nCAPAS DISPONIBLES:\n");
+        for (int index = 0; index < available.Count; index++)
+            editor.WriteMessage($"  {index + 1}. {available[index]}\n");
+
+        var options = new PromptIntegerOptions("Seleccione el número de la capa: ")
         {
             AllowNone = false,
             AllowZero = false,
-            AllowNegative = false
+            AllowNegative = false,
+            LowerLimit = 1,
+            UpperLimit = available.Count
         };
-
-        for (int index = 0; index < available.Count; index++)
-            editor.WriteMessage($"\n  {index + 1} = {available[index]}");
 
         PromptIntegerResult result = editor.GetInteger(options);
-        if (result.Status != PromptStatus.OK || result.Value < 1 || result.Value > available.Count)
-        {
-            editor.WriteMessage("\nSelección de capa no válida.\n");
+        if (result.Status != PromptStatus.OK)
             return null;
-        }
 
         return available[result.Value - 1];
-    }
-
-    private static short SelectColor(Editor editor)
-    {
-        var options = new PromptKeywordOptions("\nSeleccione color: ")
-        {
-            AllowNone = false
-        };
-
-        options.Keywords.Add("Verde");
-        options.Keywords.Add("Rojo");
-        options.Keywords.Add("Gris");
-        options.Keywords.Add("Amarillo");
-        options.Keywords.Add("Morado");
-        options.Keywords.Add("Azul");
-        options.Keywords.Add("Naranja");
-        options.Keywords.Add("Cyan");
-
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK)
-            return -1;
-
-        return result.StringResult switch
-        {
-            "Verde" => 3,
-            "Rojo" => 1,
-            "Gris" => 8,
-            "Amarillo" => 2,
-            "Morado" => 6,
-            "Azul" => 5,
-            "Naranja" => 30,
-            "Cyan" => 4,
-            _ => -1
-        };
     }
 
     private static void SetDimensionText(Database database, ObjectId dimensionId, string textValue)
@@ -305,15 +278,15 @@ public sealed class CotaTool
     private static bool SetDimensionAppearance(
         Database database,
         ObjectId dimensionId,
-        string layerName,
-        short colorIndex)
+        string layerName)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        LayerTable layerTable = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+        LayerTable layerTable = (LayerTable)transaction.GetObject(
+            database.LayerTableId,
+            OpenMode.ForRead);
+
         ObjectId layerId = ObjectId.Null;
 
-        // No usamos layerTable[layerName], que puede lanzar eKeyNotFound por
-        // diferencias de nombre/capitalización. Buscamos el registro real.
         foreach (ObjectId candidateId in layerTable)
         {
             if (transaction.GetObject(candidateId, OpenMode.ForRead) is LayerTableRecord candidate &&
@@ -337,7 +310,7 @@ public sealed class CotaTool
         }
 
         dimension.LayerId = layerId;
-        dimension.ColorIndex = colorIndex;
+        dimension.ColorIndex = 256;
         transaction.Commit();
         return true;
     }
