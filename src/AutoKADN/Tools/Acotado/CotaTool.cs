@@ -75,6 +75,7 @@ public sealed class CotaTool
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
             var entityOptions = new PromptEntityOptions("\nSeleccione la línea (ESC o clic derecho para salir): ") { AllowNone = true };
+            entityOptions.SetRejectMessage("\nDebe seleccionar una línea o polilínea.\n");
             entityOptions.AddAllowedClass(typeof(Line), false);
             entityOptions.AddAllowedClass(typeof(Polyline), false);
             entityResult = editor.GetEntity(entityOptions);
