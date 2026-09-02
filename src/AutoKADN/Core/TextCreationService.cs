@@ -18,12 +18,10 @@ public sealed class TextCreationService
             return;
 
         Database database = document.Database;
-
         using Transaction transaction = database.TransactionManager.StartTransaction();
 
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId,
-            OpenMode.ForWrite);
+            database.CurrentSpaceId, OpenMode.ForWrite);
 
         var text = new DBText
         {
@@ -46,14 +44,14 @@ public sealed class TextCreationService
 
         Database database = document.Database;
         Editor editor = document.Editor;
-
         using Transaction transaction = database.TransactionManager.StartTransaction();
 
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId,
-            OpenMode.ForWrite);
+            database.CurrentSpaceId, OpenMode.ForWrite);
 
-        Point3d textPosition = ObtenerCentroEntreLineas(transaction, currentSpace, initialPosition)
+        // El primer clic determina la posicion definitiva del centro.
+        // Si cae entre dos bordes paralelos, se calcula automaticamente su centro.
+        Point3d centerPosition = ObtenerCentroEntreLineas(transaction, currentSpace, initialPosition)
             ?? initialPosition;
 
         var text = new DBText
@@ -63,14 +61,17 @@ public sealed class TextCreationService
             Layer = GetCurrentLayerName(database, transaction),
             HorizontalMode = TextHorizontalMode.TextCenter,
             VerticalMode = TextVerticalMode.TextVerticalMid,
-            AlignmentPoint = textPosition,
-            Position = textPosition
+            AlignmentPoint = centerPosition,
+            Position = centerPosition,
+            Rotation = 0.0
         };
 
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
-        var jig = new NomenclaturaTextJig(text, textPosition, ObtenerModoOrto());
+        // A partir de este punto el centro queda bloqueado.
+        // El movimiento del mouse solo controla la rotacion.
+        var jig = new NomenclaturaTextJig(text, centerPosition, ObtenerModoOrto());
         PromptResult result = editor.Drag(jig);
 
         if (result.Status != PromptStatus.OK)
@@ -230,9 +231,7 @@ public sealed class TextCreationService
     private static string GetCurrentLayerName(Database database, Transaction transaction)
     {
         LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(
-            database.Clayer,
-            OpenMode.ForRead);
-
+            database.Clayer, OpenMode.ForRead);
         return layer.Name;
     }
 
@@ -245,27 +244,25 @@ public sealed class TextCreationService
     private sealed class NomenclaturaTextJig : EntityJig
     {
         private readonly DBText _text;
-        private readonly Point3d _initialPosition;
+        private readonly Point3d _center;
         private readonly bool _orthoEnabled;
-        private Point3d _currentPosition;
         private double _currentRotation;
 
-        public NomenclaturaTextJig(DBText text, Point3d initialPosition, bool orthoEnabled)
+        public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled)
             : base(text)
         {
             _text = text;
-            _initialPosition = initialPosition;
+            _center = center;
             _orthoEnabled = orthoEnabled;
-            _currentPosition = initialPosition;
             _currentRotation = 0.0;
         }
 
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
-            var options = new JigPromptPointOptions("\nMueva el texto y haga clic para terminar: ")
+            var options = new JigPromptPointOptions("\nGire el texto alrededor de su centro y haga clic para terminar: ")
             {
                 UseBasePoint = true,
-                BasePoint = _initialPosition,
+                BasePoint = _center,
                 UserInputControls = UserInputControls.Accept3dCoordinates
                     | UserInputControls.NoZeroResponseAccepted
             };
@@ -278,30 +275,29 @@ public sealed class TextCreationService
             if (result.Status != PromptStatus.OK)
                 return SamplerStatus.Cancel;
 
-            Point3d point = result.Value;
-            double rotation = CalcularRotacion(_initialPosition, point, _orthoEnabled);
+            double rotation = CalcularRotacion(_center, result.Value, _orthoEnabled);
 
-            if (point.DistanceTo(_currentPosition) < Tolerance.Global.EqualPoint
-                && Math.Abs(rotation - _currentRotation) < 1e-9)
+            if (Math.Abs(rotation - _currentRotation) < 1e-9)
                 return SamplerStatus.NoChange;
 
-            _currentPosition = point;
             _currentRotation = rotation;
             return SamplerStatus.OK;
         }
 
         protected override bool Update()
         {
-            _text.Position = _currentPosition;
-            _text.AlignmentPoint = _currentPosition;
+            // IMPORTANTE: nunca modificamos Position ni AlignmentPoint.
+            // El centro permanece exactamente donde se calculo con el primer clic.
+            _text.Position = _center;
+            _text.AlignmentPoint = _center;
             _text.Rotation = _currentRotation;
             return true;
         }
 
-        private static double CalcularRotacion(Point3d origin, Point3d point, bool orthoEnabled)
+        private static double CalcularRotacion(Point3d center, Point3d point, bool orthoEnabled)
         {
-            double dx = point.X - origin.X;
-            double dy = point.Y - origin.Y;
+            double dx = point.X - center.X;
+            double dy = point.Y - center.Y;
 
             if (Math.Abs(dx) < 1e-9 && Math.Abs(dy) < 1e-9)
                 return 0.0;
