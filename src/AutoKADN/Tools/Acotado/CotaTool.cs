@@ -8,7 +8,6 @@ public sealed class CotaTool
 {
     private const double OffsetFromLine = 5.50;
     private const double OverallDimensionScale = 0.05;
-    private const short NearestObjectSnap = 512;
     private const double PointTolerance = 1e-5;
 
     private static readonly (string Label, string Layer)[] LongitudLayers =
@@ -42,13 +41,8 @@ public sealed class CotaTool
         editor.WriteMessage("\n[COTAK] Acotado rápido. ESC o clic derecho para salir.\n");
         string? type = SelectType(editor);
         if (type is null) return;
-        object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
-        try
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
-            while (CreateDimensionFromLine(document, editor, type)) { }
-        }
-        finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode); }
+
+        while (CreateDimensionFromLine(document, editor, type)) { }
     }
 
     private static string? SelectType(Editor editor)
@@ -58,7 +52,8 @@ public sealed class CotaTool
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
             var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC] (ESC o clic derecho para cancelar): ") { AllowNone = true };
-            options.Keywords.Add("Longitud"); options.Keywords.Add("UC");
+            options.Keywords.Add("Longitud");
+            options.Keywords.Add("UC");
             PromptResult result = editor.GetKeywords(options);
             return result.Status == PromptStatus.OK ? result.StringResult : null;
         }
@@ -67,20 +62,26 @@ public sealed class CotaTool
 
     private static bool CreateDimensionFromLine(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, string type)
     {
+        // GetEntity mantiene el cursor de selección de objetos (pickbox), sin activar
+        // el snap de puntos de línea. La lógica de búsqueda sigue aceptando LINE y
+        // tramos rectos de POLYLINE y determina el tramo según el punto exacto elegido.
         object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-        PromptPointResult pointResult;
+        PromptEntityResult entityResult;
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var pointOptions = new PromptPointOptions("\nHaga clic sobre la línea (ESC o clic derecho para salir): ") { AllowNone = true };
-            pointResult = editor.GetPoint(pointOptions);
+            var entityOptions = new PromptEntityOptions("\nSeleccione la línea (ESC o clic derecho para salir): ") { AllowNone = true };
+            entityOptions.AddAllowedClass(typeof(Line), false);
+            entityOptions.AddAllowedClass(typeof(Polyline), false);
+            entityResult = editor.GetEntity(entityOptions);
         }
         finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
-        if (pointResult.Status != PromptStatus.OK) return false;
 
-        if (!FindLineAtPoint(document.Database, pointResult.Value, out Point3d startPoint, out Point3d endPoint, out Vector3d direction))
+        if (entityResult.Status != PromptStatus.OK) return false;
+
+        if (!FindLineAtEntityPoint(document.Database, entityResult.ObjectId, entityResult.PickedPoint, out Point3d startPoint, out Point3d endPoint, out Vector3d direction))
         {
-            editor.WriteMessage("\nEl punto seleccionado no corresponde a una línea o tramo recto válido.\n");
+            editor.WriteMessage("\nEl objeto seleccionado no contiene una línea o tramo recto válido.\n");
             return true;
         }
 
@@ -93,7 +94,6 @@ public sealed class CotaTool
         if (dimensionId == ObjectId.Null) return true;
         editor.Regen();
 
-        // Primero se define visualmente el lado. El jig actualiza la cota en tiempo real.
         if (!MoveDimensionToSide(document, editor, dimensionId, midpoint, normal))
         {
             EraseDimension(document.Database, dimensionId);
@@ -123,13 +123,10 @@ public sealed class CotaTool
             return false;
         }
 
-        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
+        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase) && !SelectUCAttribute(document.Database, editor, dimensionId))
         {
-            if (!SelectUCAttribute(document.Database, editor, dimensionId))
-            {
-                EraseDimension(document.Database, dimensionId);
-                return false;
-            }
+            EraseDimension(document.Database, dimensionId);
+            return false;
         }
 
         editor.Regen();
@@ -142,7 +139,10 @@ public sealed class CotaTool
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
         var dimension = new RotatedDimension(rotation, startPoint, endPoint, dimensionLinePoint, string.Empty, database.Dimstyle)
         { Dimscale = OverallDimensionScale, Dimtad = 0, Dimjust = 0 };
-        currentSpace.AppendEntity(dimension); transaction.AddNewlyCreatedDBObject(dimension, true); transaction.Commit(); return dimension.ObjectId;
+        currentSpace.AppendEntity(dimension);
+        transaction.AddNewlyCreatedDBObject(dimension, true);
+        transaction.Commit();
+        return dimension.ObjectId;
     }
 
     private static bool MoveDimensionToSide(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, ObjectId dimensionId, Point3d midpoint, Vector3d normal)
@@ -157,7 +157,8 @@ public sealed class CotaTool
         try { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0); result = editor.Drag(jig); }
         finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
         if (result.Status == PromptStatus.OK) { transaction.Commit(); return true; }
-        transaction.Abort(); return false;
+        transaction.Abort();
+        return false;
     }
 
     private static string? SelectLayer(Database database, Editor editor, string type)
@@ -182,6 +183,7 @@ public sealed class CotaTool
             editor.WriteMessage($"\nNo se encontraron las capas requeridas para {type}.\n");
             return null;
         }
+
         string[] aliases = available.Select((_, i) => $"OPCION{i + 1}").ToArray();
         object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
         try
@@ -220,44 +222,61 @@ public sealed class CotaTool
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is not Dimension dimension) { transaction.Abort(); return false; }
-        if (colorIndex.HasValue)
-        {
-            dimension.ColorIndex = colorIndex.Value;
-        }
-        else
-        {
-            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb((byte)r, (byte)g, (byte)b);
-        }
-        transaction.Commit(); return true;
+        if (colorIndex.HasValue) dimension.ColorIndex = colorIndex.Value;
+        else dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb((byte)r, (byte)g, (byte)b);
+        transaction.Commit();
+        return true;
     }
 
-    private static bool FindLineAtPoint(Database database, Point3d point, out Point3d startPoint, out Point3d endPoint, out Vector3d direction)
+    private static bool FindLineAtEntityPoint(Database database, ObjectId selectedObjectId, Point3d point, out Point3d startPoint, out Point3d endPoint, out Vector3d direction)
     {
-        startPoint = Point3d.Origin; endPoint = Point3d.Origin; direction = Vector3d.XAxis; double bestDistance = double.MaxValue; bool found = false;
+        startPoint = Point3d.Origin;
+        endPoint = Point3d.Origin;
+        direction = Vector3d.XAxis;
+
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
-        foreach (ObjectId objectId in currentSpace)
+        if (transaction.GetObject(selectedObjectId, OpenMode.ForRead) is Line line)
         {
-            if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
+            Vector3d segmentVector = line.EndPoint - line.StartPoint;
+            if (segmentVector.Length > Tolerance.Global.EqualPoint)
             {
-                Point3d closest = line.GetClosestPointTo(point, false); double distance = closest.DistanceTo(point);
-                if (distance <= PointTolerance && distance < bestDistance)
-                { Vector3d segmentVector = line.EndPoint - line.StartPoint; if (segmentVector.Length > Tolerance.Global.EqualPoint) { startPoint = line.StartPoint; endPoint = line.EndPoint; direction = segmentVector.GetNormal(); bestDistance = distance; found = true; } }
-                continue;
+                startPoint = line.StartPoint;
+                endPoint = line.EndPoint;
+                direction = segmentVector.GetNormal();
+                transaction.Commit();
+                return true;
             }
-            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Polyline polyline || polyline.NumberOfVertices < 2) continue;
+        }
+        else if (transaction.GetObject(selectedObjectId, OpenMode.ForRead) is Polyline polyline && polyline.NumberOfVertices >= 2)
+        {
             int segmentCount = polyline.Closed ? polyline.NumberOfVertices : polyline.NumberOfVertices - 1;
+            double bestDistance = double.MaxValue;
+            bool found = false;
             for (int i = 0; i < segmentCount; i++)
             {
                 if (polyline.GetSegmentType(i) != SegmentType.Line) continue;
-                int nextIndex = (i + 1) % polyline.NumberOfVertices; Point3d segmentStart = polyline.GetPoint3dAt(i); Point3d segmentEnd = polyline.GetPoint3dAt(nextIndex); Vector3d segmentVector = segmentEnd - segmentStart;
+                int nextIndex = (i + 1) % polyline.NumberOfVertices;
+                Point3d segmentStart = polyline.GetPoint3dAt(i);
+                Point3d segmentEnd = polyline.GetPoint3dAt(nextIndex);
+                Vector3d segmentVector = segmentEnd - segmentStart;
                 if (segmentVector.Length <= Tolerance.Global.EqualPoint) continue;
-                LineSegment3d segment = new LineSegment3d(segmentStart, segmentEnd); Point3d closest = segment.GetClosestPointTo(point).Point; double distance = closest.DistanceTo(point);
-                if (distance > PointTolerance || distance >= bestDistance) continue;
-                startPoint = segmentStart; endPoint = segmentEnd; direction = segmentVector.GetNormal(); bestDistance = distance; found = true;
+                LineSegment3d segment = new LineSegment3d(segmentStart, segmentEnd);
+                Point3d closest = segment.GetClosestPointTo(point).Point;
+                double distance = closest.DistanceTo(point);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    startPoint = segmentStart;
+                    endPoint = segmentEnd;
+                    direction = segmentVector.GetNormal();
+                    found = true;
+                }
             }
+            transaction.Commit();
+            return found;
         }
-        transaction.Commit(); return found;
+        transaction.Commit();
+        return false;
     }
 
     private static void SetDimensionText(Database database, ObjectId dimensionId, string textValue)
@@ -269,7 +288,10 @@ public sealed class CotaTool
         foreach (ObjectId candidateId in layerTable) if (transaction.GetObject(candidateId, OpenMode.ForRead) is LayerTableRecord candidate && string.Equals(candidate.Name, layerName, StringComparison.OrdinalIgnoreCase)) { layerId = candidateId; break; }
         if (layerId == ObjectId.Null) { transaction.Abort(); return false; }
         if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is not Dimension dimension) { transaction.Abort(); return false; }
-        dimension.LayerId = layerId; dimension.ColorIndex = 256; transaction.Commit(); return true;
+        dimension.LayerId = layerId;
+        dimension.ColorIndex = 256;
+        transaction.Commit();
+        return true;
     }
 
     private static void EraseDimension(Database database, ObjectId dimensionId)
@@ -277,17 +299,34 @@ public sealed class CotaTool
 
     private sealed class DimensionSideJig : EntityJig
     {
-        private readonly RotatedDimension _dimension; private readonly Point3d _midpoint; private readonly Vector3d _normal; private readonly double _fixedOffset; private Point3d _lastPoint;
-        public DimensionSideJig(RotatedDimension dimension, Point3d midpoint, Vector3d normal, double fixedOffset) : base(dimension) { _dimension = dimension; _midpoint = midpoint; _normal = normal.GetNormal(); _fixedOffset = fixedOffset; _lastPoint = dimension.DimLinePoint; }
+        private readonly RotatedDimension _dimension;
+        private readonly Point3d _midpoint;
+        private readonly Vector3d _normal;
+        private readonly double _fixedOffset;
+        private Point3d _lastPoint;
+
+        public DimensionSideJig(RotatedDimension dimension, Point3d midpoint, Vector3d normal, double fixedOffset) : base(dimension)
+        { _dimension = dimension; _midpoint = midpoint; _normal = normal.GetNormal(); _fixedOffset = fixedOffset; _lastPoint = dimension.DimLinePoint; }
+
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
-            var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ") { UseBasePoint = true, BasePoint = _midpoint, UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NullResponseAccepted };
+            var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ")
+            {
+                UseBasePoint = true,
+                BasePoint = _midpoint,
+                UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NullResponseAccepted
+            };
             PromptPointResult result = prompts.AcquirePoint(options);
             if (result.Status != PromptStatus.OK) return SamplerStatus.Cancel;
-            Vector3d fromCenter = result.Value - _midpoint; double signedDistance = fromCenter.DotProduct(_normal); Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal; Point3d projectedPoint = _midpoint + placementNormal * _fixedOffset;
+            Vector3d fromCenter = result.Value - _midpoint;
+            double signedDistance = fromCenter.DotProduct(_normal);
+            Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal;
+            Point3d projectedPoint = _midpoint + placementNormal * _fixedOffset;
             if (projectedPoint.IsEqualTo(_lastPoint)) return SamplerStatus.NoChange;
-            _lastPoint = projectedPoint; return SamplerStatus.OK;
+            _lastPoint = projectedPoint;
+            return SamplerStatus.OK;
         }
+
         protected override bool Update() { _dimension.DimLinePoint = _lastPoint; return true; }
     }
 }
