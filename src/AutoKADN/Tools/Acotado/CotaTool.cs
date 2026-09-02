@@ -11,6 +11,29 @@ public sealed class CotaTool
     private const short NearestObjectSnap = 512;
     private const double PointTolerance = 1e-5;
 
+    private static readonly (string Label, string Layer)[] LongitudLayers =
+    {
+        ("TUBERIA 3/4\"", "COTA34"),
+        ("TUBERIA 1/2\"", "COTA12")
+    };
+
+    private static readonly (string Label, string Layer)[] UCLayers =
+    {
+        ("TUBERIA 3/4\"", "UC34"),
+        ("TUBERIA 1/2\"", "UC12")
+    };
+
+    private static readonly (string Label, short? ColorIndex, int R, int G, int B)[] UCAttributes =
+    {
+        ("ZONA VERDE", 3, 0, 0, 0),
+        ("ANDEN CONCRETO", 5, 0, 0, 0),
+        ("CALZADA CONCRETO", 8, 0, 0, 0),
+        ("ADOQUIN", 4, 0, 0, 0),
+        ("ASFALTO", 30, 0, 0, 0),
+        ("CUNETA", null, 100, 33, 101),
+        ("DESTAPADO", 2, 0, 0, 0)
+    };
+
     public void Run()
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
@@ -23,7 +46,7 @@ public sealed class CotaTool
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
-            while (true) if (!CreateDimensionFromLine(document, editor, type)) return;
+            while (CreateDimensionFromLine(document, editor, type)) { }
         }
         finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode); }
     }
@@ -53,34 +76,72 @@ public sealed class CotaTool
             pointResult = editor.GetPoint(pointOptions);
         }
         finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
-        if (pointResult.Status == PromptStatus.Cancel || pointResult.Status == PromptStatus.None) return false;
         if (pointResult.Status != PromptStatus.OK) return false;
+
         if (!FindLineAtPoint(document.Database, pointResult.Value, out Point3d startPoint, out Point3d endPoint, out Vector3d direction))
-        { editor.WriteMessage("\nEl punto seleccionado no corresponde a una línea o tramo recto válido.\n"); return true; }
+        {
+            editor.WriteMessage("\nEl punto seleccionado no corresponde a una línea o tramo recto válido.\n");
+            return true;
+        }
+
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
         if (normal.Y < 0.0) normal = -normal;
-        Point3d dimensionLinePoint = midpoint + normal * OffsetFromLine;
         double rotation = Math.Atan2(direction.Y, direction.X);
-        ObjectId dimensionId = CreateDimension(document.Database, startPoint, endPoint, dimensionLinePoint, rotation);
+
+        ObjectId dimensionId = CreateDimension(document.Database, startPoint, endPoint, midpoint + normal * OffsetFromLine, rotation);
         if (dimensionId == ObjectId.Null) return true;
         editor.Regen();
-        var textOptions = new PromptStringOptions("\nTexto de cota (ENTER para conservar la medida; ESC o clic derecho para cancelar): ") { AllowSpaces = true };
+
+        // Primero se define visualmente el lado. El jig actualiza la cota en tiempo real.
+        if (!MoveDimensionToSide(document, editor, dimensionId, midpoint, normal))
+        {
+            EraseDimension(document.Database, dimensionId);
+            return false;
+        }
+        editor.Regen();
+
+        var textOptions = new PromptStringOptions("\nNúmero/texto de cota (ENTER para conservar la medida; ESC o clic derecho para cancelar): ") { AllowSpaces = true };
         PromptResult textResult = editor.GetString(textOptions);
-        if (textResult.Status == PromptStatus.Cancel) { EraseDimension(document.Database, dimensionId); return false; }
-        if (textResult.Status == PromptStatus.OK && !string.IsNullOrWhiteSpace(textResult.StringResult)) SetDimensionText(document.Database, dimensionId, textResult.StringResult);
+        if (textResult.Status == PromptStatus.Cancel || textResult.Status == PromptStatus.None)
+        {
+            EraseDimension(document.Database, dimensionId);
+            return false;
+        }
+        if (textResult.Status == PromptStatus.OK && !string.IsNullOrWhiteSpace(textResult.StringResult))
+            SetDimensionText(document.Database, dimensionId, textResult.StringResult);
+
         string? layerName = SelectLayer(document.Database, editor, type);
-        if (layerName is null) { EraseDimension(document.Database, dimensionId); return true; }
-        if (!SetDimensionAppearance(document.Database, dimensionId, layerName)) { EraseDimension(document.Database, dimensionId); return true; }
-        if (!MoveDimensionToSide(document, editor, dimensionId, midpoint, normal)) { EraseDimension(document.Database, dimensionId); return false; }
-        editor.Regen(); return true;
+        if (layerName is null)
+        {
+            EraseDimension(document.Database, dimensionId);
+            return false;
+        }
+        if (!SetDimensionAppearance(document.Database, dimensionId, layerName))
+        {
+            EraseDimension(document.Database, dimensionId);
+            return false;
+        }
+
+        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!SelectUCAttribute(document.Database, editor, dimensionId))
+            {
+                EraseDimension(document.Database, dimensionId);
+                return false;
+            }
+        }
+
+        editor.Regen();
+        return true;
     }
 
     private static ObjectId CreateDimension(Database database, Point3d startPoint, Point3d endPoint, Point3d dimensionLinePoint, double rotation)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
-        var dimension = new RotatedDimension(rotation, startPoint, endPoint, dimensionLinePoint, string.Empty, database.Dimstyle) { Dimscale = OverallDimensionScale, Dimtad = 0, Dimjust = 0 };
+        var dimension = new RotatedDimension(rotation, startPoint, endPoint, dimensionLinePoint, string.Empty, database.Dimstyle)
+        { Dimscale = OverallDimensionScale, Dimtad = 0, Dimjust = 0 };
         currentSpace.AppendEntity(dimension); transaction.AddNewlyCreatedDBObject(dimension, true); transaction.Commit(); return dimension.ObjectId;
     }
 
@@ -90,13 +151,84 @@ public sealed class CotaTool
         var dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as RotatedDimension;
         if (dimension is null) { transaction.Abort(); return false; }
         var jig = new DimensionSideJig(dimension, midpoint, normal, OffsetFromLine);
-        editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar la cota. ESC o clic derecho para cancelar.\n");
+        editor.WriteMessage("\nMueva el mouse al lado deseado para previsualizar la cota y haga clic para fijar. ESC o clic derecho para cancelar.\n");
         object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
         PromptResult result;
         try { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0); result = editor.Drag(jig); }
         finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
         if (result.Status == PromptStatus.OK) { transaction.Commit(); return true; }
         transaction.Abort(); return false;
+    }
+
+    private static string? SelectLayer(Database database, Editor editor, string type)
+    {
+        var preferred = type.Equals("UC", StringComparison.OrdinalIgnoreCase) ? UCLayers : LongitudLayers;
+        var available = new List<(string Label, string Layer)>();
+        using (Transaction transaction = database.TransactionManager.StartTransaction())
+        {
+            LayerTable table = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+            foreach (var option in preferred)
+            {
+                foreach (ObjectId layerId in table)
+                {
+                    if (transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer && string.Equals(layer.Name, option.Layer, StringComparison.OrdinalIgnoreCase))
+                    { available.Add(option); break; }
+                }
+            }
+            transaction.Commit();
+        }
+        if (available.Count == 0)
+        {
+            editor.WriteMessage($"\nNo se encontraron las capas requeridas para {type}.\n");
+            return null;
+        }
+        string[] aliases = available.Select((_, i) => $"OPCION{i + 1}").ToArray();
+        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
+        try
+        {
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
+            var options = new PromptKeywordOptions($"\nSeleccione tipo de tubería [{string.Join("/", available.Select(x => x.Label))}] (ESC o clic derecho para cancelar): ") { AllowNone = true };
+            for (int i = 0; i < available.Count; i++) options.Keywords.Add(aliases[i]);
+            PromptResult result = editor.GetKeywords(options);
+            if (result.Status != PromptStatus.OK) return null;
+            int index = Array.IndexOf(aliases, result.StringResult);
+            return index >= 0 ? available[index].Layer : null;
+        }
+        finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
+    }
+
+    private static bool SelectUCAttribute(Database database, Editor editor, ObjectId dimensionId)
+    {
+        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
+        try
+        {
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
+            var options = new PromptKeywordOptions("\nSeleccione atributo UC [ZONA VERDE/ANDEN CONCRETO/CALZADA CONCRETO/ADOQUIN/ASFALTO/CUNETA/DESTAPADO] (ESC o clic derecho para cancelar): ") { AllowNone = true };
+            foreach (var attribute in UCAttributes) options.Keywords.Add(GetKeyword(attribute.Label));
+            PromptResult result = editor.GetKeywords(options);
+            if (result.Status != PromptStatus.OK) return false;
+            var selected = UCAttributes.FirstOrDefault(x => string.Equals(GetKeyword(x.Label), result.StringResult, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(selected.Label)) return false;
+            return SetDimensionColor(database, dimensionId, selected.ColorIndex, selected.R, selected.G, selected.B);
+        }
+        finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
+    }
+
+    private static string GetKeyword(string label) => label.Replace(" ", "_").Replace("\"", "PULG");
+
+    private static bool SetDimensionColor(Database database, ObjectId dimensionId, short? colorIndex, int r, int g, int b)
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is not Dimension dimension) { transaction.Abort(); return false; }
+        if (colorIndex.HasValue)
+        {
+            dimension.ColorIndex = colorIndex.Value;
+        }
+        else
+        {
+            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb((byte)r, (byte)g, (byte)b);
+        }
+        transaction.Commit(); return true;
     }
 
     private static bool FindLineAtPoint(Database database, Point3d point, out Point3d startPoint, out Point3d endPoint, out Vector3d direction)
@@ -128,45 +260,6 @@ public sealed class CotaTool
         transaction.Commit(); return found;
     }
 
-    private static string? SelectLayer(Database database, Editor editor, string type)
-    {
-        string[] preferred = type.Equals("UC", StringComparison.OrdinalIgnoreCase) ? ["UC_1-2", "UC_3-4"] : ["COTA_1-2", "COTA_3-4"];
-        var available = new List<string>();
-        using (Transaction transaction = database.TransactionManager.StartTransaction())
-        {
-            LayerTable table = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
-            foreach (ObjectId layerId in table)
-            {
-                if (transaction.GetObject(layerId, OpenMode.ForRead) is not LayerTableRecord layer) continue;
-                foreach (string preferredName in preferred) if (string.Equals(layer.Name, preferredName, StringComparison.OrdinalIgnoreCase) && !available.Contains(layer.Name, StringComparer.OrdinalIgnoreCase)) { available.Add(layer.Name); break; }
-            }
-            transaction.Commit();
-        }
-        if (available.Count == 0) { editor.WriteMessage($"\nNo se encontraron las capas requeridas para {type}. Se buscaron: {string.Join(" y ", preferred)}\n"); return null; }
-        var aliases = available.Select(GetLayerAlias).ToArray();
-        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-        try
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var options = new PromptKeywordOptions($"\nSeleccione capa [{string.Join("/", aliases)}] (ESC o clic derecho para cancelar): ") { AllowNone = true };
-            foreach (string alias in aliases) options.Keywords.Add(alias);
-            PromptResult result = editor.GetKeywords(options);
-            if (result.Status != PromptStatus.OK) return null;
-            for (int i = 0; i < aliases.Length; i++) if (string.Equals(result.StringResult, aliases[i], StringComparison.OrdinalIgnoreCase)) return available[i];
-            return null;
-        }
-        finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
-    }
-
-    private static string GetLayerAlias(string layerName)
-    {
-        if (layerName.Equals("COTA_1-2", StringComparison.OrdinalIgnoreCase)) return "COTA12";
-        if (layerName.Equals("COTA_3-4", StringComparison.OrdinalIgnoreCase)) return "COTA34";
-        if (layerName.Equals("UC_1-2", StringComparison.OrdinalIgnoreCase)) return "UC12";
-        if (layerName.Equals("UC_3-4", StringComparison.OrdinalIgnoreCase)) return "UC34";
-        return layerName.Replace("_", "").Replace("-", "");
-    }
-
     private static void SetDimensionText(Database database, ObjectId dimensionId, string textValue)
     { using Transaction transaction = database.TransactionManager.StartTransaction(); if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is Dimension dimension) dimension.DimensionText = textValue; transaction.Commit(); }
 
@@ -190,7 +283,6 @@ public sealed class CotaTool
         {
             var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ") { UseBasePoint = true, BasePoint = _midpoint, UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NullResponseAccepted };
             PromptPointResult result = prompts.AcquirePoint(options);
-            if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.None) return SamplerStatus.Cancel;
             if (result.Status != PromptStatus.OK) return SamplerStatus.Cancel;
             Vector3d fromCenter = result.Value - _midpoint; double signedDistance = fromCenter.DotProduct(_normal); Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal; Point3d projectedPoint = _midpoint + placementNormal * _fixedOffset;
             if (projectedPoint.IsEqualTo(_lastPoint)) return SamplerStatus.NoChange;
