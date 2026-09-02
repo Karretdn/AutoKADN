@@ -49,4 +49,10 @@ public class NomenclaturaVialCommand
     {
         new CotaTool().Run();
     }
+
+    [CommandMethod("ANOTACIONES", CommandFlags.Modal)]
+    public void Anotaciones()
+    {
+        new AnotacionesTool().Run();
+    }
 }
