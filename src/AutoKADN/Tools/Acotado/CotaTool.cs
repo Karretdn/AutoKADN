@@ -79,7 +79,7 @@ public sealed class CotaTool
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
 
-        // Mantener la línea de cota en el lado superior del elemento.
+        // Posición inicial: por encima de la línea.
         if (normal.Y < 0.0)
             normal = -normal;
 
@@ -121,16 +121,27 @@ public sealed class CotaTool
             return true;
         }
 
+        // La capa determina el color mediante ByLayer.
         if (!SetDimensionAppearance(document.Database, dimensionId, layerName))
         {
             EraseDimension(document.Database, dimensionId);
             return true;
         }
 
-        // Forzar el texto al centro geométrico de la línea de cota, tanto
-        // horizontalmente como verticalmente. Esto prevalece sobre un estilo
-        // que tenga DIMTAD=1 (texto arriba).
-        CenterDimensionText(document.Database, dimensionId, dimensionLinePoint);
+        // Después de elegir la capa, la cota queda viva bajo el mouse para
+        // escoger visualmente el lado y la separación respecto a la línea.
+        PromptResult placementResult = MoveDimensionToSide(
+            document,
+            editor,
+            dimensionId,
+            midpoint,
+            normal);
+
+        if (placementResult.Status != PromptStatus.OK)
+        {
+            EraseDimension(document.Database, dimensionId);
+            return false;
+        }
 
         editor.Regen();
         return true;
@@ -145,7 +156,8 @@ public sealed class CotaTool
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForWrite);
+            database.CurrentSpaceId,
+            OpenMode.ForWrite);
 
         var dimension = new RotatedDimension(
             rotation,
@@ -166,6 +178,31 @@ public sealed class CotaTool
         return dimension.ObjectId;
     }
 
+    private static PromptResult MoveDimensionToSide(
+        Autodesk.AutoCAD.ApplicationServices.Document document,
+        Editor editor,
+        ObjectId dimensionId,
+        Point3d midpoint,
+        Vector3d normal)
+    {
+        Dimension? dimension = null;
+
+        using (Transaction transaction = document.Database.TransactionManager.StartTransaction())
+        {
+            dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as Dimension;
+            if (dimension is null)
+                return new PromptResult(PromptStatus.Error);
+
+            transaction.Commit();
+        }
+
+        var jig = new DimensionSideJig(dimension, midpoint, normal);
+        editor.WriteMessage("\nMueva el mouse hacia el lado deseado y haga clic para fijar la cota.\n");
+
+        PromptResult result = editor.Drag(jig);
+        return result;
+    }
+
     private static bool FindLineAtPoint(
         Database database,
         Point3d point,
@@ -181,7 +218,8 @@ public sealed class CotaTool
 
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForRead);
+            database.CurrentSpaceId,
+            OpenMode.ForRead);
 
         foreach (ObjectId objectId in currentSpace)
         {
@@ -249,8 +287,6 @@ public sealed class CotaTool
             return null;
         }
 
-        // El nombre de cada capa queda dentro del mismo prompt que el número.
-        // Así nunca se debe elegir 1 o 2 a ciegas.
         string menu = string.Join(
             " / ",
             available.Select((name, index) => $"{index + 1}={name}"));
@@ -320,28 +356,69 @@ public sealed class CotaTool
         return true;
     }
 
-    private static void CenterDimensionText(
-        Database database,
-        ObjectId dimensionId,
-        Point3d dimensionLinePoint)
-    {
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-
-        if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is Dimension dimension)
-        {
-            dimension.Dimtad = 0;
-            dimension.Dimjust = 0;
-            dimension.TextPosition = dimensionLinePoint;
-        }
-
-        transaction.Commit();
-    }
-
     private static void EraseDimension(Database database, ObjectId dimensionId)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         if (transaction.GetObject(dimensionId, OpenMode.ForWrite, false) is Entity entity)
             entity.Erase();
         transaction.Commit();
+    }
+
+    private sealed class DimensionSideJig : EntityJig
+    {
+        private readonly Dimension _dimension;
+        private readonly Point3d _midpoint;
+        private readonly Vector3d _normal;
+        private Point3d _lastPoint;
+
+        public DimensionSideJig(
+            Dimension dimension,
+            Point3d midpoint,
+            Vector3d normal)
+            : base(dimension)
+        {
+            _dimension = dimension;
+            _midpoint = midpoint;
+            _normal = normal.GetNormal();
+            _lastPoint = dimension.DimLinePoint;
+        }
+
+        protected override SamplerStatus Sampler(JigPrompts prompts)
+        {
+            var options = new JigPromptPointOptions(
+                "\nMueva el mouse hacia dentro/fuera y haga clic para fijar: ")
+            {
+                UseBasePoint = true,
+                BasePoint = _midpoint
+            };
+
+            PromptPointResult result = prompts.AcquirePoint(options);
+
+            if (result.Status == PromptStatus.Cancel)
+                return SamplerStatus.Cancel;
+
+            if (result.Status != PromptStatus.OK)
+                return SamplerStatus.Cancel;
+
+            Point3d projectedPoint = ProjectToPerpendicular(result.Value);
+            if (projectedPoint.IsEqualTo(_lastPoint))
+                return SamplerStatus.NoChange;
+
+            _lastPoint = projectedPoint;
+            return SamplerStatus.OK;
+        }
+
+        protected override bool Update()
+        {
+            _dimension.DimLinePoint = _lastPoint;
+            return true;
+        }
+
+        private Point3d ProjectToPerpendicular(Point3d cursorPoint)
+        {
+            Vector3d fromCenter = cursorPoint - _midpoint;
+            double signedDistance = fromCenter.DotProduct(_normal);
+            return _midpoint + (_normal * signedDistance);
+        }
     }
 }
