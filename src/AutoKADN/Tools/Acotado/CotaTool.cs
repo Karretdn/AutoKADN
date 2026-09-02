@@ -385,10 +385,22 @@ public sealed class CotaTool
             return false;
         }
 
+        // El color se fija explícitamente sobre la entidad Dimension, no sobre
+        // la capa. De esta forma la cota conserva el atributo de color elegido
+        // aunque la capa tenga otro color.
         if (colorIndex.HasValue)
-            dimension.ColorIndex = colorIndex.Value;
+        {
+            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
+                Autodesk.AutoCAD.Colors.ColorMethod.ByAci,
+                colorIndex.Value);
+        }
         else
-            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb((byte)r, (byte)g, (byte)b);
+        {
+            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb(
+                (byte)r,
+                (byte)g,
+                (byte)b);
+        }
 
         transaction.Commit();
         return true;
