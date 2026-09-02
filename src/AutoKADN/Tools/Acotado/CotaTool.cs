@@ -279,23 +279,25 @@ public sealed class CotaTool
                 AllowNone = true
             };
 
-            foreach (var layer in preferred)
+            // Las keywords internas no contienen '/', espacios ni comillas.
+            // El texto visible sigue siendo la etiqueta completa de la opción.
+            string[] keywords = { "OPCION1", "OPCION2" };
+
+            for (int i = 0; i < preferred.Length; i++)
             {
-                string keyword = layer.Label.Replace(" ", "_").Replace("\"", "PULG");
-                options.Keywords.Add(keyword, layer.Label, layer.Label, true, true);
+                options.Keywords.Add(
+                    keywords[i],
+                    preferred[i].Label,
+                    preferred[i].Label,
+                    true,
+                    true);
             }
 
             PromptResult result = editor.GetKeywords(options);
             if (result.Status != PromptStatus.OK) return null;
 
-            int index = Array.FindIndex(
-                preferred,
-                layer => string.Equals(
-                    layer.Label.Replace(" ", "_").Replace("\"", "PULG"),
-                    result.StringResult,
-                    StringComparison.OrdinalIgnoreCase));
-
-            if (index < 0) return null;
+            int index = Array.IndexOf(keywords, result.StringResult);
+            if (index < 0 || index >= preferred.Length) return null;
 
             string exactLayerName = preferred[index].Layer;
 
@@ -338,19 +340,34 @@ public sealed class CotaTool
                 AllowNone = true
             };
 
-            foreach (var attribute in UCAttributes)
-                options.Keywords.Add(GetKeyword(attribute.Label));
+            string[] keywords =
+            {
+                "OPCION1",
+                "OPCION2",
+                "OPCION3",
+                "OPCION4",
+                "OPCION5",
+                "OPCION6",
+                "OPCION7"
+            };
+
+            for (int i = 0; i < UCAttributes.Length; i++)
+            {
+                options.Keywords.Add(
+                    keywords[i],
+                    UCAttributes[i].Label,
+                    UCAttributes[i].Label,
+                    true,
+                    true);
+            }
 
             PromptResult result = editor.GetKeywords(options);
             if (result.Status != PromptStatus.OK) return false;
 
-            var selected = UCAttributes.FirstOrDefault(x =>
-                string.Equals(
-                    GetKeyword(x.Label),
-                    result.StringResult,
-                    StringComparison.OrdinalIgnoreCase));
+            int index = Array.IndexOf(keywords, result.StringResult);
+            if (index < 0 || index >= UCAttributes.Length) return false;
 
-            if (string.IsNullOrEmpty(selected.Label)) return false;
+            var selected = UCAttributes[index];
 
             return SetDimensionColor(
                 database,
@@ -365,9 +382,6 @@ public sealed class CotaTool
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
         }
     }
-
-    private static string GetKeyword(string label) =>
-        label.Replace(" ", "_").Replace("\"", "PULG");
 
     private static bool SetDimensionColor(
         Database database,
@@ -385,9 +399,6 @@ public sealed class CotaTool
             return false;
         }
 
-        // El color se fija explícitamente sobre la entidad Dimension, no sobre
-        // la capa. De esta forma la cota conserva el atributo de color elegido
-        // aunque la capa tenga otro color.
         if (colorIndex.HasValue)
         {
             dimension.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
