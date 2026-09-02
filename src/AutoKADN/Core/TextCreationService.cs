@@ -70,13 +70,14 @@ public sealed class TextCreationService
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
-        // El centro ya fue calculado antes de entrar al jig.
-        // Desde este punto el mouse solamente controla la rotacion.
+        // Vial y Predial utilizan exactamente el mismo jig.
+        // ORTHOMODE apagado = giro completamente libre.
+        // ORTHOMODE encendido = snap exclusivo a 0/90/180/270 grados.
         var jig = new NomenclaturaTextJig(text, centerPosition, ObtenerModoOrto());
 
-        // AcquireAngle respeta ORTHOMODE internamente. Cuando ORTHOMODE esta
-        // activo, eso puede interferir con nuestro propio snap de 90 grados.
-        // Lo desactivamos solamente durante el jig y lo restauramos siempre al salir.
+        // AcquirePoint permite calcular nosotros mismos el ángulo y evita que
+        // AcquireAngle aplique restricciones internas de AutoCAD que puedan
+        // producir snaps a 90 grados aun cuando ORTHOMODE esté apagado.
         object originalOrthoMode = Application.GetSystemVariable("ORTHOMODE");
 
         try
@@ -277,6 +278,7 @@ public sealed class TextCreationService
         private readonly Point3d _center;
         private readonly bool _orthoEnabled;
         private double _currentRotation;
+        private Point3d _lastPoint;
 
         public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled) : base(text)
         {
@@ -284,21 +286,21 @@ public sealed class TextCreationService
             _center = center;
             _orthoEnabled = orthoEnabled;
             _currentRotation = 0.0;
+            _lastPoint = center + Vector3d.XAxis;
         }
 
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
-            var options = new JigPromptAngleOptions("\nIndique el angulo: ")
+            var options = new JigPromptPointOptions("\nMueva el mouse para girar y haga clic para fijar: ")
             {
                 BasePoint = _center,
                 UseBasePoint = true,
                 Cursor = CursorType.RubberBand,
                 UserInputControls = UserInputControls.Accept3dCoordinates |
-                                    UserInputControls.NoZeroResponseAccepted |
-                                    UserInputControls.NoNegativeResponseAccepted
+                                    UserInputControls.NoZeroResponseAccepted
             };
 
-            PromptDoubleResult result = prompts.AcquireAngle(options);
+            PromptPointResult result = prompts.AcquirePoint(options);
 
             if (result.Status == PromptStatus.Cancel)
                 return SamplerStatus.Cancel;
@@ -306,11 +308,16 @@ public sealed class TextCreationService
             if (result.Status != PromptStatus.OK)
                 return SamplerStatus.NoChange;
 
-            double angle = result.Value;
+            Point3d cursorPoint = result.Value;
+            Vector3d direction = cursorPoint - _center;
 
-            // Se o ORTHOMODE estava ativo antes do jig, fazemos nos mesmos
-            // pontos cardeais (0/90/180/270), mas agora sem o snap interno do
-            // AutoCAD interferir com o movimento do cursor.
+            if (direction.Length <= Tolerance.Global.EqualPoint)
+                return SamplerStatus.NoChange;
+
+            double angle = Math.Atan2(direction.Y, direction.X);
+
+            // Únicamente cuando ORTHOMODE estaba activo al comenzar:
+            // snap exacto a 0, 90, 180 y 270 grados.
             if (_orthoEnabled)
             {
                 double quarterTurn = Math.PI / 2.0;
@@ -321,6 +328,7 @@ public sealed class TextCreationService
                 return SamplerStatus.NoChange;
 
             _currentRotation = angle;
+            _lastPoint = cursorPoint;
             return SamplerStatus.OK;
         }
 
