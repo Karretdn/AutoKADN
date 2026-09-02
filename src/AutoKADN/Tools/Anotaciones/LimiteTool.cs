@@ -19,14 +19,17 @@ public sealed class LimiteTool
         Editor editor = document.Editor;
         editor.WriteMessage("\n[LIMIK] Límites. Snap Cercano activo. ESC o clic derecho para salir.\n");
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
+        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
             while (true)
             {
-                var pointOptions = new PromptPointOptions("\nHaga clic sobre la línea (ESC o clic derecho para salir): ");
+                var pointOptions = new PromptPointOptions("\nHaga clic sobre la línea (ESC o clic derecho para salir): ") { AllowNone = true };
                 PromptPointResult pointResult = editor.GetPoint(pointOptions);
-                if (pointResult.Status != PromptStatus.OK) return;
+                if (pointResult.Status == PromptStatus.Cancel || pointResult.Status == PromptStatus.None) return;
+                if (pointResult.Status != PromptStatus.OK) continue;
                 Point3d pointOnLine = pointResult.Value;
                 if (!EncontrarSegmentoEnPunto(document.Database, pointOnLine, out Vector3d direction))
                 {
@@ -41,12 +44,13 @@ public sealed class LimiteTool
         finally
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
         }
     }
 
     private static string? SeleccionarLimite(Editor editor)
     {
-        var options = new PromptKeywordOptions("\n¿Qué desea colocar? [LB/LP/LC]: ") { AllowNone = false };
+        var options = new PromptKeywordOptions("\n¿Qué desea colocar? [LB/LP/LC]: ") { AllowNone = true };
         options.Keywords.Add("LB"); options.Keywords.Add("LP"); options.Keywords.Add("LC");
         PromptResult result = editor.GetKeywords(options);
         return result.Status == PromptStatus.OK ? result.StringResult.ToUpperInvariant() : null;
@@ -54,9 +58,7 @@ public sealed class LimiteTool
 
     private static bool EncontrarSegmentoEnPunto(Database database, Point3d point, out Vector3d direction)
     {
-        direction = Vector3d.XAxis;
-        double bestDistance = double.MaxValue;
-        bool found = false;
+        direction = Vector3d.XAxis; double bestDistance = double.MaxValue; bool found = false;
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
         foreach (ObjectId objectId in currentSpace)
@@ -65,53 +67,40 @@ public sealed class LimiteTool
             {
                 Vector3d lineVector = line.EndPoint - line.StartPoint;
                 if (lineVector.Length <= Tolerance.Global.EqualPoint) continue;
-                Point3d closest = line.GetClosestPointTo(point, false);
-                double distance = closest.DistanceTo(point);
-                if (distance <= GeometryMatchTolerance && distance < bestDistance)
-                { bestDistance = distance; direction = lineVector.GetNormal(); found = true; }
+                Point3d closest = line.GetClosestPointTo(point, false); double distance = closest.DistanceTo(point);
+                if (distance <= GeometryMatchTolerance && distance < bestDistance) { bestDistance = distance; direction = lineVector.GetNormal(); found = true; }
                 continue;
             }
             if (transaction.GetObject(objectId, OpenMode.ForRead) is not Polyline polyline || polyline.NumberOfVertices < 2) continue;
-            Point3d closestPoint = polyline.GetClosestPointTo(point, false);
-            double polyDistance = closestPoint.DistanceTo(point);
+            Point3d closestPoint = polyline.GetClosestPointTo(point, false); double polyDistance = closestPoint.DistanceTo(point);
             if (polyDistance > GeometryMatchTolerance || polyDistance >= bestDistance) continue;
-            double parameter = polyline.GetParameterAtPoint(closestPoint);
-            int segmentIndex = (int)Math.Floor(parameter);
+            double parameter = polyline.GetParameterAtPoint(closestPoint); int segmentIndex = (int)Math.Floor(parameter);
             if (segmentIndex >= polyline.NumberOfVertices - 1) segmentIndex = polyline.Closed ? polyline.NumberOfVertices - 1 : polyline.NumberOfVertices - 2;
             if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line) continue;
-            Point3d start = polyline.GetPoint3dAt(segmentIndex);
-            Point3d end = polyline.GetPoint3dAt((segmentIndex + 1) % polyline.NumberOfVertices);
-            Vector3d segmentVector = end - start;
+            Point3d start = polyline.GetPoint3dAt(segmentIndex); Point3d end = polyline.GetPoint3dAt((segmentIndex + 1) % polyline.NumberOfVertices); Vector3d segmentVector = end - start;
             if (segmentVector.Length <= Tolerance.Global.EqualPoint) continue;
             bestDistance = polyDistance; direction = segmentVector.GetNormal(); found = true;
         }
-        transaction.Commit();
-        return found;
+        transaction.Commit(); return found;
     }
 
     private static double CalcularRotacionParalela(Vector3d direction)
     {
         double rotation = Math.Atan2(direction.Y, direction.X);
-        if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
-            rotation += rotation > 0.0 ? -Math.PI : Math.PI;
+        if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0) rotation += rotation > 0.0 ? -Math.PI : Math.PI;
         return rotation;
     }
 
     private static bool CrearTextoConJig(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, Point3d pointOnLine, Vector3d direction, string content)
     {
-        Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
-        Point3d initialPosition = pointOnLine + normal * OffsetFromLine;
-        double rotation = CalcularRotacionParalela(direction);
-        ObjectId textId;
+        Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal(); Point3d initialPosition = pointOnLine + normal * OffsetFromLine; double rotation = CalcularRotacionParalela(direction); ObjectId textId;
         using (Transaction transaction = document.Database.TransactionManager.StartTransaction())
         {
-            BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(document.Database.CurrentSpaceId, OpenMode.ForWrite);
-            LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(document.Database.Clayer, OpenMode.ForRead);
+            BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(document.Database.CurrentSpaceId, OpenMode.ForWrite); LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(document.Database.Clayer, OpenMode.ForRead);
             var text = new DBText { TextString = content, Height = TextHeight, Layer = layer.Name, ColorIndex = 256, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = initialPosition, Position = initialPosition, Rotation = rotation };
             currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); textId = text.ObjectId; transaction.Commit();
         }
-        editor.Regen();
-        editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar el texto. Clic derecho cancela.\n");
+        editor.Regen(); editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar el texto. ESC o clic derecho cancela.\n");
         using Transaction jigTransaction = document.Database.TransactionManager.StartTransaction();
         var textForJig = jigTransaction.GetObject(textId, OpenMode.ForWrite) as DBText;
         if (textForJig is null) { jigTransaction.Abort(); return false; }
@@ -123,46 +112,18 @@ public sealed class LimiteTool
 
     private sealed class LimitSideJig : EntityJig
     {
-        private readonly DBText _text;
-        private readonly Point3d _pointOnLine;
-        private readonly Vector3d _normal;
-        private readonly double _fixedOffset;
-        private readonly double _fixedRotation;
-        private Point3d _lastPoint;
-
-        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset, double fixedRotation) : base(text)
-        {
-            _text = text;
-            _pointOnLine = pointOnLine;
-            _normal = normal.GetNormal();
-            _fixedOffset = fixedOffset;
-            _fixedRotation = fixedRotation;
-            _lastPoint = text.Position;
-        }
-
+        private readonly DBText _text; private readonly Point3d _pointOnLine; private readonly Vector3d _normal; private readonly double _fixedOffset; private readonly double _fixedRotation; private Point3d _lastPoint;
+        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset, double fixedRotation) : base(text) { _text = text; _pointOnLine = pointOnLine; _normal = normal.GetNormal(); _fixedOffset = fixedOffset; _fixedRotation = fixedRotation; _lastPoint = text.Position; }
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
-            var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ") { UseBasePoint = true, BasePoint = _pointOnLine };
+            var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ") { UseBasePoint = true, BasePoint = _pointOnLine, UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NullResponseAccepted };
             PromptPointResult result = prompts.AcquirePoint(options);
+            if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.None) return SamplerStatus.Cancel;
             if (result.Status != PromptStatus.OK) return SamplerStatus.Cancel;
-
-            Vector3d fromLine = result.Value - _pointOnLine;
-            double signedDistance = fromLine.DotProduct(_normal);
-            Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal;
-            Point3d projectedPoint = _pointOnLine + placementNormal * _fixedOffset;
-
+            Vector3d fromLine = result.Value - _pointOnLine; double signedDistance = fromLine.DotProduct(_normal); Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal; Point3d projectedPoint = _pointOnLine + placementNormal * _fixedOffset;
             if (projectedPoint.IsEqualTo(_lastPoint)) return SamplerStatus.NoChange;
-            _lastPoint = projectedPoint;
-            _text.Rotation = _fixedRotation;
-            return SamplerStatus.OK;
+            _lastPoint = projectedPoint; _text.Rotation = _fixedRotation; return SamplerStatus.OK;
         }
-
-        protected override bool Update()
-        {
-            _text.Position = _lastPoint;
-            _text.AlignmentPoint = _lastPoint;
-            _text.Rotation = _fixedRotation;
-            return true;
-        }
+        protected override bool Update() { _text.Position = _lastPoint; _text.AlignmentPoint = _lastPoint; _text.Rotation = _fixedRotation; return true; }
     }
 }
