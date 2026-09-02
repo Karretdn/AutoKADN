@@ -325,39 +325,47 @@ public sealed class CotaTool
             return null;
         }
 
-        // AutoCAD no permite '_' dentro de una keyword. Usamos alias internos
-        // sin '_' y mostramos al usuario el nombre real de la capa.
-        var aliases = new List<string>();
-        foreach (string layerName in available)
-        {
-            string alias = type.Equals("UC", StringComparison.OrdinalIgnoreCase)
-                ? layerName.Equals("UC_1-2", StringComparison.OrdinalIgnoreCase) ? "UC12" : "UC34"
-                : layerName.Equals("COTA_1-2", StringComparison.OrdinalIgnoreCase) ? "COTA12" : "COTA34";
-
-            aliases.Add(alias);
-        }
-
-        string displayKeywords = string.Join("/", available);
-        string globalKeywords = string.Join(" ", aliases);
-
-        var options = new PromptKeywordOptions(
-            $"\nSeleccione capa [{displayKeywords}]: ",
-            globalKeywords)
+        var options = new PromptKeywordOptions("\nSeleccione capa: ")
         {
             AllowNone = false
         };
+
+        // El nombre real se muestra al usuario, pero el nombre que AutoCAD
+        // acepta como keyword no contiene '_' ni '-'.
+        foreach (string layerName in available)
+        {
+            string alias = GetLayerAlias(layerName);
+            options.Keywords.Add(alias, alias, layerName);
+        }
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK)
             return null;
 
-        for (int i = 0; i < aliases.Count; i++)
+        foreach (string layerName in available)
         {
-            if (string.Equals(result.StringResult, aliases[i], StringComparison.OrdinalIgnoreCase))
-                return available[i];
+            if (string.Equals(result.StringResult, GetLayerAlias(layerName), StringComparison.OrdinalIgnoreCase))
+                return layerName;
         }
 
         return null;
+    }
+
+    private static string GetLayerAlias(string layerName)
+    {
+        if (layerName.Equals("COTA_1-2", StringComparison.OrdinalIgnoreCase))
+            return "COTA12";
+
+        if (layerName.Equals("COTA_3-4", StringComparison.OrdinalIgnoreCase))
+            return "COTA34";
+
+        if (layerName.Equals("UC_1-2", StringComparison.OrdinalIgnoreCase))
+            return "UC12";
+
+        if (layerName.Equals("UC_3-4", StringComparison.OrdinalIgnoreCase))
+            return "UC34";
+
+        return layerName.Replace("_", "").Replace("-", "");
     }
 
     private static void SetDimensionText(Database database, ObjectId dimensionId, string textValue)
