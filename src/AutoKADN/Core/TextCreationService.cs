@@ -21,17 +21,8 @@ public sealed class TextCreationService
         Database database = document.Database;
         using Transaction transaction = database.TransactionManager.StartTransaction();
 
-        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForWrite);
-
-        var text = new DBText
-        {
-            Position = position,
-            TextString = content.Trim(),
-            Height = height,
-            Layer = GetCurrentLayerName(database, transaction)
-        };
-
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
+        var text = new DBText { Position = position, TextString = content.Trim(), Height = height, Layer = GetCurrentLayerName(database, transaction) };
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
         transaction.Commit();
@@ -52,37 +43,26 @@ public sealed class TextCreationService
         Database database = document.Database;
         Editor editor = document.Editor;
         using Transaction transaction = database.TransactionManager.StartTransaction();
-
-        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForWrite);
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
 
         var text = new DBText
         {
-            TextString = content.Trim(),
-            Height = height,
-            Layer = GetCurrentLayerName(database, transaction),
-            HorizontalMode = TextHorizontalMode.TextCenter,
-            VerticalMode = TextVerticalMode.TextVerticalMid,
-            AlignmentPoint = centerPosition,
-            Position = centerPosition,
-            Rotation = 0.0
+            TextString = content.Trim(), Height = height, Layer = GetCurrentLayerName(database, transaction),
+            HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid,
+            AlignmentPoint = centerPosition, Position = centerPosition, Rotation = 0.0
         };
 
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
-        // Vial y Predial utilizan exactamente el mismo jig.
-        // ORTHOMODE apagado = giro completamente libre.
-        // ORTHOMODE encendido = snap exclusivo a 0/90/180/270 grados.
-        var jig = new NomenclaturaTextJig(text, centerPosition, ObtenerModoOrto());
+        // Regla estándar compartida: ORTHOMODE ON = 0/90/180/270; OFF = libre.
+        var jig = new NomenclaturaTextJig(text, centerPosition, RotationStandard.IsOrthoEnabled());
         object originalOrthoMode = Application.GetSystemVariable("ORTHOMODE");
 
         try
         {
             Application.SetSystemVariable("ORTHOMODE", 0);
-
             PromptResult result = editor.Drag(jig);
-
             if (result.Status != PromptStatus.OK)
             {
                 text.Erase();
@@ -102,15 +82,10 @@ public sealed class TextCreationService
     private static Point3d? ObtenerCentroEntreLineas(Point3d clickPoint)
     {
         Document? document = Application.DocumentManager.MdiActiveDocument;
-        if (document is null)
-            return null;
-
+        if (document is null) return null;
         Database database = document.Database;
         using Transaction transaction = database.TransactionManager.StartTransaction();
-
-        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForRead);
-
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
         var candidates = new List<LineCandidate>();
 
         foreach (ObjectId objectId in currentSpace)
@@ -118,75 +93,41 @@ public sealed class TextCreationService
             if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Line))))
             {
                 var line = transaction.GetObject(objectId, OpenMode.ForRead) as Line;
-                if (line is not null)
-                    AgregarSegmento(candidates, line.StartPoint, line.EndPoint, clickPoint);
+                if (line is not null) AgregarSegmento(candidates, line.StartPoint, line.EndPoint, clickPoint);
             }
             else if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Polyline))))
             {
                 var polyline = transaction.GetObject(objectId, OpenMode.ForRead) as Polyline;
-                if (polyline is null)
-                    continue;
-
+                if (polyline is null) continue;
                 for (int i = 0; i < polyline.NumberOfVertices - 1; i++)
-                {
-                    if (polyline.GetSegmentType(i) != SegmentType.Line)
-                        continue;
-
-                    AgregarSegmento(candidates, polyline.GetPoint3dAt(i), polyline.GetPoint3dAt(i + 1), clickPoint);
-                }
-
+                    if (polyline.GetSegmentType(i) == SegmentType.Line)
+                        AgregarSegmento(candidates, polyline.GetPoint3dAt(i), polyline.GetPoint3dAt(i + 1), clickPoint);
                 if (polyline.Closed && polyline.NumberOfVertices > 1)
                 {
                     int last = polyline.NumberOfVertices - 1;
                     if (polyline.GetSegmentType(last) == SegmentType.Line)
-                    {
                         AgregarSegmento(candidates, polyline.GetPoint3dAt(last), polyline.GetPoint3dAt(0), clickPoint);
-                    }
                 }
             }
         }
 
-        if (candidates.Count < 2)
-            return null;
-
-        LineCandidate? bestFirst = null;
-        LineCandidate? bestSecond = null;
+        if (candidates.Count < 2) return null;
+        LineCandidate? bestFirst = null, bestSecond = null;
         double bestScore = double.MaxValue;
-
         for (int i = 0; i < candidates.Count - 1; i++)
+        for (int j = i + 1; j < candidates.Count; j++)
         {
-            for (int j = i + 1; j < candidates.Count; j++)
-            {
-                LineCandidate first = candidates[i];
-                LineCandidate second = candidates[j];
-
-                if (!SonParalelas(first.Direction, second.Direction))
-                    continue;
-
-                double sideFirst = ObtenerDistanciaFirmada(first.Origin, first.Direction, clickPoint);
-                double sideSecond = ObtenerDistanciaFirmada(second.Origin, second.Direction, clickPoint);
-
-                if (Math.Sign(sideFirst) == Math.Sign(sideSecond))
-                    continue;
-
-                double score = first.Distance + second.Distance;
-
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    bestFirst = first;
-                    bestSecond = second;
-                }
-            }
+            LineCandidate first = candidates[i], second = candidates[j];
+            if (!SonParalelas(first.Direction, second.Direction)) continue;
+            double sideFirst = ObtenerDistanciaFirmada(first.Origin, first.Direction, clickPoint);
+            double sideSecond = ObtenerDistanciaFirmada(second.Origin, second.Direction, clickPoint);
+            if (Math.Sign(sideFirst) == Math.Sign(sideSecond)) continue;
+            double score = first.Distance + second.Distance;
+            if (score < bestScore) { bestScore = score; bestFirst = first; bestSecond = second; }
         }
-
-        if (bestFirst is null || bestSecond is null)
-            return null;
-
+        if (bestFirst is null || bestSecond is null) return null;
         transaction.Commit();
-
-        return new Point3d(
-            (bestFirst.Projection.X + bestSecond.Projection.X) / 2.0,
+        return new Point3d((bestFirst.Projection.X + bestSecond.Projection.X) / 2.0,
             (bestFirst.Projection.Y + bestSecond.Projection.Y) / 2.0,
             (bestFirst.Projection.Z + bestSecond.Projection.Z) / 2.0);
     }
@@ -194,15 +135,11 @@ public sealed class TextCreationService
     private static void AgregarSegmento(List<LineCandidate> candidates, Point3d start, Point3d end, Point3d clickPoint)
     {
         Vector3d vector = end - start;
-        if (vector.Length <= Tolerance.Global.EqualPoint)
-            return;
-
+        if (vector.Length <= Tolerance.Global.EqualPoint) return;
         Vector3d direction = vector.GetNormal();
         Point3d projection = ProyectarSobreSegmento(start, end, clickPoint, direction);
         double distance = projection.DistanceTo(clickPoint);
-
-        if (distance <= LineSearchTolerance)
-            candidates.Add(new LineCandidate(start, direction, projection, distance));
+        if (distance <= LineSearchTolerance) candidates.Add(new LineCandidate(start, direction, projection, distance));
     }
 
     private static Point3d ProyectarSobreSegmento(Point3d start, Point3d end, Point3d point, Vector3d direction)
@@ -226,19 +163,6 @@ public sealed class TextCreationService
         return angle <= ParallelAngleTolerance;
     }
 
-    private static bool ObtenerModoOrto()
-    {
-        try
-        {
-            object? value = Application.GetSystemVariable("ORTHOMODE");
-            return Convert.ToInt32(value) != 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private static string GetCurrentLayerName(Database database, Transaction transaction)
     {
         LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(database.Clayer, OpenMode.ForRead);
@@ -251,14 +175,8 @@ public sealed class TextCreationService
         public Vector3d Direction { get; }
         public Point3d Projection { get; }
         public double Distance { get; }
-
         public LineCandidate(Point3d origin, Vector3d direction, Point3d projection, double distance)
-        {
-            Origin = origin;
-            Direction = direction;
-            Projection = projection;
-            Distance = distance;
-        }
+        { Origin = origin; Direction = direction; Projection = projection; Distance = distance; }
     }
 
     private sealed class NomenclaturaTextJig : EntityJig
@@ -269,57 +187,25 @@ public sealed class TextCreationService
         private double _currentRotation;
 
         public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled) : base(text)
-        {
-            _text = text;
-            _center = center;
-            _orthoEnabled = orthoEnabled;
-            _currentRotation = 0.0;
-        }
+        { _text = text; _center = center; _orthoEnabled = orthoEnabled; _currentRotation = 0.0; }
 
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
             var options = new JigPromptPointOptions("\nMueva el mouse para girar y haga clic para fijar: ")
             {
-                BasePoint = _center,
-                UseBasePoint = true,
-                Cursor = CursorType.RubberBand,
-                UserInputControls = UserInputControls.Accept3dCoordinates |
-                                    UserInputControls.NoZeroResponseAccepted
+                BasePoint = _center, UseBasePoint = true, Cursor = CursorType.RubberBand,
+                UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NoZeroResponseAccepted
             };
-
             PromptPointResult result = prompts.AcquirePoint(options);
-
-            if (result.Status == PromptStatus.Cancel)
-                return SamplerStatus.Cancel;
-
-            if (result.Status != PromptStatus.OK)
-                return SamplerStatus.NoChange;
-
-            Vector3d direction = result.Value - _center;
-            if (direction.Length <= Tolerance.Global.EqualPoint)
-                return SamplerStatus.NoChange;
-
-            double angle = Math.Atan2(direction.Y, direction.X);
-
-            if (_orthoEnabled)
-            {
-                double quarterTurn = Math.PI / 2.0;
-                angle = Math.Round(angle / quarterTurn) * quarterTurn;
-            }
-
-            if (Math.Abs(angle - _currentRotation) < 1e-10)
-                return SamplerStatus.NoChange;
-
+            if (result.Status == PromptStatus.Cancel) return SamplerStatus.Cancel;
+            if (result.Status != PromptStatus.OK) return SamplerStatus.NoChange;
+            double angle = RotationStandard.FromPoint(_center, result.Value, _orthoEnabled);
+            if (Math.Abs(angle - _currentRotation) < 1e-10) return SamplerStatus.NoChange;
             _currentRotation = angle;
             return SamplerStatus.OK;
         }
 
         protected override bool Update()
-        {
-            _text.Position = _center;
-            _text.AlignmentPoint = _center;
-            _text.Rotation = _currentRotation;
-            return true;
-        }
+        { _text.Position = _center; _text.AlignmentPoint = _center; _text.Rotation = _currentRotation; return true; }
     }
 }
