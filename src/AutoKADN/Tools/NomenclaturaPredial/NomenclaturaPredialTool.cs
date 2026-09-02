@@ -16,12 +16,21 @@ public sealed class NomenclaturaPredialTool
         if (document is null) return;
         Editor editor = document.Editor;
         editor.WriteMessage("\n[KARP_NOMPRED] Nomenclatura predial. ESC o clic derecho para salir.\n");
-        PromptPointResult pointResult = editor.GetPoint("\nPrimer clic dentro del predio (ESC o clic derecho para cancelar): ");
-        if (pointResult.Status != PromptStatus.OK)
+        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
+        PromptPointResult pointResult;
+        try
+        {
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
+            var pointOptions = new PromptPointOptions("\nPrimer clic dentro del predio (ESC o clic derecho para cancelar): ") { AllowNone = true };
+            pointResult = editor.GetPoint(pointOptions);
+        }
+        finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
+        if (pointResult.Status == PromptStatus.Cancel || pointResult.Status == PromptStatus.None)
         {
             editor.WriteMessage("\n[KARP_NOMPRED] Herramienta finalizada.\n");
             return;
         }
+        if (pointResult.Status != PromptStatus.OK) return;
         Point3d clickPoint = pointResult.Value;
         string? content = ObtenerTexto(editor);
         if (content is null)
