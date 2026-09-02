@@ -79,8 +79,6 @@ public sealed class CotaTool
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
 
-        // La separación siempre es exactamente OffsetFromLine.
-        // La interacción posterior solo cambia el SIGNO de la normal.
         if (normal.Y < 0.0)
             normal = -normal;
 
@@ -128,8 +126,6 @@ public sealed class CotaTool
             return true;
         }
 
-        // El Jig conserva siempre la misma distancia de 5.50.
-        // El mouse solo decide de qué lado de la línea queda la cota.
         if (!MoveDimensionToSide(
                 document,
                 editor,
@@ -329,22 +325,39 @@ public sealed class CotaTool
             return null;
         }
 
-        // Mostrar directamente los nombres de capa como keywords de AutoCAD.
-        // Ya no se presenta un cuadro para introducir 1, 2, etc.
+        // AutoCAD no permite '_' dentro de una keyword. Usamos alias internos
+        // sin '_' y mostramos al usuario el nombre real de la capa.
+        var aliases = new List<string>();
+        foreach (string layerName in available)
+        {
+            string alias = type.Equals("UC", StringComparison.OrdinalIgnoreCase)
+                ? layerName.Equals("UC_1-2", StringComparison.OrdinalIgnoreCase) ? "UC12" : "UC34"
+                : layerName.Equals("COTA_1-2", StringComparison.OrdinalIgnoreCase) ? "COTA12" : "COTA34";
+
+            aliases.Add(alias);
+        }
+
+        string displayKeywords = string.Join("/", available);
+        string globalKeywords = string.Join(" ", aliases);
+
         var options = new PromptKeywordOptions(
-            $"\nSeleccione capa [{string.Join("/", available)}]: ")
+            $"\nSeleccione capa [{displayKeywords}]: ",
+            globalKeywords)
         {
             AllowNone = false
         };
-
-        foreach (string layerName in available)
-            options.Keywords.Add(layerName);
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK)
             return null;
 
-        return result.StringResult;
+        for (int i = 0; i < aliases.Count; i++)
+        {
+            if (string.Equals(result.StringResult, aliases[i], StringComparison.OrdinalIgnoreCase))
+                return available[i];
+        }
+
+        return null;
     }
 
     private static void SetDimensionText(Database database, ObjectId dimensionId, string textValue)
@@ -445,7 +458,6 @@ public sealed class CotaTool
             Vector3d fromCenter = result.Value - _midpoint;
             double signedDistance = fromCenter.DotProduct(_normal);
 
-            // El mouse solo selecciona el lado. La distancia permanece fija.
             Vector3d placementNormal = signedDistance >= 0.0
                 ? _normal
                 : -_normal;
