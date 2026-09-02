@@ -6,7 +6,7 @@ namespace AutoKADN.Core;
 
 public sealed class TextCreationService
 {
-    public void CreateText(Point3d position, string content, double height = 2.5)
+    public void CreateText(Point3d position, string content, double height = 1.45)
     {
         Document? document = Application.DocumentManager.MdiActiveDocument;
         if (document is null || string.IsNullOrWhiteSpace(content))
