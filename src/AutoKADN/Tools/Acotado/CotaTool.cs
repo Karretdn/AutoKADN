@@ -11,14 +11,14 @@ public sealed class CotaTool
 
     private static readonly (string Label, string Layer)[] LongitudLayers =
     {
-        ("COTA_1-2", "COTA_1-2"),
-        ("COTA_3-4", "COTA_3-4")
+        ("TUBERIA 1/2\"", "COTA_1-2"),
+        ("TUBERIA 3/4\"", "COTA_3-4")
     };
 
     private static readonly (string Label, string Layer)[] UCLayers =
     {
-        ("UC_1-2", "UC_1-2"),
-        ("UC_3-4", "UC_3-4")
+        ("CANALIZACION 1/2\"", "UC_1-2"),
+        ("CANALIZACION 3/4\"", "UC_3-4")
     };
 
     private static readonly (string Label, short? ColorIndex, int R, int G, int B)[] UCAttributes =
@@ -279,11 +279,9 @@ public sealed class CotaTool
                 AllowNone = true
             };
 
-            // El usuario selecciona por nombre visible, pero el valor interno
-            // siempre queda asociado al nombre exacto de la capa del DWG.
             foreach (var layer in preferred)
             {
-                string keyword = layer.Label.Replace("-", "_");
+                string keyword = layer.Label.Replace(" ", "_").Replace("\"", "PULG");
                 options.Keywords.Add(keyword, layer.Label, layer.Label, true, true);
             }
 
@@ -293,7 +291,7 @@ public sealed class CotaTool
             int index = Array.FindIndex(
                 preferred,
                 layer => string.Equals(
-                    layer.Label.Replace("-", "_"),
+                    layer.Label.Replace(" ", "_").Replace("\"", "PULG"),
                     result.StringResult,
                     StringComparison.OrdinalIgnoreCase));
 
@@ -301,8 +299,6 @@ public sealed class CotaTool
 
             string exactLayerName = preferred[index].Layer;
 
-            // Estas capas deben existir previamente en el DWG. No se crean ni
-            // se sustituyen por capas parecidas.
             if (!LayerExists(database, exactLayerName))
             {
                 editor.WriteMessage($"\nNo existe la capa requerida: {exactLayerName}\n");
