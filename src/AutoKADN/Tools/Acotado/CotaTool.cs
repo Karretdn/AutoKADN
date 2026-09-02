@@ -6,7 +6,9 @@ namespace AutoKADN.Tools.Acotado;
 
 public sealed class CotaTool
 {
-    private const double OffsetFromLine = 1.10;
+    // La separación anterior era 1.10. Aumentada 500% => 5.50.
+    private const double OffsetFromLine = 5.50;
+    private const double OverallDimensionScale = 0.05;
     private const short NearestObjectSnap = 512;
     private const double PointTolerance = 1e-5;
 
@@ -19,14 +21,17 @@ public sealed class CotaTool
         Editor editor = document.Editor;
         editor.WriteMessage("\n[COTAK] Acotado rápido. ESC para salir.\n");
 
+        // El tipo se elige una sola vez por ejecución: Longitud o UC.
         string? type = SelectType(editor);
         if (type is null)
             return;
 
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
+
         try
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
+                "OSMODE", NearestObjectSnap);
 
             while (true)
             {
@@ -36,13 +41,19 @@ public sealed class CotaTool
         }
         finally
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
+                "OSMODE", originalOsMode);
         }
     }
 
     private static string? SelectType(Editor editor)
     {
-        var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC]: ");
+        // No repetimos [Longitud/UC] en el texto porque AutoCAD lo agrega
+        // automáticamente al registrar las keywords.
+        var options = new PromptKeywordOptions("\nSeleccione tipo de cota: ")
+        {
+            AllowNone = false
+        };
         options.Keywords.Add("Longitud");
         options.Keywords.Add("UC");
 
@@ -55,8 +66,7 @@ public sealed class CotaTool
         Editor editor,
         string type)
     {
-        // GetPoint usa directamente los OSNAP activos de AutoCAD. En LIMIK/COTAK
-        // dejamos únicamente NEAREST activo para obtener el punto real de la línea.
+        // GetPoint usa el OSNAP NEAREST configurado por COTAK.
         var pointOptions = new PromptPointOptions(
             "\nHaga clic sobre la línea (ESC para salir): ");
 
@@ -75,6 +85,8 @@ public sealed class CotaTool
             return true;
         }
 
+        // Una línea tiene exactamente dos vértices. La cota se construye
+        // entre esos dos extremos, no entre el clic y el centro.
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
         Point3d dimensionLinePoint = midpoint + normal * OffsetFromLine;
@@ -92,6 +104,8 @@ public sealed class CotaTool
 
         editor.Regen();
 
+        // La cota ya es visible. El usuario puede escribir un valor alterno.
+        // ENTER conserva la medición real de la cota.
         var textOptions = new PromptStringOptions(
             "\nTexto de cota (ENTER para conservar la medida): ")
         {
@@ -108,6 +122,8 @@ public sealed class CotaTool
         if (textResult.Status == PromptStatus.OK && !string.IsNullOrWhiteSpace(textResult.StringResult))
             SetDimensionText(document.Database, dimensionId, textResult.StringResult);
 
+        // Las capas contienen '-' y '_', y AutoCAD no permite '_' dentro de
+        // keywords. Por eso usamos una selección numérica robusta.
         string? layerName = SelectLayer(document.Database, editor, type);
         if (layerName is null)
         {
@@ -142,13 +158,18 @@ public sealed class CotaTool
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
             database.CurrentSpaceId, OpenMode.ForWrite);
 
+        // Se conserva el DimStyle activo del DWG. DIMSCALE se aplica como
+        // override individual de esta cota para no modificar el archivo.
         var dimension = new RotatedDimension(
             rotation,
             startPoint,
             endPoint,
             dimensionLinePoint,
             string.Empty,
-            database.Dimstyle);
+            database.Dimstyle)
+        {
+            Dimscale = OverallDimensionScale
+        };
 
         currentSpace.AppendEntity(dimension);
         transaction.AddNewlyCreatedDBObject(dimension, true);
@@ -207,34 +228,57 @@ public sealed class CotaTool
         var available = new List<string>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
-            LayerTable table = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+            LayerTable table = (LayerTable)transaction.GetObject(
+                database.LayerTableId,
+                OpenMode.ForRead);
+
             foreach (string name in preferred)
             {
                 if (table.Has(name))
                     available.Add(name);
             }
+
             transaction.Commit();
         }
 
         if (available.Count == 0)
         {
-            editor.WriteMessage($"\nNo existe ninguna capa disponible para {type}: {string.Join(", ", preferred)}.\n");
+            editor.WriteMessage(
+                $"\nNo existe ninguna capa disponible para {type}: {string.Join(", ", preferred)}.\n");
             return null;
         }
 
-        var options = new PromptKeywordOptions(
-            $"\nSeleccione capa [{string.Join("/", available)}]: ");
-        foreach (string name in available)
-            options.Keywords.Add(name);
+        var options = new PromptIntegerOptions("\nSeleccione capa por número: ")
+        {
+            AllowNone = false,
+            AllowZero = false,
+            AllowNegative = false
+        };
 
-        PromptResult result = editor.GetKeywords(options);
-        return result.Status == PromptStatus.OK ? result.StringResult : null;
+        // Las capas no se registran como keywords porque '_' está reservado
+        // por AutoCAD dentro del sistema de keywords.
+        for (int index = 0; index < available.Count; index++)
+            editor.WriteMessage($"\n  {index + 1} = {available[index]}");
+
+        PromptIntegerResult result = editor.GetInteger(options);
+        if (result.Status != PromptStatus.OK ||
+            result.Value < 1 ||
+            result.Value > available.Count)
+        {
+            editor.WriteMessage("\nSelección de capa no válida.\n");
+            return null;
+        }
+
+        return available[result.Value - 1];
     }
 
     private static short SelectColor(Editor editor)
     {
-        var options = new PromptKeywordOptions(
-            "\nSeleccione color [Verde/Rojo/Gris/Amarillo/Morado/Azul/Naranja/Cyan]: ");
+        var options = new PromptKeywordOptions("\nSeleccione color: ")
+        {
+            AllowNone = false
+        };
+
         options.Keywords.Add("Verde");
         options.Keywords.Add("Rojo");
         options.Keywords.Add("Gris");
@@ -277,7 +321,9 @@ public sealed class CotaTool
         short colorIndex)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        LayerTable layerTable = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+        LayerTable layerTable = (LayerTable)transaction.GetObject(
+            database.LayerTableId,
+            OpenMode.ForRead);
         ObjectId layerId = layerTable[layerName];
 
         if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is Dimension dimension)
@@ -285,6 +331,7 @@ public sealed class CotaTool
             dimension.LayerId = layerId;
             dimension.ColorIndex = colorIndex;
         }
+
         transaction.Commit();
     }
 
