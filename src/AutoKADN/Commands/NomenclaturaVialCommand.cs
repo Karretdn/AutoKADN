@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using AutoKADN.Tools.Anotaciones;
+using AutoKADN.Tools.Acotado;
 using AutoKADN.Tools.NomenclaturaPredial;
 using AutoKADN.Tools.NomenclaturaVial;
 
@@ -41,5 +42,11 @@ public class NomenclaturaVialCommand
     public void Limites()
     {
         new LimiteTool().Run();
+    }
+
+    [CommandMethod("COTAK", CommandFlags.Modal)]
+    public void Acotado()
+    {
+        new CotaTool().Run();
     }
 }
