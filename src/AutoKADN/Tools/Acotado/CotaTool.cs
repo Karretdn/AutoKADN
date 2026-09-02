@@ -27,6 +27,7 @@ public sealed class CotaTool
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
+
             while (true)
             {
                 if (!CreateDimensionFromLine(document, editor, type))
@@ -41,12 +42,10 @@ public sealed class CotaTool
 
     private static string? SelectType(Editor editor)
     {
-        var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC]: ")
-        {
-            AllowNone = false
-        };
+        var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC]: ");
         options.Keywords.Add("Longitud");
         options.Keywords.Add("UC");
+
         PromptResult result = editor.GetKeywords(options);
         return result.Status == PromptStatus.OK ? result.StringResult : null;
     }
@@ -56,19 +55,21 @@ public sealed class CotaTool
         Editor editor,
         string type)
     {
-        var pointOptions = new PromptPointOptions("\nHaga clic sobre la línea (ESC para salir): ")
-        {
-            AllowNone = false,
-            UserInputControls = UserInputControls.Accept3dCoordinates
-                | UserInputControls.NoZeroResponseAccepted
-        };
+        // GetPoint usa directamente los OSNAP activos de AutoCAD. En LIMIK/COTAK
+        // dejamos únicamente NEAREST activo para obtener el punto real de la línea.
+        var pointOptions = new PromptPointOptions(
+            "\nHaga clic sobre la línea (ESC para salir): ");
 
         PromptPointResult pointResult = editor.GetPoint(pointOptions);
         if (pointResult.Status != PromptStatus.OK)
             return false;
 
-        if (!FindLineAtPoint(document.Database, pointResult.Value,
-                out Point3d startPoint, out Point3d endPoint, out Vector3d direction))
+        if (!FindLineAtPoint(
+                document.Database,
+                pointResult.Value,
+                out Point3d startPoint,
+                out Point3d endPoint,
+                out Vector3d direction))
         {
             editor.WriteMessage("\nEl punto seleccionado no corresponde a una línea válida.\n");
             return true;
@@ -79,21 +80,24 @@ public sealed class CotaTool
         Point3d dimensionLinePoint = midpoint + normal * OffsetFromLine;
         double rotation = Math.Atan2(direction.Y, direction.X);
 
-        ObjectId dimensionId = CreateDimension(document.Database,
-            startPoint, endPoint, dimensionLinePoint, rotation);
+        ObjectId dimensionId = CreateDimension(
+            document.Database,
+            startPoint,
+            endPoint,
+            dimensionLinePoint,
+            rotation);
+
         if (dimensionId == ObjectId.Null)
             return true;
 
         editor.Regen();
 
-        // La cota aparece primero. El usuario puede sobrescribir el texto;
-        // ENTER vacío conserva el valor calculado por AutoCAD.
         var textOptions = new PromptStringOptions(
             "\nTexto de cota (ENTER para conservar la medida): ")
         {
-            AllowSpaces = true,
-            AllowNone = true
+            AllowSpaces = true
         };
+
         PromptResult textResult = editor.GetString(textOptions);
         if (textResult.Status == PromptStatus.Cancel)
         {
@@ -111,8 +115,6 @@ public sealed class CotaTool
             return false;
         }
 
-        // COTA de Longitud usa el color propio de la capa. COTA UC, además,
-        // permite seleccionar explícitamente el atributo de color solicitado.
         short colorIndex = 256;
         if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
         {
@@ -140,7 +142,6 @@ public sealed class CotaTool
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
             database.CurrentSpaceId, OpenMode.ForWrite);
 
-        // El estilo es exactamente el DimStyle actualmente activo en el DWG.
         var dimension = new RotatedDimension(
             rotation,
             startPoint,
@@ -182,13 +183,13 @@ public sealed class CotaTool
             if (distance > PointTolerance || distance >= bestDistance)
                 continue;
 
-            Vector3d vector = line.EndPoint - line.StartPoint;
-            if (vector.Length <= Tolerance.Global.EqualPoint)
+            Vector3d segmentVector = line.EndPoint - line.StartPoint;
+            if (segmentVector.Length <= Tolerance.Global.EqualPoint)
                 continue;
 
             startPoint = line.StartPoint;
             endPoint = line.EndPoint;
-            direction = vector.GetNormal();
+            direction = segmentVector.GetNormal();
             bestDistance = distance;
             found = true;
         }
@@ -222,10 +223,7 @@ public sealed class CotaTool
         }
 
         var options = new PromptKeywordOptions(
-            $"\nSeleccione capa [{string.Join("/", available)}]: ")
-        {
-            AllowNone = false
-        };
+            $"\nSeleccione capa [{string.Join("/", available)}]: ");
         foreach (string name in available)
             options.Keywords.Add(name);
 
@@ -236,10 +234,7 @@ public sealed class CotaTool
     private static short SelectColor(Editor editor)
     {
         var options = new PromptKeywordOptions(
-            "\nSeleccione color [Verde/Rojo/Gris/Amarillo/Morado/Azul/Naranja/Cyan]: ")
-        {
-            AllowNone = false
-        };
+            "\nSeleccione color [Verde/Rojo/Gris/Amarillo/Morado/Azul/Naranja/Cyan]: ");
         options.Keywords.Add("Verde");
         options.Keywords.Add("Rojo");
         options.Keywords.Add("Gris");
