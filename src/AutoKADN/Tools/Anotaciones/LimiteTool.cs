@@ -7,7 +7,7 @@ namespace AutoKADN.Tools.Anotaciones;
 public sealed class LimiteTool
 {
     private const double OffsetFromLine = 1.10;
-    private const double TextHeight = 1.45;
+    private const double TextHeight = 2.40;
     private const short NearestObjectSnap = 512;
     private const double GeometryMatchTolerance = 1e-6;
 
