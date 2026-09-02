@@ -51,6 +51,7 @@ public sealed class AutoKADNRibbon
         panelSource.Items.Add(CreateButton("NOMENK", "Nomenclatura", "NOMENK", CreateNomenclaturaIcon()));
         panelSource.Items.Add(CreateButton("LIMIK", "Límites", "LIMIK", CreateLimiteIcon()));
         panelSource.Items.Add(CreateButton("COTAK", "Cota", "COTAK", CreateCotaIcon()));
+        panelSource.Items.Add(CreateButton("ANOTACIONES", "Anotaciones", "ANOTACIONES", CreateAnotacionesIcon()));
 
         tab.Panels.Add(panel);
         ComponentManager.Ribbon.Tabs.Add(tab);
@@ -108,6 +109,19 @@ public sealed class AutoKADNRibbon
         return new DrawingImage(group);
     }
 
+    private static DrawingImage CreateAnotacionesIcon()
+    {
+        var group = new DrawingGroup();
+        using DrawingContext dc = group.Open();
+        var pen = new Pen(Brushes.White, 2.2);
+        dc.DrawLine(pen, new System.Windows.Point(5, 32), new System.Windows.Point(35, 8));
+        dc.DrawLine(pen, new System.Windows.Point(8, 10), new System.Windows.Point(32, 10));
+        dc.DrawLine(pen, new System.Windows.Point(8, 16), new System.Windows.Point(28, 16));
+        dc.DrawLine(pen, new System.Windows.Point(8, 22), new System.Windows.Point(25, 22));
+        dc.DrawLine(pen, new System.Windows.Point(8, 28), new System.Windows.Point(22, 28));
+        return new DrawingImage(group);
+    }
+
     private sealed class RibbonCommandHandler : ICommand
     {
         private readonly string _command;
@@ -117,8 +131,6 @@ public sealed class AutoKADNRibbon
             _command = command;
         }
 
-        // ICommand exige este miembro aunque AutoKADN no necesite notificar cambios.
-        // Los accesores vacíos evitan la advertencia de evento nunca utilizado.
         public event EventHandler? CanExecuteChanged
         {
             add { }
@@ -131,9 +143,6 @@ public sealed class AutoKADNRibbon
         {
             Document? document = Application.DocumentManager.MdiActiveDocument;
             if (document is null) return;
-
-            // Toda herramienta de AutoKADN es exclusiva: al pulsar otra herramienta
-            // se cancela cualquier comando/jig activo antes de iniciar el nuevo.
             document.SendStringToExecute($"\u0003\u0003{_command} ", true, false, false);
         }
     }
