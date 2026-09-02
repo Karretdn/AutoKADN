@@ -16,7 +16,7 @@ public sealed class LimiteTool
             return;
 
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[KARP_NOMVIAL] Anotación Límite. ESC para salir.\n");
+        editor.WriteMessage("\n[LIMIK] Límites. ESC para salir. Clic derecho para cambiar LB/LP/LC.\n");
 
         string? limite = SeleccionarLimite(editor);
         if (limite is null)
@@ -25,18 +25,36 @@ public sealed class LimiteTool
         while (true)
         {
             PromptEntityOptions entityOptions = new PromptEntityOptions(
-                $"\nSeleccione la línea para colocar {limite} (ESC para salir): ");
+                $"\nSeleccione la línea para colocar {limite} (clic derecho = cambiar tipo, ESC = salir): ");
             entityOptions.SetRejectMessage("\nDebe seleccionar una línea o una polilínea.");
             entityOptions.AddAllowedClass(typeof(Line), true);
             entityOptions.AddAllowedClass(typeof(Polyline), true);
 
             PromptEntityResult entityResult = editor.GetEntity(entityOptions);
+
+            // Con el clic derecho configurado como ENTER, AutoCAD devuelve None.
+            // Lo usamos como acceso rápido para cambiar LB/LP/LC sin salir.
+            if (entityResult.Status == PromptStatus.None)
+            {
+                limite = SeleccionarLimite(editor, limite);
+                if (limite is null)
+                    return;
+                continue;
+            }
+
             if (entityResult.Status != PromptStatus.OK)
                 return;
 
-            if (!ObtenerSegmentoSeleccionado(document.Database, entityResult.ObjectId, entityResult.PickedPoint,
-                    out Point3d pointOnLine, out Vector3d direction))
+            if (!ObtenerSegmentoSeleccionado(
+                    document.Database,
+                    entityResult.ObjectId,
+                    entityResult.PickedPoint,
+                    out Point3d pointOnLine,
+                    out Vector3d direction))
+            {
+                editor.WriteMessage("\nNo se pudo determinar el segmento seleccionado.\n");
                 continue;
+            }
 
             Point3d textPosition = CalcularPosicionTexto(pointOnLine, direction);
             double rotation = CalcularRotacionParalela(direction);
@@ -46,17 +64,32 @@ public sealed class LimiteTool
         }
     }
 
-    private static string? SeleccionarLimite(Editor editor)
+    private static string? SeleccionarLimite(Editor editor, string? actual = null)
     {
-        var options = new PromptKeywordOptions("\nSeleccione límite [LB/LP]: ") { AllowNone = false };
+        string mensaje = actual is null
+            ? "\nSeleccione límite [LB/LP/LC]: "
+            : $"\nCambiar límite [LB/LP/LC] (actual: {actual}): ";
+
+        var options = new PromptKeywordOptions(mensaje)
+        {
+            AllowNone = false
+        };
         options.Keywords.Add("LB");
         options.Keywords.Add("LP");
+        options.Keywords.Add("LC");
+
         PromptResult result = editor.GetKeywords(options);
-        return result.Status == PromptStatus.OK ? result.StringResult.ToUpperInvariant() : null;
+        return result.Status == PromptStatus.OK
+            ? result.StringResult.ToUpperInvariant()
+            : null;
     }
 
-    private static bool ObtenerSegmentoSeleccionado(Database database, ObjectId objectId, Point3d pickedPoint,
-        out Point3d pointOnLine, out Vector3d direction)
+    private static bool ObtenerSegmentoSeleccionado(
+        Database database,
+        ObjectId objectId,
+        Point3d pickedPoint,
+        out Point3d pointOnLine,
+        out Vector3d direction)
     {
         pointOnLine = Point3d.Origin;
         direction = Vector3d.XAxis;
@@ -114,8 +147,12 @@ public sealed class LimiteTool
         return rotation;
     }
 
-    private static bool CrearTextoConGiro(Editor editor, Database database, Point3d position,
-        double rotation, string content)
+    private static bool CrearTextoConGiro(
+        Editor editor,
+        Database database,
+        Point3d position,
+        double rotation,
+        string content)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
@@ -137,8 +174,6 @@ public sealed class LimiteTool
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
-        // El texto ya nace con la orientacion de la linea. El jig solo espera
-        // la confirmacion, sin permitir que la posicion se desplace.
         var jig = new LimiteTextJig(text, position, rotation);
         PromptResult result = editor.Drag(jig);
 
@@ -182,8 +217,6 @@ public sealed class LimiteTool
             if (result.Status == PromptStatus.Cancel)
                 return SamplerStatus.Cancel;
 
-            // Cuando AutoCAD tiene el clic derecho configurado como Enter,
-            // el punto llega como None. Se acepta como confirmacion.
             if (result.Status == PromptStatus.None)
                 return SamplerStatus.OK;
 
