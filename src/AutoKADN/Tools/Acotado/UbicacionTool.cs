@@ -51,7 +51,7 @@ public sealed class UbicacionTool
 
     private static bool CreateUbicacion(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor)
     {
-        var pointOptions = new PromptPointOptions("\nSeleccione un snap sobre la línea (ESC o clic derecho para salir): ")
+        var pointOptions = new PromptPointOptions("\nSeleccione un snap sobre la línea: ")
         {
             AllowNone = true
         };
@@ -84,7 +84,14 @@ public sealed class UbicacionTool
         if (baseNormal.Y < 0.0)
             baseNormal = -baseNormal;
 
-        if (!FindNearestOppositeLine(sourcePoint, baseNormal, candidates, out Point3d initialTarget))
+        // La línea de enfrente debe ser paralela a la línea seleccionada,
+        // mientras que la búsqueda hacia ella se hace perpendicularmente.
+        if (!FindNearestOppositeLine(
+                sourcePoint,
+                sourceDirection,
+                baseNormal,
+                candidates,
+                out Point3d initialTarget))
         {
             editor.WriteMessage("\nNo se encontró una línea recta paralela de enfrente.\n");
             return true;
@@ -121,7 +128,7 @@ public sealed class UbicacionTool
         editor.Regen();
 
         PromptResult textResult = editor.GetString(
-            new PromptStringOptions("\nIngrese el valor de la cota y presione ENTER (ESC o clic derecho para cancelar): ")
+            new PromptStringOptions("\nIngrese el valor de la cota: ")
             {
                 AllowSpaces = false,
                 UseDefaultValue = false
@@ -349,6 +356,7 @@ public sealed class UbicacionTool
 
     private static bool FindNearestOppositeLine(
         Point3d sourcePoint,
+        Vector3d lineDirection,
         Vector3d searchDirection,
         IReadOnlyList<StraightSegment> candidates,
         out Point3d target)
@@ -359,9 +367,11 @@ public sealed class UbicacionTool
 
         foreach (StraightSegment candidate in candidates)
         {
-            if (!AreParallel(candidate.Direction, searchDirection))
+            // La candidata correcta debe ser paralela a la línea de origen.
+            if (!AreParallel(candidate.Direction, lineDirection))
                 continue;
 
+            // La intersección se busca sobre un rayo perpendicular a la línea de origen.
             if (!TryIntersectRayWithSegment(
                     sourcePoint,
                     searchDirection,
