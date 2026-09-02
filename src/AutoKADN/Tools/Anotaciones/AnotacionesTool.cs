@@ -61,10 +61,7 @@ public sealed class AnotacionesTool
         startPoint = Point3d.Origin;
         endPoint = Point3d.Origin;
 
-        var firstOptions = new PromptPointOptions("\nPrimer punto de la línea (ESC o clic derecho para salir): ")
-        {
-            AllowNone = true
-        };
+        var firstOptions = new PromptPointOptions("\nPrimer punto de la línea (ESC o clic derecho para salir): ") { AllowNone = true };
         PromptPointResult first = editor.GetPoint(firstOptions);
         if (first.Status != PromptStatus.OK) return false;
 
@@ -90,25 +87,37 @@ public sealed class AnotacionesTool
 
     private static string? SelectAnnotationType(Editor editor)
     {
+        // El menú utiliza claves numéricas deliberadamente. Así la selección
+        // visual de AutoCAD queda desacoplada de cualquier traducción, espacios,
+        // guiones bajos o coincidencia de prefijos entre nombres.
         var options = new PromptKeywordOptions(
-            "\nSeleccione tipo de anotación [ESPIRAL/CAMISA/PANTALLA/CRUCE CON TOPO/EMPEDRADO/VIGA EN CONCRETO/LIBRE] (ESC o clic derecho para cancelar): ")
+            "\nSeleccione tipo de anotación [ESPIRAL/CAMISA/PANTALLA/CRUCE CON TOPO/EMPEDRADO/VIGA EN CONCRETO/LIBRE]: ")
         {
             AllowNone = true
         };
 
-        // AutoCAD 2022 expone el overload de 5 parámetros:
-        // globalName, localName, displayName, enabled, visible.
-        // Los nombres internos son únicos para evitar cualquier cruce entre etiquetas.
-        options.Keywords.Add("ESPIRAL", "ESPIRAL", "ESPIRAL", true, true);
-        options.Keywords.Add("CAMISA", "CAMISA", "CAMISA", true, true);
-        options.Keywords.Add("PANTALLA", "PANTALLA", "PANTALLA", true, true);
-        options.Keywords.Add("CRUCE_TOPO", "CRUCE_TOPO", "CRUCE CON TOPO", true, true);
-        options.Keywords.Add("EMPEDRADO", "EMPEDRADO", "EMPEDRADO", true, true);
-        options.Keywords.Add("VIGA_CONCRETO", "VIGA_CONCRETO", "VIGA EN CONCRETO", true, true);
-        options.Keywords.Add("LIBRE", "LIBRE", "LIBRE", true, true);
+        options.Keywords.Add("1", "1", "ESPIRAL", true, true);
+        options.Keywords.Add("2", "2", "CAMISA", true, true);
+        options.Keywords.Add("3", "3", "PANTALLA", true, true);
+        options.Keywords.Add("4", "4", "CRUCE CON TOPO", true, true);
+        options.Keywords.Add("5", "5", "EMPEDRADO", true, true);
+        options.Keywords.Add("6", "6", "VIGA EN CONCRETO", true, true);
+        options.Keywords.Add("7", "7", "LIBRE", true, true);
 
         PromptResult result = editor.GetKeywords(options);
-        return result.Status == PromptStatus.OK ? result.StringResult : null;
+        if (result.Status != PromptStatus.OK) return null;
+
+        return result.StringResult switch
+        {
+            "1" => "ESPIRAL",
+            "2" => "CAMISA",
+            "3" => "PANTALLA",
+            "4" => "CRUCE_TOPO",
+            "5" => "EMPEDRADO",
+            "6" => "VIGA_CONCRETO",
+            "7" => "LIBRE",
+            _ => null
+        };
     }
 
     private static string? BuildAnnotation(Editor editor, string type)
@@ -169,29 +178,21 @@ public sealed class AnotacionesTool
     {
         string? pipe = ReadNumber(editor, "METROS DE TUBERIA DE 3/4\"?");
         if (pipe is null) return null;
-
         string? unions = ReadNumber(editor, "CANTIDAD DE UNIONES DE 3/4\"?");
         if (unions is null) return null;
-
         string? tees = ReadNumber(editor, "CANTIDAD DE TEE DE 3/4\"?");
         if (tees is null) return null;
-
         string? valves = ReadNumber(editor, "VALVULA DE 3/4\"?");
         if (valves is null) return null;
-
         string? saddles = ReadNumber(editor, "SILLETA?");
         if (saddles is null) return null;
 
         string saddleDiameter = string.Empty;
         if (!IsZero(saddles))
         {
-            var diameterOptions = new PromptStringOptions("DIAMETRO DE SILLETA? (puede escribir signos y números): ")
-            {
-                AllowSpaces = false
-            };
+            var diameterOptions = new PromptStringOptions("DIAMETRO DE SILLETA? (puede escribir signos y números): ") { AllowSpaces = false };
             PromptResult diameterResult = editor.GetString(diameterOptions);
             if (diameterResult.Status != PromptStatus.OK) return null;
-
             saddleDiameter = diameterResult.StringResult.Trim();
             if (saddleDiameter.Length == 0) return null;
         }
@@ -223,12 +224,9 @@ public sealed class AnotacionesTool
         {
             PromptResult result = editor.GetString(options);
             if (result.Status != PromptStatus.OK) return null;
-
             string value = result.StringResult.Trim();
-            if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number)
-                && number >= 0.0)
+            if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number) && number >= 0.0)
                 return value;
-
             editor.WriteMessage("\nIngrese una cantidad numérica mayor o igual a cero.\n");
         }
     }
