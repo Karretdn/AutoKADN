@@ -73,17 +73,32 @@ public sealed class TextCreationService
         // El centro ya fue calculado antes de entrar al jig.
         // Desde este punto el mouse solamente controla la rotacion.
         var jig = new NomenclaturaTextJig(text, centerPosition, ObtenerModoOrto());
-        PromptResult result = editor.Drag(jig);
 
-        if (result.Status != PromptStatus.OK)
+        // AcquireAngle respeta ORTHOMODE internamente. Cuando ORTHOMODE esta
+        // activo, eso puede interferir con nuestro propio snap de 90 grados.
+        // Lo desactivamos solamente durante el jig y lo restauramos siempre al salir.
+        object originalOrthoMode = Application.GetSystemVariable("ORTHOMODE");
+
+        try
         {
-            text.Erase();
-            transaction.Commit();
-            return false;
-        }
+            Application.SetSystemVariable("ORTHOMODE", 0);
 
-        transaction.Commit();
-        return true;
+            PromptResult result = editor.Drag(jig);
+
+            if (result.Status != PromptStatus.OK)
+            {
+                text.Erase();
+                transaction.Commit();
+                return false;
+            }
+
+            transaction.Commit();
+            return true;
+        }
+        finally
+        {
+            Application.SetSystemVariable("ORTHOMODE", originalOrthoMode);
+        }
     }
 
     private static Point3d? ObtenerCentroEntreLineas(Point3d clickPoint)
@@ -293,6 +308,9 @@ public sealed class TextCreationService
 
             double angle = result.Value;
 
+            // Se o ORTHOMODE estava ativo antes do jig, fazemos nos mesmos
+            // pontos cardeais (0/90/180/270), mas agora sem o snap interno do
+            // AutoCAD interferir com o movimento do cursor.
             if (_orthoEnabled)
             {
                 double quarterTurn = Math.PI / 2.0;
