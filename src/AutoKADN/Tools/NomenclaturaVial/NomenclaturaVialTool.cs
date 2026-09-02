@@ -1,3 +1,4 @@
+using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using AutoKADN.Core;
@@ -46,8 +47,11 @@ public sealed class NomenclaturaVialTool
 
             string content = $"{tipo} {numero} - {pavimento}";
 
-            _textCreationService.CreateText(position, content);
+            if (!_textCreationService.CreateTextWithJig(position, content))
+                break;
+
             editor.WriteMessage($"\nTexto creado: {content}\n");
+            break;
         }
 
         editor.WriteMessage("\n[KARP_NOMVIAL] Herramienta finalizada.\n");
