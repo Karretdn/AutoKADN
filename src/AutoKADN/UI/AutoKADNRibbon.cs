@@ -114,10 +114,16 @@ public sealed class AutoKADNRibbon
         public RibbonCommandHandler(string command) => _command = command;
         public event EventHandler? CanExecuteChanged;
         public bool CanExecute(object? parameter) => true;
+
         public void Execute(object? parameter)
         {
             Document? document = Application.DocumentManager.MdiActiveDocument;
-            document?.SendStringToExecute($"{_command} ", true, false, false);
+            if (document is null) return;
+
+            // Toda herramienta de AutoKADN es exclusiva: al pulsar otra herramienta
+            // se envía una cancelación equivalente a ESC antes de iniciar el nuevo comando.
+            // Los dos Ctrl+C cubren tanto prompts como jigs activos.
+            document.SendStringToExecute($"\u0003\u0003{_command} ", true, false, false);
         }
     }
 }
