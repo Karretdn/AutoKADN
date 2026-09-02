@@ -24,25 +24,15 @@ public sealed class LimiteTool
 
         try
         {
-            // GetPoint permite que AutoCAD muestre el marcador real de OSNAP
-            // (Cercano) en lugar del pickbox de GetEntity.
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
-                "OSMODE", NearestObjectSnap);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
 
             while (true)
             {
+                // GetPoint muestra el marcador real de OSNAP de AutoCAD.
+                // No usamos GetEntity, por lo que no aparece el pickbox.
                 var pointOptions = new PromptPointOptions(
-                    "\nHaga clic sobre la línea (ESC para salir): ")
-                {
-                    AllowNone = false,
-                    UseBasePoint = false,
-                    UserInputControls = UserInputControls.Accept3dCoordinates
-                        | UserInputControls.NoZeroResponseAccepted
-                };
+                    "\nHaga clic sobre la línea (ESC para salir): ");
 
-                // PRIMER Y ÚNICO CLIC: AutoCAD aplica OSNAP NEAREST y devuelve
-                // el punto exacto sobre la línea. No se usa GetEntity, por lo
-                // que desaparece el cuadrado de selección.
                 PromptPointResult pointResult = editor.GetPoint(pointOptions);
                 if (pointResult.Status != PromptStatus.OK)
                     return;
@@ -58,8 +48,6 @@ public sealed class LimiteTool
                     continue;
                 }
 
-                // Se elige el tipo después del clic. Al escogerlo se coloca
-                // inmediatamente y se vuelve a pedir el siguiente punto.
                 string? limite = SeleccionarLimite(editor);
                 if (limite is null)
                     return;
@@ -69,15 +57,13 @@ public sealed class LimiteTool
         }
         finally
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
-                "OSMODE", originalOsMode);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode);
         }
     }
 
     private static string? SeleccionarLimite(Editor editor)
     {
-        var options = new PromptKeywordOptions(
-            "\n¿Qué desea colocar? [LB/LP/LC]: ")
+        var options = new PromptKeywordOptions("\n¿Qué desea colocar? [LB/LP/LC]: ")
         {
             AllowNone = false
         };
@@ -110,8 +96,8 @@ public sealed class LimiteTool
         {
             if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
             {
-                Vector3d vector = line.EndPoint - line.StartPoint;
-                if (vector.Length <= Tolerance.Global.EqualPoint)
+                Vector3d lineVector = line.EndPoint - line.StartPoint;
+                if (lineVector.Length <= Tolerance.Global.EqualPoint)
                     continue;
 
                 Point3d closest = line.GetClosestPointTo(point, false);
@@ -120,7 +106,7 @@ public sealed class LimiteTool
                 if (distance <= GeometryMatchTolerance && distance < bestDistance)
                 {
                     bestDistance = distance;
-                    direction = vector.GetNormal();
+                    direction = lineVector.GetNormal();
                     found = true;
                 }
 
@@ -151,13 +137,13 @@ public sealed class LimiteTool
 
             Point3d start = polyline.GetPoint3dAt(segmentIndex);
             Point3d end = polyline.GetPoint3dAt((segmentIndex + 1) % polyline.NumberOfVertices);
-            Vector3d vector = end - start;
+            Vector3d segmentVector = end - start;
 
-            if (vector.Length <= Tolerance.Global.EqualPoint)
+            if (segmentVector.Length <= Tolerance.Global.EqualPoint)
                 continue;
 
             bestDistance = polyDistance;
-            direction = vector.GetNormal();
+            direction = segmentVector.GetNormal();
             found = true;
         }
 
@@ -167,8 +153,6 @@ public sealed class LimiteTool
 
     private static Point3d CalcularPosicionTexto(Point3d pointOnLine, Vector3d direction)
     {
-        // El clic fija exactamente el punto del eje. El texto queda 1.10
-        // unidades por encima/perpendicular a la línea.
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
         return pointOnLine + normal * OffsetFromLine;
     }
