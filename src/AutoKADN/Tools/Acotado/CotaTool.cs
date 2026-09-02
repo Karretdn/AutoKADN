@@ -79,7 +79,7 @@ public sealed class CotaTool
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
 
-        // Posición inicial: por encima de la línea.
+        // Posición inicial para visualizar la cota antes de moverla.
         if (normal.Y < 0.0)
             normal = -normal;
 
@@ -121,15 +121,15 @@ public sealed class CotaTool
             return true;
         }
 
-        // La capa determina el color mediante ByLayer.
         if (!SetDimensionAppearance(document.Database, dimensionId, layerName))
         {
             EraseDimension(document.Database, dimensionId);
             return true;
         }
 
-        // Después de elegir la capa, la cota queda viva bajo el mouse para
-        // escoger visualmente el lado y la separación respecto a la línea.
+        // La cota ya tiene su capa. Ahora se mantiene abierta para escritura
+        // durante todo el Drag; esto es necesario para que EntityJig pueda
+        // modificar DimLinePoint sin provocar eNotOpenForWrite.
         if (!MoveDimensionToSide(
                 document,
                 editor,
@@ -183,22 +183,28 @@ public sealed class CotaTool
         Point3d midpoint,
         Vector3d normal)
     {
-        RotatedDimension? dimension;
+        using Transaction transaction = document.Database.TransactionManager.StartTransaction();
 
-        using (Transaction transaction = document.Database.TransactionManager.StartTransaction())
+        var dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as RotatedDimension;
+        if (dimension is null)
         {
-            dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as RotatedDimension;
-            if (dimension is null)
-                return false;
-
-            transaction.Commit();
+            transaction.Abort();
+            return false;
         }
 
         var jig = new DimensionSideJig(dimension, midpoint, normal);
         editor.WriteMessage("\nMueva el mouse hacia el lado deseado y haga clic para fijar la cota.\n");
 
         PromptResult result = editor.Drag(jig);
-        return result.Status == PromptStatus.OK;
+
+        if (result.Status == PromptStatus.OK)
+        {
+            transaction.Commit();
+            return true;
+        }
+
+        transaction.Abort();
+        return false;
     }
 
     private static bool FindLineAtPoint(
