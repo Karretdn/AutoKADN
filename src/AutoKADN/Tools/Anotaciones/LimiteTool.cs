@@ -6,7 +6,8 @@ namespace AutoKADN.Tools.Anotaciones;
 
 public sealed class LimiteTool
 {
-    private const double OffsetFromLine = 0.75;
+    private const double OffsetFromLine = 1.10;
+    private const double TextHeight = 1.45;
 
     public void Run()
     {
@@ -33,16 +34,9 @@ public sealed class LimiteTool
             if (entityResult.Status != PromptStatus.OK)
                 return;
 
-            if (!ObtenerSegmentoSeleccionado(
-                    document.Database,
-                    entityResult.ObjectId,
-                    entityResult.PickedPoint,
-                    out Point3d pointOnLine,
-                    out Vector3d direction))
-            {
-                editor.WriteMessage("\nNo se pudo determinar el segmento seleccionado.\n");
+            if (!ObtenerSegmentoSeleccionado(document.Database, entityResult.ObjectId, entityResult.PickedPoint,
+                    out Point3d pointOnLine, out Vector3d direction))
                 continue;
-            }
 
             Point3d textPosition = CalcularPosicionTexto(pointOnLine, direction);
             double rotation = CalcularRotacionParalela(direction);
@@ -54,37 +48,24 @@ public sealed class LimiteTool
 
     private static string? SeleccionarLimite(Editor editor)
     {
-        var options = new PromptKeywordOptions("\nSeleccione límite [LB/LP]: ")
-        {
-            AllowNone = false
-        };
+        var options = new PromptKeywordOptions("\nSeleccione límite [LB/LP]: ") { AllowNone = false };
         options.Keywords.Add("LB");
         options.Keywords.Add("LP");
-
         PromptResult result = editor.GetKeywords(options);
-        return result.Status == PromptStatus.OK
-            ? result.StringResult.ToUpperInvariant()
-            : null;
+        return result.Status == PromptStatus.OK ? result.StringResult.ToUpperInvariant() : null;
     }
 
-    private static bool ObtenerSegmentoSeleccionado(
-        Database database,
-        ObjectId objectId,
-        Point3d pickedPoint,
-        out Point3d pointOnLine,
-        out Vector3d direction)
+    private static bool ObtenerSegmentoSeleccionado(Database database, ObjectId objectId, Point3d pickedPoint,
+        out Point3d pointOnLine, out Vector3d direction)
     {
         pointOnLine = Point3d.Origin;
         direction = Vector3d.XAxis;
-
         using Transaction transaction = database.TransactionManager.StartTransaction();
 
         if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
         {
             Vector3d vector = line.EndPoint - line.StartPoint;
-            if (vector.Length <= Tolerance.Global.EqualPoint)
-                return false;
-
+            if (vector.Length <= Tolerance.Global.EqualPoint) return false;
             direction = vector.GetNormal();
             pointOnLine = line.GetClosestPointTo(pickedPoint, false);
             transaction.Commit();
@@ -93,35 +74,24 @@ public sealed class LimiteTool
 
         if (transaction.GetObject(objectId, OpenMode.ForRead) is Polyline polyline)
         {
-            if (polyline.NumberOfVertices < 2)
-                return false;
-
+            if (polyline.NumberOfVertices < 2) return false;
             Point3d closestPoint = polyline.GetClosestPointTo(pickedPoint, false);
             double parameter = polyline.GetParameterAtPoint(closestPoint);
             int segmentIndex = (int)Math.Floor(parameter);
 
             if (segmentIndex >= polyline.NumberOfVertices - 1)
-            {
-                if (!polyline.Closed)
-                    segmentIndex = polyline.NumberOfVertices - 2;
-                else
-                    segmentIndex = polyline.NumberOfVertices - 1;
-            }
+                segmentIndex = polyline.Closed ? polyline.NumberOfVertices - 1 : polyline.NumberOfVertices - 2;
 
-            if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line)
-                return false;
+            if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line) return false;
 
             Point3d start = polyline.GetPoint3dAt(segmentIndex);
             Point3d end = polyline.GetPoint3dAt((segmentIndex + 1) % polyline.NumberOfVertices);
             Vector3d vector = end - start;
-
-            if (vector.Length <= Tolerance.Global.EqualPoint)
-                return false;
+            if (vector.Length <= Tolerance.Global.EqualPoint) return false;
 
             direction = vector.GetNormal();
-            double distanceAlong = Math.Max(
-                0.0,
-                Math.Min(vector.Length, (closestPoint - start).DotProduct(direction)));
+            double distanceAlong = Math.Max(0.0, Math.Min(vector.Length,
+                (closestPoint - start).DotProduct(direction)));
             pointOnLine = start + direction * distanceAlong;
             transaction.Commit();
             return true;
@@ -138,34 +108,23 @@ public sealed class LimiteTool
 
     private static double CalcularRotacionParalela(Vector3d direction)
     {
-        // La referencia visual del plano muestra que LB/LP deben seguir
-        // la misma direccion de la linea seleccionada.
         double rotation = Math.Atan2(direction.Y, direction.X);
-
-        // Mantener el texto legible: nunca queda boca abajo.
         if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
             rotation += rotation > 0.0 ? -Math.PI : Math.PI;
-
         return rotation;
     }
 
-    private static bool CrearTextoConGiro(
-        Editor editor,
-        Database database,
-        Point3d position,
-        double rotation,
-        string content)
+    private static bool CrearTextoConGiro(Editor editor, Database database, Point3d position,
+        double rotation, string content)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForWrite);
-        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(
-            database.Clayer, OpenMode.ForRead);
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
+        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(database.Clayer, OpenMode.ForRead);
 
         var text = new DBText
         {
             TextString = content,
-            Height = 1.45,
+            Height = TextHeight,
             Layer = layer.Name,
             ColorIndex = 4,
             HorizontalMode = TextHorizontalMode.TextCenter,
@@ -178,10 +137,12 @@ public sealed class LimiteTool
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
+        // El texto ya nace con la orientacion de la linea. El jig solo espera
+        // la confirmacion, sin permitir que la posicion se desplace.
         var jig = new LimiteTextJig(text, position, rotation);
         PromptResult result = editor.Drag(jig);
 
-        if (result.Status != PromptStatus.OK)
+        if (result.Status != PromptStatus.OK && result.Status != PromptStatus.None)
         {
             text.Erase();
             transaction.Commit();
@@ -208,7 +169,7 @@ public sealed class LimiteTool
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
             var options = new JigPromptPointOptions(
-                "\nHaga clic para confirmar el límite (ESC para salir): ")
+                "\nHaga clic o clic derecho para confirmar (ESC para salir): ")
             {
                 UseBasePoint = true,
                 BasePoint = _position,
@@ -220,6 +181,11 @@ public sealed class LimiteTool
 
             if (result.Status == PromptStatus.Cancel)
                 return SamplerStatus.Cancel;
+
+            // Cuando AutoCAD tiene el clic derecho configurado como Enter,
+            // el punto llega como None. Se acepta como confirmacion.
+            if (result.Status == PromptStatus.None)
+                return SamplerStatus.OK;
 
             if (result.Status != PromptStatus.OK)
                 return SamplerStatus.Cancel;
