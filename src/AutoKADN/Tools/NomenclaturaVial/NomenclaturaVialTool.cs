@@ -53,13 +53,17 @@ public sealed class NomenclaturaVialTool
     {
         while (true)
         {
-            var options = new PromptStringOptions("\nNúmero de nomenclatura (2 o 3 cifras; ESC o clic derecho para cancelar): ") { AllowSpaces = false, UseDefaultValue = false, AllowNone = true };
+            var options = new PromptStringOptions("\nNúmero de nomenclatura (cantidad de cifras libre; ESC o clic derecho para cancelar): ")
+            {
+                AllowSpaces = false,
+                UseDefaultValue = false
+            };
             PromptResult result = editor.GetString(options);
             if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.None) return null;
             if (result.Status != PromptStatus.OK) continue;
             string numero = result.StringResult.Trim();
-            if (numero.Length is >= 2 and <= 3 && numero.All(char.IsDigit)) return numero;
-            editor.WriteMessage("\nEl número debe contener exactamente 2 o 3 cifras.\n");
+            if (numero.Length > 0 && numero.All(char.IsDigit)) return numero;
+            editor.WriteMessage("\nEl número debe contener únicamente cifras.\n");
         }
     }
 
