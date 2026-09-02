@@ -8,73 +8,38 @@ namespace AutoKADN.Commands;
 
 public class NomenclaturaVialCommand
 {
-    // UNICO comando publico de entrada para estas herramientas.
-    [CommandMethod("KARP_NOMVIAL", CommandFlags.Modal)]
-    public void Execute()
+    [CommandMethod("NOMENK", CommandFlags.Modal)]
+    public void Nomenclaturas()
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
         if (document is null)
             return;
 
         Editor editor = document.Editor;
-
-        var categoriaOptions = new PromptKeywordOptions(
-            "\nSeleccione una categoria [Nomenclaturas/Anotaciones]: ")
+        var options = new PromptKeywordOptions("\nSeleccione nomenclatura [Predial/Vial]: ")
         {
             AllowNone = false
         };
-        categoriaOptions.Keywords.Add("Nomenclaturas");
-        categoriaOptions.Keywords.Add("Anotaciones");
+        options.Keywords.Add("Predial");
+        options.Keywords.Add("Vial");
 
-        PromptResult categoriaResult = editor.GetKeywords(categoriaOptions);
-        if (categoriaResult.Status != PromptStatus.OK)
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK)
             return;
 
-        if (categoriaResult.StringResult.Equals("Nomenclaturas", StringComparison.OrdinalIgnoreCase))
+        if (result.StringResult.Equals("Predial", StringComparison.OrdinalIgnoreCase))
         {
-            var tipoOptions = new PromptKeywordOptions(
-                "\nSeleccione el tipo de nomenclatura [Predial/Vial]: ")
-            {
-                AllowNone = false
-            };
-            tipoOptions.Keywords.Add("Predial");
-            tipoOptions.Keywords.Add("Vial");
-
-            PromptResult tipoResult = editor.GetKeywords(tipoOptions);
-            if (tipoResult.Status != PromptStatus.OK)
-                return;
-
-            if (tipoResult.StringResult.Equals("Predial", StringComparison.OrdinalIgnoreCase))
-            {
-                new NomenclaturaPredialTool().Run();
-                return;
-            }
-
-            if (tipoResult.StringResult.Equals("Vial", StringComparison.OrdinalIgnoreCase))
-            {
-                new NomenclaturaVialTool().Run();
-            }
-
+            new NomenclaturaPredialTool().Run();
             return;
         }
 
-        if (categoriaResult.StringResult.Equals("Anotaciones", StringComparison.OrdinalIgnoreCase))
-        {
-            var anotacionOptions = new PromptKeywordOptions(
-                "\nSeleccione la anotacion [Limite]: ")
-            {
-                AllowNone = false
-            };
-            anotacionOptions.Keywords.Add("Limite");
+        if (result.StringResult.Equals("Vial", StringComparison.OrdinalIgnoreCase))
+            new NomenclaturaVialTool().Run();
+    }
 
-            PromptResult anotacionResult = editor.GetKeywords(anotacionOptions);
-            if (anotacionResult.Status != PromptStatus.OK)
-                return;
-
-            if (anotacionResult.StringResult.Equals("Limite", StringComparison.OrdinalIgnoreCase))
-            {
-                new LimiteTool().Run();
-            }
-        }
+    [CommandMethod("LIMIK", CommandFlags.Modal)]
+    public void Limites()
+    {
+        new LimiteTool().Run();
     }
 }
