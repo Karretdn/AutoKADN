@@ -105,13 +105,13 @@ public sealed class AnotacionesTool
 
         return result.StringResult switch
         {
-            "ESPIRAL" => "ESPIRAL",
-            "CAMISA" => "CAMISA",
-            "PANTALLA" => "PANTALLA",
-            "CRUCETOPO" => "CRUCE_TOPO",
-            "EMPEDRADO" => "EMPEDRADO",
-            "VIGACONCRETO" => "VIGA_CONCRETO",
-            "LIBRE" => "LIBRE",
+            "AKESPIRAL" => "ESPIRAL",
+            "AKCAMISA" => "CAMISA",
+            "AKPANTALLA" => "PANTALLA",
+            "AKCRUCETOPO" => "CRUCE_TOPO",
+            "AKEMPEDRADO" => "EMPEDRADO",
+            "AKVIGACONCRETO" => "VIGA_CONCRETO",
+            "AKLIBRE" => "LIBRE",
             _ => null
         };
     }
