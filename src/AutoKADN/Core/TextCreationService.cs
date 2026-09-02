@@ -10,6 +10,7 @@ public sealed class TextCreationService
 {
     private const double LineSearchTolerance = 20.0;
     private const double ParallelAngleTolerance = 5.0 * Math.PI / 180.0;
+    private const double NomenclaturaTextHeight = 2.40;
 
     public void CreateText(Point3d position, string content, double height = 1.45)
     {
@@ -36,13 +37,13 @@ public sealed class TextCreationService
         transaction.Commit();
     }
 
-    public bool CreateTextWithJig(Point3d initialPosition, string content, double height = 1.45)
+    public bool CreateTextWithJig(Point3d initialPosition, string content, double height = NomenclaturaTextHeight)
     {
         Point3d centerPosition = ObtenerCentroEntreLineas(initialPosition) ?? initialPosition;
         return CreateTextWithJigAtFixedCenter(centerPosition, content, height);
     }
 
-    public bool CreateTextWithJigAtFixedCenter(Point3d centerPosition, string content, double height = 1.45)
+    public bool CreateTextWithJigAtFixedCenter(Point3d centerPosition, string content, double height = NomenclaturaTextHeight)
     {
         Document? document = Application.DocumentManager.MdiActiveDocument;
         if (document is null || string.IsNullOrWhiteSpace(content))
@@ -74,10 +75,6 @@ public sealed class TextCreationService
         // ORTHOMODE apagado = giro completamente libre.
         // ORTHOMODE encendido = snap exclusivo a 0/90/180/270 grados.
         var jig = new NomenclaturaTextJig(text, centerPosition, ObtenerModoOrto());
-
-        // AcquirePoint permite calcular nosotros mismos el ángulo y evita que
-        // AcquireAngle aplique restricciones internas de AutoCAD que puedan
-        // producir snaps a 90 grados aun cuando ORTHOMODE esté apagado.
         object originalOrthoMode = Application.GetSystemVariable("ORTHOMODE");
 
         try
@@ -135,11 +132,7 @@ public sealed class TextCreationService
                     if (polyline.GetSegmentType(i) != SegmentType.Line)
                         continue;
 
-                    AgregarSegmento(
-                        candidates,
-                        polyline.GetPoint3dAt(i),
-                        polyline.GetPoint3dAt(i + 1),
-                        clickPoint);
+                    AgregarSegmento(candidates, polyline.GetPoint3dAt(i), polyline.GetPoint3dAt(i + 1), clickPoint);
                 }
 
                 if (polyline.Closed && polyline.NumberOfVertices > 1)
@@ -147,11 +140,7 @@ public sealed class TextCreationService
                     int last = polyline.NumberOfVertices - 1;
                     if (polyline.GetSegmentType(last) == SegmentType.Line)
                     {
-                        AgregarSegmento(
-                            candidates,
-                            polyline.GetPoint3dAt(last),
-                            polyline.GetPoint3dAt(0),
-                            clickPoint);
+                        AgregarSegmento(candidates, polyline.GetPoint3dAt(last), polyline.GetPoint3dAt(0), clickPoint);
                     }
                 }
             }
@@ -278,7 +267,6 @@ public sealed class TextCreationService
         private readonly Point3d _center;
         private readonly bool _orthoEnabled;
         private double _currentRotation;
-        private Point3d _lastPoint;
 
         public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled) : base(text)
         {
@@ -286,7 +274,6 @@ public sealed class TextCreationService
             _center = center;
             _orthoEnabled = orthoEnabled;
             _currentRotation = 0.0;
-            _lastPoint = center + Vector3d.XAxis;
         }
 
         protected override SamplerStatus Sampler(JigPrompts prompts)
@@ -308,16 +295,12 @@ public sealed class TextCreationService
             if (result.Status != PromptStatus.OK)
                 return SamplerStatus.NoChange;
 
-            Point3d cursorPoint = result.Value;
-            Vector3d direction = cursorPoint - _center;
-
+            Vector3d direction = result.Value - _center;
             if (direction.Length <= Tolerance.Global.EqualPoint)
                 return SamplerStatus.NoChange;
 
             double angle = Math.Atan2(direction.Y, direction.X);
 
-            // Únicamente cuando ORTHOMODE estaba activo al comenzar:
-            // snap exacto a 0, 90, 180 y 270 grados.
             if (_orthoEnabled)
             {
                 double quarterTurn = Math.PI / 2.0;
@@ -328,7 +311,6 @@ public sealed class TextCreationService
                 return SamplerStatus.NoChange;
 
             _currentRotation = angle;
-            _lastPoint = cursorPoint;
             return SamplerStatus.OK;
         }
 
