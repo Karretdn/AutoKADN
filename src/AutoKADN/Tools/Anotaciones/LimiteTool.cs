@@ -9,6 +9,7 @@ public sealed class LimiteTool
     private const double OffsetFromLine = 1.10;
     private const double TextHeight = 1.45;
     private const short NearestObjectSnap = 512;
+    private const double GeometryMatchTolerance = 1e-6;
 
     public void Run()
     {
@@ -17,38 +18,48 @@ public sealed class LimiteTool
             return;
 
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[LIMIK] Límites. Haga clic sobre la línea. ESC para salir.\n");
+        editor.WriteMessage("\n[LIMIK] Límites. Snap Cercano activo. ESC para salir.\n");
 
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
 
         try
         {
+            // GetPoint permite que AutoCAD muestre el marcador real de OSNAP
+            // (Cercano) en lugar del pickbox de GetEntity.
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
                 "OSMODE", NearestObjectSnap);
 
             while (true)
             {
-                PromptEntityOptions entityOptions = new PromptEntityOptions(
-                    "\nHaga clic sobre la línea (ESC para salir): ");
-                entityOptions.SetRejectMessage("\nDebe seleccionar una línea o una polilínea.");
-                entityOptions.AddAllowedClass(typeof(Line), true);
-                entityOptions.AddAllowedClass(typeof(Polyline), true);
+                var pointOptions = new PromptPointOptions(
+                    "\nHaga clic sobre la línea (ESC para salir): ")
+                {
+                    AllowNone = false,
+                    UseBasePoint = false,
+                    UserInputControls = UserInputControls.Accept3dCoordinates
+                        | UserInputControls.NoZeroResponseAccepted
+                };
 
-                PromptEntityResult entityResult = editor.GetEntity(entityOptions);
-                if (entityResult.Status != PromptStatus.OK)
+                // PRIMER Y ÚNICO CLIC: AutoCAD aplica OSNAP NEAREST y devuelve
+                // el punto exacto sobre la línea. No se usa GetEntity, por lo
+                // que desaparece el cuadrado de selección.
+                PromptPointResult pointResult = editor.GetPoint(pointOptions);
+                if (pointResult.Status != PromptStatus.OK)
                     return;
 
-                if (!ObtenerSegmentoSeleccionado(
+                Point3d pointOnLine = pointResult.Value;
+
+                if (!EncontrarSegmentoEnPunto(
                         document.Database,
-                        entityResult.ObjectId,
-                        entityResult.PickedPoint,
-                        out Point3d pointOnLine,
+                        pointOnLine,
                         out Vector3d direction))
                 {
-                    editor.WriteMessage("\nNo se pudo determinar el segmento seleccionado.\n");
+                    editor.WriteMessage("\nEl punto no corresponde a una línea o polilínea válida.\n");
                     continue;
                 }
 
+                // Se elige el tipo después del clic. Al escogerlo se coloca
+                // inmediatamente y se vuelve a pedir el siguiente punto.
                 string? limite = SeleccionarLimite(editor);
                 if (limite is null)
                     return;
@@ -81,36 +92,50 @@ public sealed class LimiteTool
             : null;
     }
 
-    private static bool ObtenerSegmentoSeleccionado(
+    private static bool EncontrarSegmentoEnPunto(
         Database database,
-        ObjectId objectId,
-        Point3d pickedPoint,
-        out Point3d pointOnLine,
+        Point3d point,
         out Vector3d direction)
     {
-        pointOnLine = Point3d.Origin;
         direction = Vector3d.XAxis;
+        double bestDistance = double.MaxValue;
+        bool found = false;
 
         using Transaction transaction = database.TransactionManager.StartTransaction();
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
+            database.CurrentSpaceId,
+            OpenMode.ForRead);
 
-        if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
+        foreach (ObjectId objectId in currentSpace)
         {
-            Vector3d vector = line.EndPoint - line.StartPoint;
-            if (vector.Length <= Tolerance.Global.EqualPoint)
-                return false;
+            if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
+            {
+                Vector3d vector = line.EndPoint - line.StartPoint;
+                if (vector.Length <= Tolerance.Global.EqualPoint)
+                    continue;
 
-            direction = vector.GetNormal();
-            pointOnLine = line.GetClosestPointTo(pickedPoint, false);
-            transaction.Commit();
-            return true;
-        }
+                Point3d closest = line.GetClosestPointTo(point, false);
+                double distance = closest.DistanceTo(point);
 
-        if (transaction.GetObject(objectId, OpenMode.ForRead) is Polyline polyline)
-        {
-            if (polyline.NumberOfVertices < 2)
-                return false;
+                if (distance <= GeometryMatchTolerance && distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    direction = vector.GetNormal();
+                    found = true;
+                }
 
-            Point3d closestPoint = polyline.GetClosestPointTo(pickedPoint, false);
+                continue;
+            }
+
+            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Polyline polyline ||
+                polyline.NumberOfVertices < 2)
+                continue;
+
+            Point3d closestPoint = polyline.GetClosestPointTo(point, false);
+            double polyDistance = closestPoint.DistanceTo(point);
+            if (polyDistance > GeometryMatchTolerance || polyDistance >= bestDistance)
+                continue;
+
             double parameter = polyline.GetParameterAtPoint(closestPoint);
             int segmentIndex = (int)Math.Floor(parameter);
 
@@ -122,30 +147,28 @@ public sealed class LimiteTool
             }
 
             if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line)
-                return false;
+                continue;
 
             Point3d start = polyline.GetPoint3dAt(segmentIndex);
             Point3d end = polyline.GetPoint3dAt((segmentIndex + 1) % polyline.NumberOfVertices);
             Vector3d vector = end - start;
 
             if (vector.Length <= Tolerance.Global.EqualPoint)
-                return false;
+                continue;
 
+            bestDistance = polyDistance;
             direction = vector.GetNormal();
-            double distanceAlong = Math.Max(
-                0.0,
-                Math.Min(vector.Length, (closestPoint - start).DotProduct(direction)));
-
-            pointOnLine = start + direction * distanceAlong;
-            transaction.Commit();
-            return true;
+            found = true;
         }
 
-        return false;
+        transaction.Commit();
+        return found;
     }
 
     private static Point3d CalcularPosicionTexto(Point3d pointOnLine, Vector3d direction)
     {
+        // El clic fija exactamente el punto del eje. El texto queda 1.10
+        // unidades por encima/perpendicular a la línea.
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
         return pointOnLine + normal * OffsetFromLine;
     }
