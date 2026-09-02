@@ -21,11 +21,7 @@ public sealed class LimiteTool
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
         try
         {
-            // Para LIMIK queremos que el punto elegido quede exactamente sobre
-            // el eje de la línea. Se usa únicamente Object Snap NEAREST durante
-            // la selección y luego se restaura la configuración del usuario.
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
-                "OSMODE", NearestObjectSnap);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
 
             while (true)
             {
@@ -54,8 +50,6 @@ public sealed class LimiteTool
                 if (limite is null)
                     return;
 
-                // El texto nace EXACTAMENTE en el punto/eje seleccionado.
-                // No se aplica desplazamiento lateral.
                 double rotation = CalcularRotacionParalela(direction);
 
                 if (!CrearTextoConGiro(editor, document.Database, pointOnLine, rotation, limite))
@@ -64,9 +58,7 @@ public sealed class LimiteTool
         }
         finally
         {
-            // LIMIK no debe cambiar permanentemente los snaps del usuario.
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
-                "OSMODE", originalOsMode);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode);
         }
     }
 
@@ -149,7 +141,6 @@ public sealed class LimiteTool
     {
         double rotation = Math.Atan2(direction.Y, direction.X);
 
-        // Mantener el texto legible y paralelo al eje seleccionado.
         if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
             rotation += rotation > 0.0 ? -Math.PI : Math.PI;
 
