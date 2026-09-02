@@ -5,14 +5,16 @@ using Autodesk.AutoCAD.Geometry;
 namespace AutoKADN.Tools.Acotado;
 
 /// <summary>
-/// Cota de ubicación rápida entre dos líneas.
-/// El primer punto queda exactamente donde se hace el snap y el segundo
-/// se busca automáticamente sobre la línea recta que queda enfrente.
+/// Cota rápida de ubicación entre dos líneas rectas paralelas.
+/// El primer vértice se obtiene con Snap Cercano exactamente como LIMIK.
+/// El segundo vértice se busca automáticamente sobre la línea recta de enfrente.
 /// </summary>
 public sealed class UbicacionTool
 {
     private const double PointTolerance = 1e-5;
+    private const double GeometryMatchTolerance = 1e-6;
     private const double OverallDimensionScale = 0.05;
+    private const short NearestObjectSnap = 512;
     private const short MagentaColorIndex = 6;
     private const string LayerName = "COTAS MAGENTA";
 
@@ -22,7 +24,7 @@ public sealed class UbicacionTool
         if (document is null) return;
 
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[UBICACION] Cota rápida de ubicación. ESC o clic derecho para salir.\n");
+        editor.WriteMessage("\n[UBICACION] Cota rápida de ubicación. Snap Cercano activo. ESC o clic derecho para salir.\n");
 
         if (!EnsureLayer(document.Database))
         {
@@ -30,44 +32,48 @@ public sealed class UbicacionTool
             return;
         }
 
-        while (CreateUbicacion(document, editor)) { }
+        object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
+        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
+
+        try
+        {
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
+
+            while (CreateUbicacion(document, editor)) { }
+        }
+        finally
+        {
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
+        }
     }
 
     private static bool CreateUbicacion(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor)
     {
-        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-        PromptEntityResult entityResult;
-        try
+        var pointOptions = new PromptPointOptions("\nSeleccione un snap sobre la línea (ESC o clic derecho para salir): ")
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var options = new PromptEntityOptions("\nSeleccione un snap sobre la línea (ESC o clic derecho para salir): ")
-            {
-                AllowNone = true
-            };
-            options.AddAllowedClass(typeof(Line), false);
-            options.AddAllowedClass(typeof(Polyline), false);
-            entityResult = editor.GetEntity(options);
-        }
-        finally
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
-        }
+            AllowNone = true
+        };
 
-        if (entityResult.Status != PromptStatus.OK)
+        PromptPointResult pointResult = editor.GetPoint(pointOptions);
+        if (pointResult.Status == PromptStatus.Cancel || pointResult.Status == PromptStatus.None)
             return false;
+        if (pointResult.Status != PromptStatus.OK)
+            return true;
 
+        Point3d sourcePoint = pointResult.Value;
         if (!FindSourceSegment(
                 document.Database,
-                entityResult.ObjectId,
-                entityResult.PickedPoint,
-                out Point3d sourcePoint,
-                out Vector3d sourceDirection))
+                sourcePoint,
+                out Vector3d sourceDirection,
+                out ObjectId sourceObjectId))
         {
-            editor.WriteMessage("\nNo se encontró un tramo recto válido en el objeto seleccionado.\n");
+            editor.WriteMessage("\nEl snap seleccionado no corresponde a una línea o tramo recto válido.\n");
             return true;
         }
 
-        List<StraightSegment> candidates = CollectStraightSegments(document.Database, entityResult.ObjectId);
+        List<StraightSegment> candidates = CollectStraightSegments(document.Database, sourceObjectId);
         if (candidates.Count == 0)
         {
             editor.WriteMessage("\nNo se encontraron líneas rectas para buscar la línea de enfrente.\n");
@@ -75,30 +81,36 @@ public sealed class UbicacionTool
         }
 
         Vector3d baseNormal = new Vector3d(-sourceDirection.Y, sourceDirection.X, 0.0).GetNormal();
-        Point3d initialTarget = sourcePoint + baseNormal * 10.0;
-        Point3d initialDimensionPoint = sourcePoint + (initialTarget - sourcePoint) * 0.5;
-        double initialRotation = Math.Atan2((initialTarget - sourcePoint).Y, (initialTarget - sourcePoint).X);
+        if (baseNormal.Y < 0.0)
+            baseNormal = -baseNormal;
+
+        if (!FindNearestOppositeLine(sourcePoint, baseNormal, candidates, out Point3d initialTarget))
+        {
+            editor.WriteMessage("\nNo se encontró una línea recta paralela de enfrente.\n");
+            return true;
+        }
 
         ObjectId dimensionId = CreateTemporaryDimension(
             document.Database,
             sourcePoint,
             initialTarget,
-            initialDimensionPoint,
-            initialRotation);
+            sourcePoint + (initialTarget - sourcePoint) * 0.5,
+            Math.Atan2((initialTarget - sourcePoint).Y, (initialTarget - sourcePoint).X));
 
         if (dimensionId == ObjectId.Null)
             return true;
 
         editor.Regen();
 
-        Point3d? targetPoint = MoveToOppositeLine(
+        Point3d? targetPoint = PreviewAndSelectTarget(
             document,
             editor,
             dimensionId,
             sourcePoint,
             sourceDirection,
             baseNormal,
-            candidates);
+            candidates,
+            initialTarget);
 
         if (!targetPoint.HasValue)
         {
@@ -108,22 +120,12 @@ public sealed class UbicacionTool
 
         editor.Regen();
 
-        object originalShortcutMenuForText = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-        PromptResult textResult;
-        try
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var textOptions = new PromptStringOptions("\nIngrese el valor de la cota y presione ENTER (ESC o clic derecho para cancelar): ")
+        PromptResult textResult = editor.GetString(
+            new PromptStringOptions("\nIngrese el valor de la cota y presione ENTER (ESC o clic derecho para cancelar): ")
             {
                 AllowSpaces = false,
                 UseDefaultValue = false
-            };
-            textResult = editor.GetString(textOptions);
-        }
-        finally
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenuForText);
-        }
+            });
 
         if (textResult.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(textResult.StringResult))
         {
@@ -172,14 +174,15 @@ public sealed class UbicacionTool
         return dimension.ObjectId;
     }
 
-    private static Point3d? MoveToOppositeLine(
+    private static Point3d? PreviewAndSelectTarget(
         Autodesk.AutoCAD.ApplicationServices.Document document,
         Editor editor,
         ObjectId dimensionId,
         Point3d sourcePoint,
         Vector3d sourceDirection,
         Vector3d baseNormal,
-        IReadOnlyList<StraightSegment> candidates)
+        IReadOnlyList<StraightSegment> candidates,
+        Point3d initialTarget)
     {
         using Transaction transaction = document.Database.TransactionManager.StartTransaction();
         var dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as RotatedDimension;
@@ -194,22 +197,12 @@ public sealed class UbicacionTool
             sourcePoint,
             sourceDirection,
             baseNormal,
-            candidates);
+            candidates,
+            initialTarget);
 
-        editor.WriteMessage("\nMueva el mouse para previsualizar la conexión con la línea de enfrente y haga clic para aceptar.\n");
+        editor.WriteMessage("\nMueva el mouse para previsualizar la línea de enfrente y haga clic para aceptar.\n");
 
-        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-        PromptResult result;
-        try
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            result = editor.Drag(jig);
-        }
-        finally
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
-        }
-
+        PromptResult result = editor.Drag(jig);
         if (result.Status != PromptStatus.OK || !jig.HasTarget)
         {
             transaction.Abort();
@@ -218,22 +211,6 @@ public sealed class UbicacionTool
 
         transaction.Commit();
         return jig.TargetPoint;
-    }
-
-    private static bool SetFinalDimension(Database database, ObjectId dimensionId, string textValue)
-    {
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-        if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is not Dimension dimension)
-        {
-            transaction.Abort();
-            return false;
-        }
-
-        dimension.DimensionText = textValue;
-        dimension.Layer = LayerName;
-        dimension.ColorIndex = 256;
-        transaction.Commit();
-        return true;
     }
 
     private static bool EnsureLayer(Database database)
@@ -257,6 +234,72 @@ public sealed class UbicacionTool
 
         transaction.Commit();
         return true;
+    }
+
+    private static bool FindSourceSegment(
+        Database database,
+        Point3d point,
+        out Vector3d direction,
+        out ObjectId sourceObjectId)
+    {
+        direction = Vector3d.XAxis;
+        sourceObjectId = ObjectId.Null;
+        double bestDistance = double.MaxValue;
+        bool found = false;
+
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
+
+        foreach (ObjectId objectId in currentSpace)
+        {
+            if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
+            {
+                Vector3d vector = line.EndPoint - line.StartPoint;
+                if (vector.Length <= PointTolerance) continue;
+
+                Point3d closest = line.GetClosestPointTo(point, false);
+                double distance = closest.DistanceTo(point);
+                if (distance <= GeometryMatchTolerance && distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    direction = vector.GetNormal();
+                    sourceObjectId = objectId;
+                    found = true;
+                }
+
+                continue;
+            }
+
+            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Polyline polyline || polyline.NumberOfVertices < 2)
+                continue;
+
+            Point3d closestPoint = polyline.GetClosestPointTo(point, false);
+            double polyDistance = closestPoint.DistanceTo(point);
+            if (polyDistance > GeometryMatchTolerance || polyDistance >= bestDistance)
+                continue;
+
+            double parameter = polyline.GetParameterAtPoint(closestPoint);
+            int segmentIndex = (int)Math.Floor(parameter);
+            int segmentCount = polyline.Closed ? polyline.NumberOfVertices : polyline.NumberOfVertices - 1;
+            if (segmentIndex >= segmentCount)
+                segmentIndex = segmentCount - 1;
+            if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line)
+                continue;
+
+            int nextIndex = (segmentIndex + 1) % polyline.NumberOfVertices;
+            Point3d start = polyline.GetPoint3dAt(segmentIndex);
+            Point3d end = polyline.GetPoint3dAt(nextIndex);
+            Vector3d vector = end - start;
+            if (vector.Length <= PointTolerance) continue;
+
+            bestDistance = polyDistance;
+            direction = vector.GetNormal();
+            sourceObjectId = objectId;
+            found = true;
+        }
+
+        transaction.Commit();
+        return found;
     }
 
     private static List<StraightSegment> CollectStraightSegments(Database database, ObjectId excludedObjectId)
@@ -295,76 +338,6 @@ public sealed class UbicacionTool
         return result;
     }
 
-    private static bool FindSourceSegment(
-        Database database,
-        ObjectId objectId,
-        Point3d pickedPoint,
-        out Point3d sourcePoint,
-        out Vector3d sourceDirection)
-    {
-        sourcePoint = Point3d.Origin;
-        sourceDirection = Vector3d.XAxis;
-        double bestDistance = double.MaxValue;
-        bool found = false;
-
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-        DBObject? selectedObject = transaction.GetObject(objectId, OpenMode.ForRead);
-
-        if (selectedObject is Line line)
-        {
-            Vector3d vector = line.EndPoint - line.StartPoint;
-            if (vector.Length > PointTolerance)
-            {
-                sourcePoint = GetClosestPointOnSegment(line.StartPoint, line.EndPoint, pickedPoint);
-                sourceDirection = vector.GetNormal();
-                transaction.Commit();
-                return true;
-            }
-        }
-        else if (selectedObject is Polyline polyline && polyline.NumberOfVertices >= 2)
-        {
-            int segmentCount = polyline.Closed ? polyline.NumberOfVertices : polyline.NumberOfVertices - 1;
-
-            for (int i = 0; i < segmentCount; i++)
-            {
-                if (polyline.GetSegmentType(i) != SegmentType.Line)
-                    continue;
-
-                int nextIndex = (i + 1) % polyline.NumberOfVertices;
-                Point3d start = polyline.GetPoint3dAt(i);
-                Point3d end = polyline.GetPoint3dAt(nextIndex);
-                Vector3d vector = end - start;
-                if (vector.Length <= PointTolerance)
-                    continue;
-
-                Point3d closest = GetClosestPointOnSegment(start, end, pickedPoint);
-                double distance = closest.DistanceTo(pickedPoint);
-                if (distance < bestDistance)
-                {
-                    bestDistance = distance;
-                    sourcePoint = closest;
-                    sourceDirection = vector.GetNormal();
-                    found = true;
-                }
-            }
-        }
-
-        transaction.Commit();
-        return found;
-    }
-
-    private static Point3d GetClosestPointOnSegment(Point3d start, Point3d end, Point3d point)
-    {
-        Vector3d segment = end - start;
-        double lengthSquared = segment.DotProduct(segment);
-        if (lengthSquared <= PointTolerance * PointTolerance)
-            return start;
-
-        double parameter = (point - start).DotProduct(segment) / lengthSquared;
-        parameter = Math.Max(0.0, Math.Min(1.0, parameter));
-        return start + segment * parameter;
-    }
-
     private static void AddSegment(List<StraightSegment> result, Point3d start, Point3d end)
     {
         Vector3d vector = end - start;
@@ -372,6 +345,94 @@ public sealed class UbicacionTool
             return;
 
         result.Add(new StraightSegment(start, end, vector.GetNormal()));
+    }
+
+    private static bool FindNearestOppositeLine(
+        Point3d sourcePoint,
+        Vector3d searchDirection,
+        IReadOnlyList<StraightSegment> candidates,
+        out Point3d target)
+    {
+        target = Point3d.Origin;
+        double nearestDistance = double.MaxValue;
+        bool found = false;
+
+        foreach (StraightSegment candidate in candidates)
+        {
+            if (!AreParallel(candidate.Direction, searchDirection))
+                continue;
+
+            if (!TryIntersectRayWithSegment(
+                    sourcePoint,
+                    searchDirection,
+                    candidate.Start,
+                    candidate.End,
+                    out double distance,
+                    out Point3d intersection))
+                continue;
+
+            if (distance < nearestDistance)
+            {
+                nearestDistance = distance;
+                target = intersection;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    private static bool AreParallel(Vector3d first, Vector3d second)
+    {
+        double dot = Math.Abs(first.GetNormal().DotProduct(second.GetNormal()));
+        return dot >= 0.999;
+    }
+
+    private static bool TryIntersectRayWithSegment(
+        Point3d rayOrigin,
+        Vector3d rayDirection,
+        Point3d segmentStart,
+        Point3d segmentEnd,
+        out double rayDistance,
+        out Point3d intersection)
+    {
+        rayDistance = 0.0;
+        intersection = Point3d.Origin;
+
+        Vector3d segmentDirection = segmentEnd - segmentStart;
+        double denominator = Cross2d(rayDirection, segmentDirection);
+        if (Math.Abs(denominator) <= PointTolerance)
+            return false;
+
+        Vector3d fromRayToSegment = segmentStart - rayOrigin;
+        double t = Cross2d(fromRayToSegment, segmentDirection) / denominator;
+        double u = Cross2d(fromRayToSegment, rayDirection) / denominator;
+
+        if (t <= PointTolerance || u < -PointTolerance || u > 1.0 + PointTolerance)
+            return false;
+
+        rayDistance = t;
+        intersection = rayOrigin + rayDirection * t;
+        return true;
+    }
+
+    private static double Cross2d(Vector3d first, Vector3d second) =>
+        first.X * second.Y - first.Y * second.X;
+
+    private static bool SetFinalDimension(Database database, ObjectId dimensionId, string textValue)
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is not Dimension dimension)
+        {
+            transaction.Abort();
+            return false;
+        }
+
+        dimension.DimensionText = textValue;
+        dimension.Layer = LayerName;
+        dimension.ColorIndex = 256;
+        transaction.Commit();
+        return true;
     }
 
     private static void EraseDimension(Database database, ObjectId dimensionId)
@@ -413,20 +474,19 @@ public sealed class UbicacionTool
             Point3d sourcePoint,
             Vector3d sourceDirection,
             Vector3d baseNormal,
-            IReadOnlyList<StraightSegment> candidates)
+            IReadOnlyList<StraightSegment> candidates,
+            Point3d initialTarget)
             : base(dimension)
         {
             _dimension = dimension;
             _sourcePoint = sourcePoint;
-            _sourceDirection = sourceDirection;
+            _sourceDirection = sourceDirection.GetNormal();
             _baseNormal = baseNormal.GetNormal();
             _candidates = candidates;
-            _targetPoint = sourcePoint + _baseNormal * 10.0;
-            _dimensionLinePoint = sourcePoint + (_targetPoint - sourcePoint) * 0.5;
-            _rotation = Math.Atan2((_targetPoint - sourcePoint).Y, (_targetPoint - sourcePoint).X);
-            _hasTarget = TryFindTarget(_baseNormal, 10.0, out Point3d initialTarget)
-                ? SetTarget(initialTarget)
-                : false;
+            _targetPoint = initialTarget;
+            _dimensionLinePoint = sourcePoint + (initialTarget - sourcePoint) * 0.5;
+            _rotation = Math.Atan2((initialTarget - sourcePoint).Y, (initialTarget - sourcePoint).X);
+            _hasTarget = true;
         }
 
         public bool HasTarget => _hasTarget;
@@ -459,7 +519,11 @@ public sealed class UbicacionTool
             if (target.IsEqualTo(_targetPoint, new Tolerance(PointTolerance, PointTolerance)))
                 return SamplerStatus.NoChange;
 
-            return SetTarget(target) ? SamplerStatus.OK : SamplerStatus.NoChange;
+            _targetPoint = target;
+            _dimensionLinePoint = _sourcePoint + (target - _sourcePoint) * 0.5;
+            _rotation = Math.Atan2((target - _sourcePoint).Y, (target - _sourcePoint).X);
+            _hasTarget = true;
+            return SamplerStatus.OK;
         }
 
         protected override bool Update()
@@ -471,92 +535,58 @@ public sealed class UbicacionTool
             return true;
         }
 
-        private bool SetTarget(Point3d target)
-        {
-            Vector3d connection = target - _sourcePoint;
-            if (connection.Length <= PointTolerance)
-                return false;
-
-            _targetPoint = target;
-            _dimensionLinePoint = _sourcePoint + connection * 0.5;
-            _rotation = Math.Atan2(connection.Y, connection.X);
-            _hasTarget = true;
-            return true;
-        }
-
         private bool TryFindTarget(Vector3d searchDirection, double cursorDistance, out Point3d target)
         {
             target = Point3d.Origin;
             double nearestDistance = double.MaxValue;
-            double farthestAllowedDistance = -1.0;
-            Point3d farthestAllowedPoint = Point3d.Origin;
-            bool foundNearest = false;
+            double farthestWithinCursor = -1.0;
+            Point3d nearestPoint = Point3d.Origin;
+            Point3d farthestPoint = Point3d.Origin;
+            bool found = false;
             bool foundWithinCursor = false;
 
             foreach (StraightSegment candidate in _candidates)
             {
-                if (Math.Abs(candidate.Direction.DotProduct(_sourceDirection)) < 0.999)
+                if (!AreParallel(candidate.Direction, _sourceDirection))
                     continue;
 
-                if (!TryIntersectRayWithSegment(_sourcePoint, searchDirection, candidate.Start, candidate.End, out double distance, out Point3d intersection))
-                    continue;
-
-                if (distance < PointTolerance)
+                if (!TryIntersectRayWithSegment(
+                        _sourcePoint,
+                        searchDirection,
+                        candidate.Start,
+                        candidate.End,
+                        out double distance,
+                        out Point3d intersection))
                     continue;
 
                 if (distance < nearestDistance)
                 {
                     nearestDistance = distance;
-                    target = intersection;
-                    foundNearest = true;
+                    nearestPoint = intersection;
+                    found = true;
                 }
 
-                if (distance <= cursorDistance + PointTolerance && distance > farthestAllowedDistance)
+                if (distance <= cursorDistance + PointTolerance && distance > farthestWithinCursor)
                 {
-                    farthestAllowedDistance = distance;
-                    farthestAllowedPoint = intersection;
+                    farthestWithinCursor = distance;
+                    farthestPoint = intersection;
                     foundWithinCursor = true;
                 }
             }
 
             if (foundWithinCursor)
             {
-                target = farthestAllowedPoint;
+                target = farthestPoint;
                 return true;
             }
 
-            return foundNearest;
+            if (found)
+            {
+                target = nearestPoint;
+                return true;
+            }
+
+            return false;
         }
-
-        private static bool TryIntersectRayWithSegment(
-            Point3d rayOrigin,
-            Vector3d rayDirection,
-            Point3d segmentStart,
-            Point3d segmentEnd,
-            out double rayDistance,
-            out Point3d intersection)
-        {
-            rayDistance = 0.0;
-            intersection = Point3d.Origin;
-
-            Vector3d segmentDirection = segmentEnd - segmentStart;
-            double denominator = Cross2d(rayDirection, segmentDirection);
-            if (Math.Abs(denominator) <= PointTolerance)
-                return false;
-
-            Vector3d fromRayToSegment = segmentStart - rayOrigin;
-            double t = Cross2d(fromRayToSegment, segmentDirection) / denominator;
-            double u = Cross2d(fromRayToSegment, rayDirection) / denominator;
-
-            if (t <= PointTolerance || u < -PointTolerance || u > 1.0 + PointTolerance)
-                return false;
-
-            rayDistance = t;
-            intersection = rayOrigin + rayDirection * t;
-            return true;
-        }
-
-        private static double Cross2d(Vector3d first, Vector3d second) =>
-            first.X * second.Y - first.Y * second.X;
     }
 }
