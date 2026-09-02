@@ -16,32 +16,19 @@ public sealed class LimiteTool
             return;
 
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[LIMIK] Límites. ESC para salir. Clic derecho para cambiar LB/LP/LC.\n");
-
-        string? limite = SeleccionarLimite(editor);
-        if (limite is null)
-            return;
+        editor.WriteMessage("\n[LIMIK] Límites. ESC para salir.\n");
 
         while (true)
         {
+            // Primero se selecciona la posición/línea. El tipo LB/LP/LC se
+            // decide después de cada selección, de forma independiente.
             PromptEntityOptions entityOptions = new PromptEntityOptions(
-                $"\nSeleccione la línea para colocar {limite} (clic derecho = cambiar tipo, ESC = salir): ");
+                "\nSeleccione la línea y posición del límite (ESC para salir): ");
             entityOptions.SetRejectMessage("\nDebe seleccionar una línea o una polilínea.");
             entityOptions.AddAllowedClass(typeof(Line), true);
             entityOptions.AddAllowedClass(typeof(Polyline), true);
 
             PromptEntityResult entityResult = editor.GetEntity(entityOptions);
-
-            // Con el clic derecho configurado como ENTER, AutoCAD devuelve None.
-            // Lo usamos como acceso rápido para cambiar LB/LP/LC sin salir.
-            if (entityResult.Status == PromptStatus.None)
-            {
-                limite = SeleccionarLimite(editor, limite);
-                if (limite is null)
-                    return;
-                continue;
-            }
-
             if (entityResult.Status != PromptStatus.OK)
                 return;
 
@@ -56,6 +43,11 @@ public sealed class LimiteTool
                 continue;
             }
 
+            // Una vez fijada la posición, se elige el tipo de límite.
+            string? limite = SeleccionarLimite(editor);
+            if (limite is null)
+                return;
+
             Point3d textPosition = CalcularPosicionTexto(pointOnLine, direction);
             double rotation = CalcularRotacionParalela(direction);
 
@@ -64,13 +56,9 @@ public sealed class LimiteTool
         }
     }
 
-    private static string? SeleccionarLimite(Editor editor, string? actual = null)
+    private static string? SeleccionarLimite(Editor editor)
     {
-        string mensaje = actual is null
-            ? "\nSeleccione límite [LB/LP/LC]: "
-            : $"\nCambiar límite [LB/LP/LC] (actual: {actual}): ";
-
-        var options = new PromptKeywordOptions(mensaje)
+        var options = new PromptKeywordOptions("\n¿Qué desea colocar? [LB/LP/LC]: ")
         {
             AllowNone = false
         };
@@ -98,7 +86,9 @@ public sealed class LimiteTool
         if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
         {
             Vector3d vector = line.EndPoint - line.StartPoint;
-            if (vector.Length <= Tolerance.Global.EqualPoint) return false;
+            if (vector.Length <= Tolerance.Global.EqualPoint)
+                return false;
+
             direction = vector.GetNormal();
             pointOnLine = line.GetClosestPointTo(pickedPoint, false);
             transaction.Commit();
@@ -107,24 +97,32 @@ public sealed class LimiteTool
 
         if (transaction.GetObject(objectId, OpenMode.ForRead) is Polyline polyline)
         {
-            if (polyline.NumberOfVertices < 2) return false;
+            if (polyline.NumberOfVertices < 2)
+                return false;
+
             Point3d closestPoint = polyline.GetClosestPointTo(pickedPoint, false);
             double parameter = polyline.GetParameterAtPoint(closestPoint);
             int segmentIndex = (int)Math.Floor(parameter);
 
             if (segmentIndex >= polyline.NumberOfVertices - 1)
-                segmentIndex = polyline.Closed ? polyline.NumberOfVertices - 1 : polyline.NumberOfVertices - 2;
+                segmentIndex = polyline.Closed
+                    ? polyline.NumberOfVertices - 1
+                    : polyline.NumberOfVertices - 2;
 
-            if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line) return false;
+            if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line)
+                return false;
 
             Point3d start = polyline.GetPoint3dAt(segmentIndex);
             Point3d end = polyline.GetPoint3dAt((segmentIndex + 1) % polyline.NumberOfVertices);
             Vector3d vector = end - start;
-            if (vector.Length <= Tolerance.Global.EqualPoint) return false;
+
+            if (vector.Length <= Tolerance.Global.EqualPoint)
+                return false;
 
             direction = vector.GetNormal();
-            double distanceAlong = Math.Max(0.0, Math.Min(vector.Length,
-                (closestPoint - start).DotProduct(direction)));
+            double distanceAlong = Math.Max(
+                0.0,
+                Math.Min(vector.Length, (closestPoint - start).DotProduct(direction)));
             pointOnLine = start + direction * distanceAlong;
             transaction.Commit();
             return true;
@@ -142,8 +140,11 @@ public sealed class LimiteTool
     private static double CalcularRotacionParalela(Vector3d direction)
     {
         double rotation = Math.Atan2(direction.Y, direction.X);
+
+        // Mantener el texto legible y orientado con la línea.
         if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
             rotation += rotation > 0.0 ? -Math.PI : Math.PI;
+
         return rotation;
     }
 
@@ -155,8 +156,10 @@ public sealed class LimiteTool
         string content)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
-        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(database.Clayer, OpenMode.ForRead);
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
+            database.CurrentSpaceId, OpenMode.ForWrite);
+        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(
+            database.Clayer, OpenMode.ForRead);
 
         var text = new DBText
         {
@@ -217,6 +220,8 @@ public sealed class LimiteTool
             if (result.Status == PromptStatus.Cancel)
                 return SamplerStatus.Cancel;
 
+            // AutoCAD puede entregar el clic derecho como None cuando está
+            // configurado para actuar como Enter.
             if (result.Status == PromptStatus.None)
                 return SamplerStatus.OK;
 
