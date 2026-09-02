@@ -15,17 +15,12 @@ public sealed class TextCreationService
     public void CreateText(Point3d position, string content, double height = 1.45)
     {
         Document? document = Application.DocumentManager.MdiActiveDocument;
-        if (document is null || string.IsNullOrWhiteSpace(content))
-            return;
-
+        if (document is null || string.IsNullOrWhiteSpace(content)) return;
         Database database = document.Database;
         using Transaction transaction = database.TransactionManager.StartTransaction();
-
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
         var text = new DBText { Position = position, TextString = content.Trim(), Height = height, Layer = GetCurrentLayerName(database, transaction) };
-        currentSpace.AppendEntity(text);
-        transaction.AddNewlyCreatedDBObject(text, true);
-        transaction.Commit();
+        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); transaction.Commit();
     }
 
     public bool CreateTextWithJig(Point3d initialPosition, string content, double height = NomenclaturaTextHeight)
@@ -37,31 +32,24 @@ public sealed class TextCreationService
     public bool CreateTextWithJigAtFixedCenter(Point3d centerPosition, string content, double height = NomenclaturaTextHeight)
     {
         Document? document = Application.DocumentManager.MdiActiveDocument;
-        if (document is null || string.IsNullOrWhiteSpace(content))
-            return false;
-
+        if (document is null || string.IsNullOrWhiteSpace(content)) return false;
         Database database = document.Database;
         Editor editor = document.Editor;
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
+        var text = new DBText { TextString = content.Trim(), Height = height, Layer = GetCurrentLayerName(database, transaction), HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = centerPosition, Position = centerPosition, Rotation = 0.0 };
+        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
 
-        var text = new DBText
-        {
-            TextString = content.Trim(), Height = height, Layer = GetCurrentLayerName(database, transaction),
-            HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid,
-            AlignmentPoint = centerPosition, Position = centerPosition, Rotation = 0.0
-        };
-
-        currentSpace.AppendEntity(text);
-        transaction.AddNewlyCreatedDBObject(text, true);
-
-        // Regla estándar compartida: ORTHOMODE ON = 0/90/180/270; OFF = libre.
         var jig = new NomenclaturaTextJig(text, centerPosition, RotationStandard.IsOrthoEnabled());
         object originalOrthoMode = Application.GetSystemVariable("ORTHOMODE");
-
+        object originalShortcutMenu = Application.GetSystemVariable("SHORTCUTMENU");
         try
         {
             Application.SetSystemVariable("ORTHOMODE", 0);
+            // En un prompt de punto/jig, SHORTCUTMENU=0 hace que el clic derecho
+            // se comporte como Enter; para un punto sin valor, eso devuelve None
+            // y lo tratamos como cancelación, igual que ESC.
+            Application.SetSystemVariable("SHORTCUTMENU", 0);
             PromptResult result = editor.Drag(jig);
             if (result.Status != PromptStatus.OK)
             {
@@ -69,13 +57,13 @@ public sealed class TextCreationService
                 transaction.Commit();
                 return false;
             }
-
             transaction.Commit();
             return true;
         }
         finally
         {
             Application.SetSystemVariable("ORTHOMODE", originalOrthoMode);
+            Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
         }
     }
 
@@ -87,7 +75,6 @@ public sealed class TextCreationService
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
         var candidates = new List<LineCandidate>();
-
         foreach (ObjectId objectId in currentSpace)
         {
             if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Line))))
@@ -100,17 +87,14 @@ public sealed class TextCreationService
                 var polyline = transaction.GetObject(objectId, OpenMode.ForRead) as Polyline;
                 if (polyline is null) continue;
                 for (int i = 0; i < polyline.NumberOfVertices - 1; i++)
-                    if (polyline.GetSegmentType(i) == SegmentType.Line)
-                        AgregarSegmento(candidates, polyline.GetPoint3dAt(i), polyline.GetPoint3dAt(i + 1), clickPoint);
+                    if (polyline.GetSegmentType(i) == SegmentType.Line) AgregarSegmento(candidates, polyline.GetPoint3dAt(i), polyline.GetPoint3dAt(i + 1), clickPoint);
                 if (polyline.Closed && polyline.NumberOfVertices > 1)
                 {
                     int last = polyline.NumberOfVertices - 1;
-                    if (polyline.GetSegmentType(last) == SegmentType.Line)
-                        AgregarSegmento(candidates, polyline.GetPoint3dAt(last), polyline.GetPoint3dAt(0), clickPoint);
+                    if (polyline.GetSegmentType(last) == SegmentType.Line) AgregarSegmento(candidates, polyline.GetPoint3dAt(last), polyline.GetPoint3dAt(0), clickPoint);
                 }
             }
         }
-
         if (candidates.Count < 2) return null;
         LineCandidate? bestFirst = null, bestSecond = null;
         double bestScore = double.MaxValue;
@@ -127,9 +111,7 @@ public sealed class TextCreationService
         }
         if (bestFirst is null || bestSecond is null) return null;
         transaction.Commit();
-        return new Point3d((bestFirst.Projection.X + bestSecond.Projection.X) / 2.0,
-            (bestFirst.Projection.Y + bestSecond.Projection.Y) / 2.0,
-            (bestFirst.Projection.Z + bestSecond.Projection.Z) / 2.0);
+        return new Point3d((bestFirst.Projection.X + bestSecond.Projection.X) / 2.0, (bestFirst.Projection.Y + bestSecond.Projection.Y) / 2.0, (bestFirst.Projection.Z + bestSecond.Projection.Z) / 2.0);
     }
 
     private static void AgregarSegmento(List<LineCandidate> candidates, Point3d start, Point3d end, Point3d clickPoint)
@@ -175,8 +157,7 @@ public sealed class TextCreationService
         public Vector3d Direction { get; }
         public Point3d Projection { get; }
         public double Distance { get; }
-        public LineCandidate(Point3d origin, Vector3d direction, Point3d projection, double distance)
-        { Origin = origin; Direction = direction; Projection = projection; Distance = distance; }
+        public LineCandidate(Point3d origin, Vector3d direction, Point3d projection, double distance) { Origin = origin; Direction = direction; Projection = projection; Distance = distance; }
     }
 
     private sealed class NomenclaturaTextJig : EntityJig
@@ -185,27 +166,17 @@ public sealed class TextCreationService
         private readonly Point3d _center;
         private readonly bool _orthoEnabled;
         private double _currentRotation;
-
-        public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled) : base(text)
-        { _text = text; _center = center; _orthoEnabled = orthoEnabled; _currentRotation = 0.0; }
-
+        public NomenclaturaTextJig(DBText text, Point3d center, bool orthoEnabled) : base(text) { _text = text; _center = center; _orthoEnabled = orthoEnabled; _currentRotation = 0.0; }
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
-            var options = new JigPromptPointOptions("\nMueva el mouse para girar y haga clic para fijar: ")
-            {
-                BasePoint = _center, UseBasePoint = true, Cursor = CursorType.RubberBand,
-                UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NoZeroResponseAccepted
-            };
+            var options = new JigPromptPointOptions("\nMueva el mouse para girar y haga clic para fijar (ESC o clic derecho para cancelar): ") { BasePoint = _center, UseBasePoint = true, Cursor = CursorType.RubberBand, UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NoZeroResponseAccepted };
             PromptPointResult result = prompts.AcquirePoint(options);
-            if (result.Status == PromptStatus.Cancel) return SamplerStatus.Cancel;
-            if (result.Status != PromptStatus.OK) return SamplerStatus.NoChange;
+            if (result.Status != PromptStatus.OK) return SamplerStatus.Cancel;
             double angle = RotationStandard.FromPoint(_center, result.Value, _orthoEnabled);
             if (Math.Abs(angle - _currentRotation) < 1e-10) return SamplerStatus.NoChange;
             _currentRotation = angle;
             return SamplerStatus.OK;
         }
-
-        protected override bool Update()
-        { _text.Position = _center; _text.AlignmentPoint = _center; _text.Rotation = _currentRotation; return true; }
+        protected override bool Update() { _text.Position = _center; _text.AlignmentPoint = _center; _text.Rotation = _currentRotation; return true; }
     }
 }
