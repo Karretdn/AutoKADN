@@ -52,8 +52,8 @@ public sealed class TextCreationService
             database.CurrentSpaceId,
             OpenMode.ForWrite);
 
-        // Si el clic quedó entre dos líneas paralelas, usamos automáticamente
-        // el centro geométrico entre ellas como punto inicial del texto.
+        // Detecta LINE y segmentos rectos de POLYLINE. Si encuentra dos
+        // segmentos paralelos a ambos lados del clic, centra el texto entre ellos.
         Point3d textPosition = ObtenerCentroEntreLineas(transaction, currentSpace, initialPosition)
             ?? initialPosition;
 
@@ -94,20 +94,41 @@ public sealed class TextCreationService
 
         foreach (ObjectId objectId in currentSpace)
         {
-            if (!objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Line))))
-                continue;
-
-            var line = transaction.GetObject(objectId, OpenMode.ForRead) as Line;
-            if (line is null || line.Length <= Tolerance.Global.EqualPoint)
-                continue;
-
-            Point3d projection = ProyectarSobreLinea(line, clickPoint);
-            double distance = projection.DistanceTo(clickPoint);
-
-            if (distance <= LineSearchTolerance)
+            if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Line))))
             {
-                Vector3d direction = (line.EndPoint - line.StartPoint).GetNormal();
-                candidates.Add(new LineCandidate(line.StartPoint, direction, projection, distance));
+                var line = transaction.GetObject(objectId, OpenMode.ForRead) as Line;
+                if (line is not null)
+                    AgregarSegmento(candidates, line.StartPoint, line.EndPoint, clickPoint);
+            }
+            else if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Polyline))))
+            {
+                var polyline = transaction.GetObject(objectId, OpenMode.ForRead) as Polyline;
+                if (polyline is null)
+                    continue;
+
+                for (int i = 0; i < polyline.NumberOfVertices - 1; i++)
+                {
+                    // Los tramos curvos se ignoran por ahora; solo se usan
+                    // segmentos rectos para la detección entre dos bordes.
+                    if (polyline.GetSegmentType(i) != SegmentType.Line)
+                        continue;
+
+                    Point3d start = polyline.GetPoint3dAt(i);
+                    Point3d end = polyline.GetPoint3dAt(i + 1);
+                    AgregarSegmento(candidates, start, end, clickPoint);
+                }
+
+                // Si la POLYLINE es cerrada, también analizamos el último tramo.
+                if (polyline.Closed && polyline.NumberOfVertices > 1)
+                {
+                    int last = polyline.NumberOfVertices - 1;
+                    if (polyline.GetSegmentType(last) == SegmentType.Line)
+                    {
+                        Point3d start = polyline.GetPoint3dAt(last);
+                        Point3d end = polyline.GetPoint3dAt(0);
+                        AgregarSegmento(candidates, start, end, clickPoint);
+                    }
+                }
             }
         }
 
@@ -131,7 +152,7 @@ public sealed class TextCreationService
                 double sideFirst = ObtenerDistanciaFirmada(first.Origin, first.Direction, clickPoint);
                 double sideSecond = ObtenerDistanciaFirmada(second.Origin, second.Direction, clickPoint);
 
-                // El clic debe estar entre ambas líneas, no al mismo lado de las dos.
+                // El clic debe estar entre ambos segmentos, no al mismo lado.
                 if (Math.Sign(sideFirst) == Math.Sign(sideSecond))
                     continue;
 
@@ -149,21 +170,40 @@ public sealed class TextCreationService
         if (bestFirst is null || bestSecond is null)
             return null;
 
-        // El centro es el punto medio entre las proyecciones del clic sobre
-        // las dos líneas paralelas.
         return new Point3d(
             (bestFirst.Projection.X + bestSecond.Projection.X) / 2.0,
             (bestFirst.Projection.Y + bestSecond.Projection.Y) / 2.0,
             (bestFirst.Projection.Z + bestSecond.Projection.Z) / 2.0);
     }
 
-    private static Point3d ProyectarSobreLinea(Line line, Point3d point)
+    private static void AgregarSegmento(
+        List<LineCandidate> candidates,
+        Point3d start,
+        Point3d end,
+        Point3d clickPoint)
     {
-        Vector3d direction = (line.EndPoint - line.StartPoint).GetNormal();
-        Vector3d fromStart = point - line.StartPoint;
-        double parameter = fromStart.DotProduct(direction);
+        Vector3d vector = end - start;
+        if (vector.Length <= Tolerance.Global.EqualPoint)
+            return;
 
-        return line.StartPoint + direction * parameter;
+        Vector3d direction = vector.GetNormal();
+        Point3d projection = ProyectarSobreSegmento(start, end, clickPoint, direction);
+        double distance = projection.DistanceTo(clickPoint);
+
+        if (distance <= LineSearchTolerance)
+            candidates.Add(new LineCandidate(start, direction, projection, distance));
+    }
+
+    private static Point3d ProyectarSobreSegmento(
+        Point3d start,
+        Point3d end,
+        Point3d point,
+        Vector3d direction)
+    {
+        double length = start.DistanceTo(end);
+        double parameter = (point - start).DotProduct(direction);
+        parameter = Math.Max(0.0, Math.Min(length, parameter));
+        return start + direction * parameter;
     }
 
     private static double ObtenerDistanciaFirmada(Point3d origin, Vector3d direction, Point3d point)
@@ -176,7 +216,7 @@ public sealed class TextCreationService
     {
         double cross = Math.Abs(first.X * second.Y - first.Y * second.X);
         double angle = Math.Asin(Math.Min(1.0, cross));
-        return angle <= ParallelAngleTolerance || Math.Abs(Math.PI - angle) <= ParallelAngleTolerance;
+        return angle <= ParallelAngleTolerance;
     }
 
     private static bool ObtenerModoOrto()
