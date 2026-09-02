@@ -325,13 +325,16 @@ public sealed class CotaTool
             return null;
         }
 
-        var options = new PromptKeywordOptions("\nSeleccione capa: ")
+        // AutoCAD no admite '_' dentro del nombre de una keyword.
+        // Por eso usamos alias internos válidos, pero mostramos el nombre
+        // REAL de la capa tanto en la línea de comandos como en la lista.
+        string displayNames = string.Join("/", available);
+        var options = new PromptKeywordOptions(
+            $"\nSeleccione capa [{displayNames}]: ")
         {
             AllowNone = false
         };
 
-        // El nombre real se muestra al usuario, pero el nombre que AutoCAD
-        // acepta como keyword no contiene '_' ni '-'.
         foreach (string layerName in available)
         {
             string alias = GetLayerAlias(layerName);
