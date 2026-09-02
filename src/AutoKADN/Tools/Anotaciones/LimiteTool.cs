@@ -17,14 +17,14 @@ public sealed class LimiteTool
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
         if (document is null) return;
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[LIMIK] Límites. Snap Cercano activo. ESC para salir.\n");
+        editor.WriteMessage("\n[LIMIK] Límites. Snap Cercano activo. ESC o clic derecho para salir.\n");
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
             while (true)
             {
-                var pointOptions = new PromptPointOptions("\nHaga clic sobre la línea (ESC para salir): ");
+                var pointOptions = new PromptPointOptions("\nHaga clic sobre la línea (ESC o clic derecho para salir): ");
                 PromptPointResult pointResult = editor.GetPoint(pointOptions);
                 if (pointResult.Status != PromptStatus.OK) return;
                 Point3d pointOnLine = pointResult.Value;
@@ -111,7 +111,7 @@ public sealed class LimiteTool
             currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); textId = text.ObjectId; transaction.Commit();
         }
         editor.Regen();
-        editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar el texto.\n");
+        editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar el texto. Clic derecho cancela.\n");
         using Transaction jigTransaction = document.Database.TransactionManager.StartTransaction();
         var textForJig = jigTransaction.GetObject(textId, OpenMode.ForWrite) as DBText;
         if (textForJig is null) { jigTransaction.Abort(); return false; }
