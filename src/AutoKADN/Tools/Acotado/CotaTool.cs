@@ -11,14 +11,14 @@ public sealed class CotaTool
 
     private static readonly (string Label, string Layer)[] LongitudLayers =
     {
-        ("TUBERIA 1/2\"", "COTA_1-2"),
-        ("TUBERIA 3/4\"", "COTA_3-4")
+        ("TUBERIA 1-2\"", "COTA_1-2"),
+        ("TUBERIA 3-4\"", "COTA_3-4")
     };
 
     private static readonly (string Label, string Layer)[] UCLayers =
     {
-        ("CANALIZACION 1/2\"", "UC_1-2"),
-        ("CANALIZACION 3/4\"", "UC_3-4")
+        ("CANALIZACION 1-2\"", "UC_1-2"),
+        ("CANALIZACION 3-4\"", "UC_3-4")
     };
 
     private static readonly (string Label, short? ColorIndex, int R, int G, int B)[] UCAttributes =
@@ -279,8 +279,6 @@ public sealed class CotaTool
                 AllowNone = true
             };
 
-            // Las keywords internas no contienen '/', espacios ni comillas.
-            // El texto visible sigue siendo la etiqueta completa de la opción.
             string[] keywords = { "OPCION1", "OPCION2" };
 
             for (int i = 0; i < preferred.Length; i++)
