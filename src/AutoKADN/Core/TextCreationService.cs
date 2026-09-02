@@ -125,7 +125,6 @@ public sealed class TextCreationService
                 BasePoint = _initialPosition,
                 UserInputControls = UserInputControls.Accept3dCoordinates
                     | UserInputControls.NoZeroResponseAccepted
-                    | UserInputControls.NoNegativeResponseAccepted
             };
 
             PromptPointResult result = prompts.AcquirePoint(options);
