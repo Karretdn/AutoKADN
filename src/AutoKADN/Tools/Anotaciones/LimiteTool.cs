@@ -6,6 +6,7 @@ namespace AutoKADN.Tools.Anotaciones;
 
 public sealed class LimiteTool
 {
+    private const double OffsetFromLine = 1.10;
     private const double TextHeight = 1.45;
     private const short NearestObjectSnap = 512;
 
@@ -16,21 +17,26 @@ public sealed class LimiteTool
             return;
 
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[LIMIK] Límites. Snap LINEA/Nearest activado. ESC para salir.\n");
+        editor.WriteMessage("\n[LIMIK] Límites. Haga clic sobre la línea. ESC para salir.\n");
 
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
+
         try
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
+            // NEAREST queda activo únicamente durante LIMIK para que el clic
+            // quede exactamente asociado al eje de la línea.
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
+                "OSMODE", NearestObjectSnap);
 
             while (true)
             {
                 PromptEntityOptions entityOptions = new PromptEntityOptions(
-                    "\nSeleccione el punto sobre la línea (ESC para salir): ");
+                    "\nHaga clic sobre la línea (ESC para salir): ");
                 entityOptions.SetRejectMessage("\nDebe seleccionar una línea o una polilínea.");
                 entityOptions.AddAllowedClass(typeof(Line), true);
                 entityOptions.AddAllowedClass(typeof(Polyline), true);
 
+                // PRIMER Y ÚNICO CLIC: determina el punto exacto del eje.
                 PromptEntityResult entityResult = editor.GetEntity(entityOptions);
                 if (entityResult.Status != PromptStatus.OK)
                     return;
@@ -46,28 +52,34 @@ public sealed class LimiteTool
                     continue;
                 }
 
+                // Después del clic solamente se escoge el tipo. Al escogerlo,
+                // el texto se crea inmediatamente: no hay segundo clic/jig.
                 string? limite = SeleccionarLimite(editor);
                 if (limite is null)
                     return;
 
-                double rotation = CalcularRotacionParalela(direction);
-
-                if (!CrearTextoConGiro(editor, document.Database, pointOnLine, rotation, limite))
-                    return;
+                CrearTexto(
+                    document.Database,
+                    pointOnLine,
+                    direction,
+                    limite);
             }
         }
         finally
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", originalOsMode);
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
+                "OSMODE", originalOsMode);
         }
     }
 
     private static string? SeleccionarLimite(Editor editor)
     {
-        var options = new PromptKeywordOptions("\n¿Qué desea colocar? [LB/LP/LC]: ")
+        var options = new PromptKeywordOptions(
+            "\n¿Qué desea colocar? [LB/LP/LC]: ")
         {
             AllowNone = false
         };
+
         options.Keywords.Add("LB");
         options.Keywords.Add("LP");
         options.Keywords.Add("LC");
@@ -87,6 +99,7 @@ public sealed class LimiteTool
     {
         pointOnLine = Point3d.Origin;
         direction = Vector3d.XAxis;
+
         using Transaction transaction = database.TransactionManager.StartTransaction();
 
         if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
@@ -111,9 +124,11 @@ public sealed class LimiteTool
             int segmentIndex = (int)Math.Floor(parameter);
 
             if (segmentIndex >= polyline.NumberOfVertices - 1)
+            {
                 segmentIndex = polyline.Closed
                     ? polyline.NumberOfVertices - 1
                     : polyline.NumberOfVertices - 2;
+            }
 
             if (segmentIndex < 0 || polyline.GetSegmentType(segmentIndex) != SegmentType.Line)
                 return false;
@@ -126,9 +141,11 @@ public sealed class LimiteTool
                 return false;
 
             direction = vector.GetNormal();
+
             double distanceAlong = Math.Max(
                 0.0,
                 Math.Min(vector.Length, (closestPoint - start).DotProduct(direction)));
+
             pointOnLine = start + direction * distanceAlong;
             transaction.Commit();
             return true;
@@ -137,28 +154,43 @@ public sealed class LimiteTool
         return false;
     }
 
+    private static Point3d CalcularPosicionTexto(Point3d pointOnLine, Vector3d direction)
+    {
+        // El clic define el punto del eje. El texto se desplaza 1.10 unidades
+        // perpendicularmente para quedar encima de la línea, no sobre ella.
+        Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
+        return pointOnLine + normal * OffsetFromLine;
+    }
+
     private static double CalcularRotacionParalela(Vector3d direction)
     {
         double rotation = Math.Atan2(direction.Y, direction.X);
 
+        // Mantener lectura natural sin perder el paralelismo con la línea.
         if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
             rotation += rotation > 0.0 ? -Math.PI : Math.PI;
 
         return rotation;
     }
 
-    private static bool CrearTextoConGiro(
-        Editor editor,
+    private static void CrearTexto(
         Database database,
-        Point3d position,
-        double rotation,
+        Point3d pointOnLine,
+        Vector3d direction,
         string content)
     {
+        Point3d textPosition = CalcularPosicionTexto(pointOnLine, direction);
+        double rotation = CalcularRotacionParalela(direction);
+
         using Transaction transaction = database.TransactionManager.StartTransaction();
+
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForWrite);
+            database.CurrentSpaceId,
+            OpenMode.ForWrite);
+
         LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(
-            database.Clayer, OpenMode.ForRead);
+            database.Clayer,
+            OpenMode.ForRead);
 
         var text = new DBText
         {
@@ -168,72 +200,13 @@ public sealed class LimiteTool
             ColorIndex = 4,
             HorizontalMode = TextHorizontalMode.TextCenter,
             VerticalMode = TextVerticalMode.TextVerticalMid,
-            AlignmentPoint = position,
-            Position = position,
+            AlignmentPoint = textPosition,
+            Position = textPosition,
             Rotation = rotation
         };
 
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
-
-        var jig = new LimiteTextJig(text, position, rotation);
-        PromptResult result = editor.Drag(jig);
-
-        if (result.Status != PromptStatus.OK && result.Status != PromptStatus.None)
-        {
-            text.Erase();
-            transaction.Commit();
-            return false;
-        }
-
         transaction.Commit();
-        return true;
-    }
-
-    private sealed class LimiteTextJig : EntityJig
-    {
-        private readonly DBText _text;
-        private readonly Point3d _position;
-        private readonly double _rotation;
-
-        public LimiteTextJig(DBText text, Point3d position, double rotation) : base(text)
-        {
-            _text = text;
-            _position = position;
-            _rotation = rotation;
-        }
-
-        protected override SamplerStatus Sampler(JigPrompts prompts)
-        {
-            var options = new JigPromptPointOptions(
-                "\nHaga clic o clic derecho para confirmar (ESC para salir): ")
-            {
-                UseBasePoint = true,
-                BasePoint = _position,
-                UserInputControls = UserInputControls.Accept3dCoordinates
-                    | UserInputControls.NoZeroResponseAccepted
-            };
-
-            PromptPointResult result = prompts.AcquirePoint(options);
-
-            if (result.Status == PromptStatus.Cancel)
-                return SamplerStatus.Cancel;
-
-            if (result.Status == PromptStatus.None)
-                return SamplerStatus.OK;
-
-            if (result.Status != PromptStatus.OK)
-                return SamplerStatus.Cancel;
-
-            return SamplerStatus.OK;
-        }
-
-        protected override bool Update()
-        {
-            _text.Position = _position;
-            _text.AlignmentPoint = _position;
-            _text.Rotation = _rotation;
-            return true;
-        }
     }
 }
