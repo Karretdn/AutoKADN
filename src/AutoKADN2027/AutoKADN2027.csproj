@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AutoKADN</RootNamespace>
+    <AssemblyName>AutoKADN</AssemblyName>
+    <OutputPath>..\..\bin\AutoCAD2027\</OutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AutoCADInstallDir>C:\Program Files\Autodesk\AutoCAD 2027</AutoCADInstallDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\AutoKADN\**\*.cs" />
+    <Reference Include="AcCoreMgd">
+      <HintPath>$(AutoCADInstallDir)\AcCoreMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcDbMgd">
+      <HintPath>$(AutoCADInstallDir)\AcDbMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcMgd">
+      <HintPath>$(AutoCADInstallDir)\AcMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>$(AutoCADInstallDir)\AdWindows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
