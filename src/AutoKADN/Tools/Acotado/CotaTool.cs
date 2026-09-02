@@ -21,17 +21,18 @@ public sealed class CotaTool
         ("CANALIZACION 3-4\"", "UC_3-4")
     };
 
-    // Colores definidos directamente en RGB según la guía gráfica de UC.
-    private static readonly (string Label, int R, int G, int B)[] UCAttributes =
+    // Colores UC: se usa ACI para los colores estándar de AutoCAD y RGB
+    // únicamente para los colores personalizados de la guía.
+    private static readonly (string Label, short? ColorIndex, int R, int G, int B)[] UCAttributes =
     {
-        ("ZONA VERDE", 0, 255, 0),
-        ("ANDEN TABLETA", 255, 0, 0),
-        ("CALZADA CONCRETO", 137, 137, 137),
-        ("DESTAPADO", 248, 215, 49),
-        ("CUNETA", 100, 33, 101),
-        ("ANDEN CONCRETO", 0, 0, 255),
-        ("ASFALTO", 255, 127, 0),
-        ("ADOQUIN", 0, 255, 255)
+        ("ZONA VERDE", 3, 0, 0, 0),
+        ("ANDEN TABLETA", 1, 0, 0, 0),
+        ("CALZADA CONCRETO", 8, 0, 0, 0),
+        ("DESTAPADO", 2, 0, 0, 0),
+        ("CUNETA", null, 100, 33, 101),
+        ("ANDEN CONCRETO", 5, 0, 0, 0),
+        ("ASFALTO", 30, 0, 0, 0),
+        ("ADOQUIN", 4, 0, 0, 0)
     };
 
     public void Run()
@@ -373,6 +374,7 @@ public sealed class CotaTool
             return SetDimensionColor(
                 database,
                 dimensionId,
+                selected.ColorIndex,
                 selected.R,
                 selected.G,
                 selected.B);
@@ -386,6 +388,7 @@ public sealed class CotaTool
     private static bool SetDimensionColor(
         Database database,
         ObjectId dimensionId,
+        short? colorIndex,
         int r,
         int g,
         int b)
@@ -398,12 +401,21 @@ public sealed class CotaTool
             return false;
         }
 
-        // El color es una propiedad explícita de la cota y no depende del color
-        // de la capa. Se utiliza TrueColor para respetar exactamente la guía RGB.
-        dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb(
-            (byte)r,
-            (byte)g,
-            (byte)b);
+        // Los colores básicos de AutoCAD se almacenan como ACI para conservar
+        // exactamente el índice estándar. Los colores personalizados usan RGB.
+        if (colorIndex.HasValue)
+        {
+            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
+                Autodesk.AutoCAD.Colors.ColorMethod.ByAci,
+                colorIndex.Value);
+        }
+        else
+        {
+            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb(
+                (byte)r,
+                (byte)g,
+                (byte)b);
+        }
 
         transaction.Commit();
         return true;
