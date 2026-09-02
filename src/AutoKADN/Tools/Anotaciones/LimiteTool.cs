@@ -138,6 +138,8 @@ public sealed class LimiteTool
 
     private static double CalcularRotacionParalela(Vector3d direction)
     {
+        // La referencia visual del plano muestra que LB/LP deben seguir
+        // la misma direccion de la linea seleccionada.
         double rotation = Math.Atan2(direction.Y, direction.X);
 
         // Mantener el texto legible: nunca queda boca abajo.
@@ -165,6 +167,7 @@ public sealed class LimiteTool
             TextString = content,
             Height = 1.45,
             Layer = layer.Name,
+            ColorIndex = 4,
             HorizontalMode = TextHorizontalMode.TextCenter,
             VerticalMode = TextVerticalMode.TextVerticalMid,
             AlignmentPoint = position,
@@ -205,7 +208,7 @@ public sealed class LimiteTool
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
             var options = new JigPromptPointOptions(
-                "\nConfirme la posición del límite y haga clic (ESC para salir): ")
+                "\nHaga clic para confirmar el límite (ESC para salir): ")
             {
                 UseBasePoint = true,
                 BasePoint = _position,
