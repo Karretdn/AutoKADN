@@ -2,7 +2,6 @@ using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
-using Autodesk.AutoCAD.Colors;
 
 namespace AutoKADN.Tools.Anotaciones;
 
@@ -15,18 +14,6 @@ public sealed class AnotacionesTool
 {
     private const double TextHeight = 2.40;
     private const double TextOffset = 1.00;
-    private const double MTextWidth = 0.0;
-
-    private static readonly string[] AnnotationTypes =
-    {
-        "LIBRE",
-        "CAMISA LONG.:",
-        "PANTALLA LONG.:",
-        "CRUCE CON TOPO LONG.:",
-        "EMPEDRADO LONG.:",
-        "VIGA EN CONCRETO LONG.:",
-        "ESPIRAL"
-    };
 
     public void Run()
     {
@@ -47,15 +34,27 @@ public sealed class AnotacionesTool
                 if (!GetReferenceLine(editor, out Point3d startPoint, out Point3d endPoint))
                     return;
 
+                ObjectId lineId = CreateReferenceLine(document.Database, startPoint, endPoint);
+                if (lineId == ObjectId.Null)
+                    return;
+
                 string? type = SelectAnnotationType(editor);
                 if (type is null)
+                {
+                    EraseEntity(document.Database, lineId);
                     return;
+                }
 
                 string? text = BuildAnnotation(editor, type);
                 if (text is null)
+                {
+                    EraseEntity(document.Database, lineId);
                     return;
+                }
 
-                CreateLineAndText(document.Database, startPoint, endPoint, text);
+                if (!string.IsNullOrWhiteSpace(text))
+                    CreateText(document.Database, startPoint, endPoint, text);
+
                 editor.Regen();
             }
         }
@@ -120,10 +119,7 @@ public sealed class AnotacionesTool
         options.Keywords.Add("ESPIRAL");
 
         PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK)
-            return null;
-
-        return result.StringResult;
+        return result.Status == PromptStatus.OK ? result.StringResult : null;
     }
 
     private static string? BuildAnnotation(Editor editor, string type)
@@ -158,7 +154,7 @@ public sealed class AnotacionesTool
         if (value.Length == 0)
             return null;
 
-        return $"{label}\\P{value} LONG.:";
+        return $"{label}\\PLONG.: {value}";
     }
 
     private static string? ReadFreeText(Editor editor)
@@ -170,10 +166,13 @@ public sealed class AnotacionesTool
         {
             var options = new PromptStringOptions("Texto: ")
             {
-                AllowSpaces = true
+                AllowSpaces = true,
+                AllowNone = true
             };
 
             PromptResult result = editor.GetString(options);
+            if (result.Status == PromptStatus.None)
+                break;
             if (result.Status != PromptStatus.OK)
                 return null;
 
@@ -205,11 +204,7 @@ public sealed class AnotacionesTool
         if (saddles is null) return null;
 
         string saddleDiameter = string.Empty;
-        if (IsZero(saddles))
-        {
-            // No se necesita diámetro cuando no se generan sillas.
-        }
-        else
+        if (!IsZero(saddles))
         {
             PromptStringOptions diameterOptions = new PromptStringOptions(
                 "DIAMETRO DE SILLETA? (puede escribir signos y números): ")
@@ -231,27 +226,16 @@ public sealed class AnotacionesTool
 
         if (!IsZero(pipe))
             lines.Add($"{pipe}ML TUBERIA 3/4\"");
-
         if (!IsZero(unions))
             lines.Add($"{unions} UNIONES DE 3/4\"");
-
         if (!IsZero(tees))
             lines.Add($"{tees} TEE DE 3/4\"");
-
         if (!IsZero(valves))
             lines.Add($"{valves} VALVULA DE 3/4\"");
-
         if (!IsZero(saddles))
             lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
-
         if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase))
             lines.Add("PE.EXT.");
-
-        if (lines.Count == 0)
-        {
-            editor.WriteMessage("\nESPIRAL no generó texto porque todas las cantidades son cero y PE.EXT. = N.\n");
-            return string.Empty;
-        }
 
         return string.Join("\\P", lines);
     }
@@ -296,7 +280,7 @@ public sealed class AnotacionesTool
                && Math.Abs(number) <= 1e-12;
     }
 
-    private static void CreateLineAndText(Database database, Point3d startPoint, Point3d endPoint, string text)
+    private static ObjectId CreateReferenceLine(Database database, Point3d startPoint, Point3d endPoint)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
@@ -305,36 +289,48 @@ public sealed class AnotacionesTool
         {
             ColorIndex = 256
         };
+
         currentSpace.AppendEntity(line);
         transaction.AddNewlyCreatedDBObject(line, true);
+        transaction.Commit();
+        return line.ObjectId;
+    }
 
-        if (!string.IsNullOrWhiteSpace(text))
+    private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text)
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
+
+        Vector3d direction = (endPoint - startPoint).GetNormal();
+        Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
+        if (normal.Y < 0.0)
+            normal = -normal;
+
+        Point3d textPoint = endPoint + normal * TextOffset;
+
+        var mtext = new MText
         {
-            Vector3d direction = endPoint - startPoint;
-            direction = direction.GetNormal();
-            Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
+            Location = textPoint,
+            Contents = text,
+            TextHeight = TextHeight,
+            Attachment = AttachmentPoint.TopLeft,
+            Rotation = 0.0,
+            ColorIndex = 256
+        };
 
-            // Mantiene el texto en el lado superior de la línea y evita que quede sobre ella.
-            if (normal.Y < 0.0)
-                normal = -normal;
+        currentSpace.AppendEntity(mtext);
+        transaction.AddNewlyCreatedDBObject(mtext, true);
+        transaction.Commit();
+    }
 
-            Point3d textPoint = endPoint + normal * TextOffset;
+    private static void EraseEntity(Database database, ObjectId objectId)
+    {
+        if (objectId == ObjectId.Null)
+            return;
 
-            var mtext = new MText
-            {
-                Location = textPoint,
-                Contents = text,
-                TextHeight = TextHeight,
-                Width = MTextWidth,
-                Attachment = AttachmentPoint.TopLeft,
-                Rotation = 0.0,
-                ColorIndex = 256
-            };
-
-            currentSpace.AppendEntity(mtext);
-            transaction.AddNewlyCreatedDBObject(mtext, true);
-        }
-
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        if (transaction.GetObject(objectId, OpenMode.ForWrite, false) is Entity entity)
+            entity.Erase();
         transaction.Commit();
     }
 }
