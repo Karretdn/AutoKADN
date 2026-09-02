@@ -20,7 +20,6 @@ public sealed class NomenclaturaPredialTool
         editor.WriteMessage("\n[KARP_NOMPRED] Nomenclatura predial. ESC para salir.\n");
 
         PromptPointResult pointResult = editor.GetPoint("\nPrimer clic dentro del predio: ");
-
         if (pointResult.Status != PromptStatus.OK)
         {
             editor.WriteMessage("\n[KARP_NOMPRED] Herramienta finalizada.\n");
@@ -28,7 +27,6 @@ public sealed class NomenclaturaPredialTool
         }
 
         Point3d clickPoint = pointResult.Value;
-
         string? content = ObtenerTexto(editor);
         if (content is null)
         {
@@ -57,7 +55,6 @@ public sealed class NomenclaturaPredialTool
         };
 
         PromptResult result = editor.GetString(options);
-
         if (result.Status != PromptStatus.OK)
             return null;
 
@@ -68,11 +65,10 @@ public sealed class NomenclaturaPredialTool
     private static Point3d? ObtenerCentroPredial(Database database, Point3d clickPoint)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
-
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
             database.CurrentSpaceId, OpenMode.ForRead);
 
-        // Primero se intenta con polilíneas cerradas. Es el caso más directo y preciso.
+        // Caso 1: una polilínea cerrada representa directamente el predio.
         foreach (ObjectId objectId in currentSpace)
         {
             if (!objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Polyline))))
@@ -85,12 +81,13 @@ public sealed class NomenclaturaPredialTool
             if (!PuntoDentroDePoligono(polyline, clickPoint))
                 continue;
 
-            return CalcularCentroide(polyline);
+            Point3d center = CalcularCentroide(polyline);
+            transaction.Commit();
+            return center;
         }
 
-        // Segundo caso: el predio está formado por líneas independientes.
-        // AutoCAD puede convertir los segmentos que forman un circuito cerrado
-        // en regiones temporales y calcular su centro geométrico con precisión.
+        // Caso 2: el predio está construido con líneas/segmentos independientes.
+        // Se crea una región temporal a partir de los contornos cercanos al clic.
         var curves = new DBObjectCollection();
 
         try
@@ -100,22 +97,15 @@ public sealed class NomenclaturaPredialTool
                 if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Line))))
                 {
                     var line = transaction.GetObject(objectId, OpenMode.ForRead) as Line;
-                    if (line is null)
+                    if (line is null || !EstaCercaDelPunto(line.GeometricExtents, clickPoint))
                         continue;
 
-                    // El filtro evita procesar líneas demasiado alejadas del primer clic.
-                    if (!EstaCercaDelPunto(line.GeometricExtents, clickPoint))
-                        continue;
-
-                    curves.Add(line.Clone() as Line ?? new Line(line.StartPoint, line.EndPoint));
+                    curves.Add(new Line(line.StartPoint, line.EndPoint));
                 }
                 else if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Polyline))))
                 {
                     var polyline = transaction.GetObject(objectId, OpenMode.ForRead) as Polyline;
-                    if (polyline is null || polyline.Closed)
-                        continue;
-
-                    if (!EstaCercaDelPunto(polyline.GeometricExtents, clickPoint))
+                    if (polyline is null || polyline.Closed || !EstaCercaDelPunto(polyline.GeometricExtents, clickPoint))
                         continue;
 
                     curves.Add(polyline.Clone());
@@ -132,30 +122,38 @@ public sealed class NomenclaturaPredialTool
             foreach (DBObject dbObject in regions)
             {
                 if (dbObject is not Region region)
+                {
+                    dbObject.Dispose();
                     continue;
+                }
 
-                Extents3d extents = region.GeometricExtents;
-                if (!PuntoDentroDeExtensiones(extents, clickPoint))
+                if (!PuntoDentroDeExtensiones(region.GeometricExtents, clickPoint))
+                {
+                    region.Dispose();
                     continue;
+                }
 
                 Point3d origin = Point3d.Origin;
                 Vector3d xAxis = Vector3d.XAxis;
                 Vector3d yAxis = Vector3d.YAxis;
                 RegionAreaProperties properties = region.AreaProperties(ref origin, ref xAxis, ref yAxis);
 
-                if (properties.AreaImage <= 0.0)
-                    continue;
-
-                // Si hay regiones anidadas, se toma la más pequeña que contiene el clic.
-                if (properties.AreaImage < bestArea)
+                if (properties.ImageArea <= 0.0)
                 {
-                    bestArea = properties.AreaImage;
-                    bestRegion?.Dispose();
-                    bestRegion = region;
+                    region.Dispose();
                     continue;
                 }
 
-                region.Dispose();
+                if (properties.ImageArea < bestArea)
+                {
+                    bestRegion?.Dispose();
+                    bestRegion = region;
+                    bestArea = properties.ImageArea;
+                }
+                else
+                {
+                    region.Dispose();
+                }
             }
 
             if (bestRegion is null)
@@ -170,11 +168,13 @@ public sealed class NomenclaturaPredialTool
                 ref centroidYAxis);
 
             Point2d centroid = centroidProperties.Centroid;
-            return new Point3d(centroid.X, centroid.Y, clickPoint.Z);
+            Point3d centerPoint = new Point3d(centroid.X, centroid.Y, clickPoint.Z);
+            bestRegion.Dispose();
+            transaction.Commit();
+            return centerPoint;
         }
         catch
         {
-            // Si la geometría no permite crear una región, se conserva el primer clic.
             return null;
         }
         finally
@@ -187,7 +187,6 @@ public sealed class NomenclaturaPredialTool
     private static bool EstaCercaDelPunto(Extents3d extents, Point3d point)
     {
         const double tolerance = 1000.0;
-
         return point.X >= extents.MinPoint.X - tolerance
             && point.X <= extents.MaxPoint.X + tolerance
             && point.Y >= extents.MinPoint.Y - tolerance
@@ -197,7 +196,6 @@ public sealed class NomenclaturaPredialTool
     private static bool PuntoDentroDeExtensiones(Extents3d extents, Point3d point)
     {
         const double tolerance = 1e-6;
-
         return point.X >= extents.MinPoint.X - tolerance
             && point.X <= extents.MaxPoint.X + tolerance
             && point.Y >= extents.MinPoint.Y - tolerance
@@ -232,7 +230,6 @@ public sealed class NomenclaturaPredialTool
         double areaDoble = 0.0;
         double centroX = 0.0;
         double centroY = 0.0;
-
         int count = polyline.NumberOfVertices;
 
         for (int i = 0; i < count; i++)
@@ -240,7 +237,6 @@ public sealed class NomenclaturaPredialTool
             Point2d current = polyline.GetPoint2dAt(i);
             Point2d next = polyline.GetPoint2dAt((i + 1) % count);
             double cross = current.X * next.Y - next.X * current.Y;
-
             areaDoble += cross;
             centroX += (current.X + next.X) * cross;
             centroY += (current.Y + next.Y) * cross;
