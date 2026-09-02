@@ -117,6 +117,14 @@ public sealed class AutoKADNRibbon
             _command = command;
         }
 
+        // ICommand exige este miembro aunque AutoKADN no necesite notificar cambios.
+        // Los accesores vacíos evitan la advertencia de evento nunca utilizado.
+        public event EventHandler? CanExecuteChanged
+        {
+            add { }
+            remove { }
+        }
+
         public bool CanExecute(object? parameter) => true;
 
         public void Execute(object? parameter)
