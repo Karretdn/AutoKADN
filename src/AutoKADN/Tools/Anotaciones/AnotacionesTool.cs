@@ -160,30 +160,29 @@ public sealed class AnotacionesTool
     private static string? ReadFreeText(Editor editor)
     {
         var lines = new List<string>();
-        editor.WriteMessage("\nLIBRE: escriba una línea y presione ENTER para pasar a la siguiente. Línea vacía para terminar.\n");
+        editor.WriteMessage("\nLIBRE: escriba una línea y presione ENTER para pasar a la siguiente. Termine con clic derecho o ESC.\n");
 
         while (true)
         {
             var options = new PromptStringOptions("Texto: ")
             {
-                AllowSpaces = true,
-                AllowNone = true
+                AllowSpaces = true
             };
 
             PromptResult result = editor.GetString(options);
-            if (result.Status == PromptStatus.None)
-                break;
             if (result.Status != PromptStatus.OK)
-                return null;
+                return lines.Count == 0 ? null : string.Join("\\P", lines);
 
             string line = result.StringResult.TrimEnd();
             if (line.Length == 0)
-                break;
+            {
+                // ENTER no cancela: conserva el renglón vacío y permite continuar escribiendo.
+                lines.Add(string.Empty);
+                continue;
+            }
 
             lines.Add(line);
         }
-
-        return lines.Count == 0 ? null : string.Join("\\P", lines);
     }
 
     private static string? ReadSpiral(Editor editor)
