@@ -1,0 +1,20 @@
+# Visual Studio / .NET
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# AutoCAD generated / temporary files
+*.dwl
+*.dwl2
+*.bak
+*.sv$
+*.ac$*
+
+# Build artifacts
+TestResults/
+
+# OS
+.DS_Store
+Thumbs.db
