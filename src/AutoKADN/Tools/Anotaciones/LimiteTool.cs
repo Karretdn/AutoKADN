@@ -91,7 +91,10 @@ public sealed class LimiteTool
 
     private static double CalcularRotacionParalela(Vector3d direction)
     {
-        return RotationStandard.MakeReadable(RotationStandard.FromDirection(direction, false));
+        double rotation = Math.Atan2(direction.Y, direction.X);
+        if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
+            rotation += rotation > 0.0 ? -Math.PI : Math.PI;
+        return rotation;
     }
 
     private static bool CrearTextoConJig(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, Point3d pointOnLine, Vector3d direction, string content)
@@ -112,7 +115,7 @@ public sealed class LimiteTool
         using Transaction jigTransaction = document.Database.TransactionManager.StartTransaction();
         var textForJig = jigTransaction.GetObject(textId, OpenMode.ForWrite) as DBText;
         if (textForJig is null) { jigTransaction.Abort(); return false; }
-        var jig = new LimitSideJig(textForJig, pointOnLine, normal, OffsetFromLine, RotationStandard.IsOrthoEnabled());
+        var jig = new LimitSideJig(textForJig, pointOnLine, normal, OffsetFromLine, rotation);
         PromptResult result = editor.Drag(jig);
         if (result.Status != PromptStatus.OK) { textForJig.Erase(); jigTransaction.Commit(); editor.Regen(); return false; }
         jigTransaction.Commit(); editor.Regen(); return true;
@@ -124,26 +127,42 @@ public sealed class LimiteTool
         private readonly Point3d _pointOnLine;
         private readonly Vector3d _normal;
         private readonly double _fixedOffset;
-        private readonly bool _orthoEnabled;
+        private readonly double _fixedRotation;
         private Point3d _lastPoint;
-        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset, bool orthoEnabled) : base(text)
-        { _text = text; _pointOnLine = pointOnLine; _normal = normal.GetNormal(); _fixedOffset = fixedOffset; _orthoEnabled = orthoEnabled; _lastPoint = text.Position; }
+
+        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset, double fixedRotation) : base(text)
+        {
+            _text = text;
+            _pointOnLine = pointOnLine;
+            _normal = normal.GetNormal();
+            _fixedOffset = fixedOffset;
+            _fixedRotation = fixedRotation;
+            _lastPoint = text.Position;
+        }
+
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
             var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ") { UseBasePoint = true, BasePoint = _pointOnLine };
             PromptPointResult result = prompts.AcquirePoint(options);
-            if (result.Status == PromptStatus.Cancel || result.Status != PromptStatus.OK) return SamplerStatus.Cancel;
+            if (result.Status != PromptStatus.OK) return SamplerStatus.Cancel;
+
             Vector3d fromLine = result.Value - _pointOnLine;
             double signedDistance = fromLine.DotProduct(_normal);
             Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal;
             Point3d projectedPoint = _pointOnLine + placementNormal * _fixedOffset;
+
             if (projectedPoint.IsEqualTo(_lastPoint)) return SamplerStatus.NoChange;
             _lastPoint = projectedPoint;
-            double rotation = RotationStandard.FromPoint(_pointOnLine, result.Value, _orthoEnabled);
-            _text.Rotation = RotationStandard.MakeReadable(rotation);
+            _text.Rotation = _fixedRotation;
             return SamplerStatus.OK;
         }
+
         protected override bool Update()
-        { _text.Position = _lastPoint; _text.AlignmentPoint = _lastPoint; return true; }
+        {
+            _text.Position = _lastPoint;
+            _text.AlignmentPoint = _lastPoint;
+            _text.Rotation = _fixedRotation;
+            return true;
+        }
     }
 }
