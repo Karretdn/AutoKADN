@@ -7,6 +7,9 @@ namespace AutoKADN.Core;
 
 public sealed class TextCreationService
 {
+    private const double LineSearchTolerance = 20.0;
+    private const double ParallelAngleTolerance = 5.0 * Math.PI / 180.0;
+
     public void CreateText(Point3d position, string content, double height = 1.45)
     {
         Document? document = Application.DocumentManager.MdiActiveDocument;
@@ -49,6 +52,11 @@ public sealed class TextCreationService
             database.CurrentSpaceId,
             OpenMode.ForWrite);
 
+        // Si el clic quedó entre dos líneas paralelas, usamos automáticamente
+        // el centro geométrico entre ellas como punto inicial del texto.
+        Point3d textPosition = ObtenerCentroEntreLineas(transaction, currentSpace, initialPosition)
+            ?? initialPosition;
+
         var text = new DBText
         {
             TextString = content.Trim(),
@@ -56,14 +64,14 @@ public sealed class TextCreationService
             Layer = GetCurrentLayerName(database, transaction),
             HorizontalMode = TextHorizontalMode.TextCenter,
             VerticalMode = TextVerticalMode.TextVerticalMid,
-            AlignmentPoint = initialPosition,
-            Position = initialPosition
+            AlignmentPoint = textPosition,
+            Position = textPosition
         };
 
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
-        var jig = new NomenclaturaTextJig(text, initialPosition, ObtenerModoOrto());
+        var jig = new NomenclaturaTextJig(text, textPosition, ObtenerModoOrto());
         PromptResult result = editor.Drag(jig);
 
         if (result.Status != PromptStatus.OK)
@@ -75,6 +83,100 @@ public sealed class TextCreationService
 
         transaction.Commit();
         return true;
+    }
+
+    private static Point3d? ObtenerCentroEntreLineas(
+        Transaction transaction,
+        BlockTableRecord currentSpace,
+        Point3d clickPoint)
+    {
+        var candidates = new List<LineCandidate>();
+
+        foreach (ObjectId objectId in currentSpace)
+        {
+            if (!objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Line))))
+                continue;
+
+            var line = transaction.GetObject(objectId, OpenMode.ForRead) as Line;
+            if (line is null || line.Length <= Tolerance.Global.EqualPoint)
+                continue;
+
+            Point3d projection = ProyectarSobreLinea(line, clickPoint);
+            double distance = projection.DistanceTo(clickPoint);
+
+            if (distance <= LineSearchTolerance)
+            {
+                Vector3d direction = (line.EndPoint - line.StartPoint).GetNormal();
+                candidates.Add(new LineCandidate(line.StartPoint, direction, projection, distance));
+            }
+        }
+
+        if (candidates.Count < 2)
+            return null;
+
+        LineCandidate? bestFirst = null;
+        LineCandidate? bestSecond = null;
+        double bestScore = double.MaxValue;
+
+        for (int i = 0; i < candidates.Count - 1; i++)
+        {
+            for (int j = i + 1; j < candidates.Count; j++)
+            {
+                LineCandidate first = candidates[i];
+                LineCandidate second = candidates[j];
+
+                if (!SonParalelas(first.Direction, second.Direction))
+                    continue;
+
+                double sideFirst = ObtenerDistanciaFirmada(first.Origin, first.Direction, clickPoint);
+                double sideSecond = ObtenerDistanciaFirmada(second.Origin, second.Direction, clickPoint);
+
+                // El clic debe estar entre ambas líneas, no al mismo lado de las dos.
+                if (Math.Sign(sideFirst) == Math.Sign(sideSecond))
+                    continue;
+
+                double score = first.Distance + second.Distance;
+
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestFirst = first;
+                    bestSecond = second;
+                }
+            }
+        }
+
+        if (bestFirst is null || bestSecond is null)
+            return null;
+
+        // El centro es el punto medio entre las proyecciones del clic sobre
+        // las dos líneas paralelas.
+        return new Point3d(
+            (bestFirst.Projection.X + bestSecond.Projection.X) / 2.0,
+            (bestFirst.Projection.Y + bestSecond.Projection.Y) / 2.0,
+            (bestFirst.Projection.Z + bestSecond.Projection.Z) / 2.0);
+    }
+
+    private static Point3d ProyectarSobreLinea(Line line, Point3d point)
+    {
+        Vector3d direction = (line.EndPoint - line.StartPoint).GetNormal();
+        Vector3d fromStart = point - line.StartPoint;
+        double parameter = fromStart.DotProduct(direction);
+
+        return line.StartPoint + direction * parameter;
+    }
+
+    private static double ObtenerDistanciaFirmada(Point3d origin, Vector3d direction, Point3d point)
+    {
+        Vector3d toPoint = point - origin;
+        return direction.X * toPoint.Y - direction.Y * toPoint.X;
+    }
+
+    private static bool SonParalelas(Vector3d first, Vector3d second)
+    {
+        double cross = Math.Abs(first.X * second.Y - first.Y * second.X);
+        double angle = Math.Asin(Math.Min(1.0, cross));
+        return angle <= ParallelAngleTolerance || Math.Abs(Math.PI - angle) <= ParallelAngleTolerance;
     }
 
     private static bool ObtenerModoOrto()
@@ -98,6 +200,12 @@ public sealed class TextCreationService
 
         return layer.Name;
     }
+
+    private sealed record LineCandidate(
+        Point3d Origin,
+        Vector3d Direction,
+        Point3d Projection,
+        double Distance);
 
     private sealed class NomenclaturaTextJig : EntityJig
     {
