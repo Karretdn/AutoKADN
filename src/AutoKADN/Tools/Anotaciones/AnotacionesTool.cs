@@ -87,35 +87,31 @@ public sealed class AnotacionesTool
 
     private static string? SelectAnnotationType(Editor editor)
     {
-        // El menú utiliza claves numéricas deliberadamente. Así la selección
-        // visual de AutoCAD queda desacoplada de cualquier traducción, espacios,
-        // guiones bajos o coincidencia de prefijos entre nombres.
-        var options = new PromptKeywordOptions(
-            "\nSeleccione tipo de anotación [ESPIRAL/CAMISA/PANTALLA/CRUCE CON TOPO/EMPEDRADO/VIGA EN CONCRETO/LIBRE]: ")
+        var options = new PromptKeywordOptions("\nSeleccione tipo de anotación: ")
         {
             AllowNone = true
         };
 
-        options.Keywords.Add("1", "1", "ESPIRAL", true, true);
-        options.Keywords.Add("2", "2", "CAMISA", true, true);
-        options.Keywords.Add("3", "3", "PANTALLA", true, true);
-        options.Keywords.Add("4", "4", "CRUCE CON TOPO", true, true);
-        options.Keywords.Add("5", "5", "EMPEDRADO", true, true);
-        options.Keywords.Add("6", "6", "VIGA EN CONCRETO", true, true);
-        options.Keywords.Add("7", "7", "LIBRE", true, true);
+        options.Keywords.Add("AKESPIRAL", "ESPIRAL", "ESPIRAL", true, true);
+        options.Keywords.Add("AKCAMISA", "CAMISA", "CAMISA", true, true);
+        options.Keywords.Add("AKPANTALLA", "PANTALLA", "PANTALLA", true, true);
+        options.Keywords.Add("AKCRUCETOPO", "CRUCETOPO", "CRUCE CON TOPO", true, true);
+        options.Keywords.Add("AKEMPEDRADO", "EMPEDRADO", "EMPEDRADO", true, true);
+        options.Keywords.Add("AKVIGACONCRETO", "VIGACONCRETO", "VIGA EN CONCRETO", true, true);
+        options.Keywords.Add("AKLIBRE", "LIBRE", "LIBRE", true, true);
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return null;
 
         return result.StringResult switch
         {
-            "1" => "ESPIRAL",
-            "2" => "CAMISA",
-            "3" => "PANTALLA",
-            "4" => "CRUCE_TOPO",
-            "5" => "EMPEDRADO",
-            "6" => "VIGA_CONCRETO",
-            "7" => "LIBRE",
+            "ESPIRAL" => "ESPIRAL",
+            "CAMISA" => "CAMISA",
+            "PANTALLA" => "PANTALLA",
+            "CRUCETOPO" => "CRUCE_TOPO",
+            "EMPEDRADO" => "EMPEDRADO",
+            "VIGACONCRETO" => "VIGA_CONCRETO",
+            "LIBRE" => "LIBRE",
             _ => null
         };
     }
