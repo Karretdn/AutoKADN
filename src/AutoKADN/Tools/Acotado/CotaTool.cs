@@ -37,8 +37,9 @@ public sealed class CotaTool
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
         if (document is null) return;
+
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[COTAK] Acotado rápido. ESC o clic derecho para salir.\n");
+        editor.WriteMessage("\n[COTAK] Acotado rápido.\n");
         string? type = SelectType(editor);
         if (type is null) return;
 
@@ -57,7 +58,7 @@ public sealed class CotaTool
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC/Ubicacion] (ESC o clic derecho para cancelar): ") { AllowNone = true };
+            var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC/Ubicacion]: ") { AllowNone = true };
             options.Keywords.Add("Longitud");
             options.Keywords.Add("UC");
             options.Keywords.Add("Ubicacion");
@@ -74,7 +75,7 @@ public sealed class CotaTool
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var entityOptions = new PromptEntityOptions("\nSeleccione la línea (ESC o clic derecho para salir): ") { AllowNone = true };
+            var entityOptions = new PromptEntityOptions("\nSeleccione la línea: ") { AllowNone = true };
             entityOptions.SetRejectMessage("\nDebe seleccionar una línea o polilínea.\n");
             entityOptions.AddAllowedClass(typeof(Line), false);
             entityOptions.AddAllowedClass(typeof(Polyline), false);
@@ -106,7 +107,7 @@ public sealed class CotaTool
         }
         editor.Regen();
 
-        var textOptions = new PromptStringOptions("\nNúmero/texto de cota (ENTER para conservar la medida; ESC o clic derecho para cancelar): ") { AllowSpaces = true };
+        var textOptions = new PromptStringOptions("\nNúmero/texto de cota: ") { AllowSpaces = true };
         PromptResult textResult = editor.GetString(textOptions);
         if (textResult.Status == PromptStatus.Cancel || textResult.Status == PromptStatus.None)
         {
@@ -114,7 +115,10 @@ public sealed class CotaTool
             return false;
         }
         if (textResult.Status == PromptStatus.OK && !string.IsNullOrWhiteSpace(textResult.StringResult))
-            SetDimensionText(document.Database, dimensionId, textResult.StringResult);
+        {
+            SetDimensionText(document.Database, dimensionId, textResult.StringResult.Trim());
+            editor.Regen();
+        }
 
         string? layerName = SelectLayer(document.Database, editor, type);
         if (layerName is null)
@@ -156,7 +160,7 @@ public sealed class CotaTool
         var dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as RotatedDimension;
         if (dimension is null) { transaction.Abort(); return false; }
         var jig = new DimensionSideJig(dimension, midpoint, normal, OffsetFromLine);
-        editor.WriteMessage("\nMueva el mouse al lado deseado para previsualizar la cota y haga clic para fijar. ESC o clic derecho para cancelar.\n");
+        editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar: ");
         object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
         PromptResult result;
         try { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0); result = editor.Drag(jig); }
@@ -169,39 +173,42 @@ public sealed class CotaTool
     private static string? SelectLayer(Database database, Editor editor, string type)
     {
         var preferred = type.Equals("UC", StringComparison.OrdinalIgnoreCase) ? UCLayers : LongitudLayers;
-        var available = new List<(string Label, string Layer)>();
-        using (Transaction transaction = database.TransactionManager.StartTransaction())
-        {
-            LayerTable table = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
-            foreach (var option in preferred)
-            {
-                foreach (ObjectId layerId in table)
-                {
-                    if (transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer && string.Equals(layer.Name, option.Layer, StringComparison.OrdinalIgnoreCase))
-                    { available.Add(option); break; }
-                }
-            }
-            transaction.Commit();
-        }
-        if (available.Count == 0)
-        {
-            editor.WriteMessage($"\nNo se encontraron las capas requeridas para {type}.\n");
-            return null;
-        }
+        EnsureLayers(database, preferred.Select(x => x.Layer));
 
-        string[] aliases = available.Select((_, i) => $"OPCION{i + 1}").ToArray();
+        string[] aliases = preferred.Select((_, i) => $"OPCION{i + 1}").ToArray();
         object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var options = new PromptKeywordOptions($"\nSeleccione tipo de tubería [{string.Join("/", available.Select(x => x.Label))}] (ESC o clic derecho para cancelar): ") { AllowNone = true };
-            for (int i = 0; i < available.Count; i++) options.Keywords.Add(aliases[i]);
+            var options = new PromptKeywordOptions($"\nSeleccione tipo de tubería [{string.Join("/", preferred.Select(x => x.Label))}]: ") { AllowNone = true };
+            for (int i = 0; i < preferred.Length; i++)
+                options.Keywords.Add(aliases[i], preferred[i].Label, preferred[i].Label, true, true);
+
             PromptResult result = editor.GetKeywords(options);
             if (result.Status != PromptStatus.OK) return null;
             int index = Array.IndexOf(aliases, result.StringResult);
-            return index >= 0 ? available[index].Layer : null;
+            return index >= 0 ? preferred[index].Layer : null;
         }
         finally { Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu); }
+    }
+
+    private static void EnsureLayers(Database database, IEnumerable<string> layerNames)
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        LayerTable layerTable = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+
+        foreach (string layerName in layerNames.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (layerTable.Has(layerName))
+                continue;
+
+            layerTable.UpgradeOpen();
+            var layer = new LayerTableRecord { Name = layerName };
+            layerTable.Add(layer);
+            transaction.AddNewlyCreatedDBObject(layer, true);
+        }
+
+        transaction.Commit();
     }
 
     private static bool SelectUCAttribute(Database database, Editor editor, ObjectId dimensionId)
@@ -210,7 +217,7 @@ public sealed class CotaTool
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            var options = new PromptKeywordOptions("\nSeleccione atributo UC [ZONA VERDE/ANDEN CONCRETO/CALZADA CONCRETO/ADOQUIN/ASFALTO/CUNETA/DESTAPADO] (ESC o clic derecho para cancelar): ") { AllowNone = true };
+            var options = new PromptKeywordOptions("\nSeleccione atributo UC [ZONA VERDE/ANDEN CONCRETO/CALZADA CONCRETO/ADOQUIN/ASFALTO/CUNETA/DESTAPADO]: ") { AllowNone = true };
             foreach (var attribute in UCAttributes) options.Keywords.Add(GetKeyword(attribute.Label));
             PromptResult result = editor.GetKeywords(options);
             if (result.Status != PromptStatus.OK) return false;
@@ -285,12 +292,22 @@ public sealed class CotaTool
     }
 
     private static void SetDimensionText(Database database, ObjectId dimensionId, string textValue)
-    { using Transaction transaction = database.TransactionManager.StartTransaction(); if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is Dimension dimension) dimension.DimensionText = textValue; transaction.Commit(); }
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is Dimension dimension)
+            dimension.DimensionText = textValue;
+        transaction.Commit();
+    }
 
     private static bool SetDimensionAppearance(Database database, ObjectId dimensionId, string layerName)
     {
-        using Transaction transaction = database.TransactionManager.StartTransaction(); LayerTable layerTable = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead); ObjectId layerId = ObjectId.Null;
-        foreach (ObjectId candidateId in layerTable) if (transaction.GetObject(candidateId, OpenMode.ForRead) is LayerTableRecord candidate && string.Equals(candidate.Name, layerName, StringComparison.OrdinalIgnoreCase)) { layerId = candidateId; break; }
+        EnsureLayers(database, new[] { layerName });
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        LayerTable layerTable = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+        ObjectId layerId = ObjectId.Null;
+        foreach (ObjectId candidateId in layerTable)
+            if (transaction.GetObject(candidateId, OpenMode.ForRead) is LayerTableRecord candidate && string.Equals(candidate.Name, layerName, StringComparison.OrdinalIgnoreCase))
+            { layerId = candidateId; break; }
         if (layerId == ObjectId.Null) { transaction.Abort(); return false; }
         if (transaction.GetObject(dimensionId, OpenMode.ForWrite) is not Dimension dimension) { transaction.Abort(); return false; }
         dimension.LayerId = layerId;
