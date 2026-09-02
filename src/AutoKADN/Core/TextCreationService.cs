@@ -2,6 +2,7 @@ using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Runtime;
 
 namespace AutoKADN.Core;
 
@@ -52,8 +53,6 @@ public sealed class TextCreationService
             database.CurrentSpaceId,
             OpenMode.ForWrite);
 
-        // Detecta LINE y segmentos rectos de POLYLINE. Si encuentra dos
-        // segmentos paralelos a ambos lados del clic, centra el texto entre ellos.
         Point3d textPosition = ObtenerCentroEntreLineas(transaction, currentSpace, initialPosition)
             ?? initialPosition;
 
@@ -108,8 +107,6 @@ public sealed class TextCreationService
 
                 for (int i = 0; i < polyline.NumberOfVertices - 1; i++)
                 {
-                    // Los tramos curvos se ignoran por ahora; solo se usan
-                    // segmentos rectos para la detección entre dos bordes.
                     if (polyline.GetSegmentType(i) != SegmentType.Line)
                         continue;
 
@@ -118,7 +115,6 @@ public sealed class TextCreationService
                     AgregarSegmento(candidates, start, end, clickPoint);
                 }
 
-                // Si la POLYLINE es cerrada, también analizamos el último tramo.
                 if (polyline.Closed && polyline.NumberOfVertices > 1)
                 {
                     int last = polyline.NumberOfVertices - 1;
@@ -152,7 +148,6 @@ public sealed class TextCreationService
                 double sideFirst = ObtenerDistanciaFirmada(first.Origin, first.Direction, clickPoint);
                 double sideSecond = ObtenerDistanciaFirmada(second.Origin, second.Direction, clickPoint);
 
-                // El clic debe estar entre ambos segmentos, no al mismo lado.
                 if (Math.Sign(sideFirst) == Math.Sign(sideSecond))
                     continue;
 
