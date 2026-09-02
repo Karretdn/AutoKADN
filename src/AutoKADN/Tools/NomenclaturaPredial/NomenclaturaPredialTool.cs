@@ -68,7 +68,6 @@ public sealed class NomenclaturaPredialTool
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
             database.CurrentSpaceId, OpenMode.ForRead);
 
-        // Caso 1: una polilínea cerrada representa directamente el predio.
         foreach (ObjectId objectId in currentSpace)
         {
             if (!objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Polyline))))
@@ -86,8 +85,6 @@ public sealed class NomenclaturaPredialTool
             return center;
         }
 
-        // Caso 2: el predio está construido con líneas/segmentos independientes.
-        // Se crea una región temporal a partir de los contornos cercanos al clic.
         var curves = new DBObjectCollection();
 
         try
@@ -108,7 +105,8 @@ public sealed class NomenclaturaPredialTool
                     if (polyline is null || polyline.Closed || !EstaCercaDelPunto(polyline.GeometricExtents, clickPoint))
                         continue;
 
-                    curves.Add(polyline.Clone());
+                    if (polyline.Clone() is DBObject clone)
+                        curves.Add(clone);
                 }
             }
 
@@ -138,17 +136,17 @@ public sealed class NomenclaturaPredialTool
                 Vector3d yAxis = Vector3d.YAxis;
                 RegionAreaProperties properties = region.AreaProperties(ref origin, ref xAxis, ref yAxis);
 
-                if (properties.ImageArea <= 0.0)
+                if (properties.Area <= 0.0)
                 {
                     region.Dispose();
                     continue;
                 }
 
-                if (properties.ImageArea < bestArea)
+                if (properties.Area < bestArea)
                 {
                     bestRegion?.Dispose();
                     bestRegion = region;
-                    bestArea = properties.ImageArea;
+                    bestArea = properties.Area;
                 }
                 else
                 {
