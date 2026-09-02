@@ -37,7 +37,6 @@ public sealed class UbicacionTool
 
         try
         {
-            // Snap Cercano para el primer clic y para cualquier corrección manual.
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", NearestObjectSnap);
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
 
@@ -54,11 +53,9 @@ public sealed class UbicacionTool
         Autodesk.AutoCAD.ApplicationServices.Document document,
         Editor editor)
     {
-        // FASE 1: primer clic. AutoCAD hace Snap Cercano sobre la línea.
         var pointOptions = new PromptPointOptions("\nSeleccione un punto sobre la línea: ")
         {
-            AllowNone = true,
-            UserInputControls = UserInputControls.Accept3dCoordinates
+            AllowNone = true
         };
 
         PromptPointResult pointResult = editor.GetPoint(pointOptions);
@@ -88,7 +85,6 @@ public sealed class UbicacionTool
             return true;
         }
 
-        // La búsqueda se realiza perpendicularmente a la línea seleccionada.
         Vector3d normal = new Vector3d(-sourceDirection.Y, sourceDirection.X, 0.0).GetNormal();
 
         if (!FindNearestOppositeLine(
@@ -112,9 +108,6 @@ public sealed class UbicacionTool
 
         editor.Regen();
 
-        // FASE 2: el punto automático ya está colocado.
-        // Si el usuario pulsa ENTER/clic derecho, se acepta sin modificarlo.
-        // Si hace clic, se busca el snap sobre la línea que esté indicando.
         Point3d? finalTarget = CorrectTargetIfNeeded(
             editor,
             document.Database,
@@ -132,7 +125,6 @@ public sealed class UbicacionTool
 
         editor.Regen();
 
-        // FASE 3: número/texto y finalización de la cota.
         PromptResult textResult = editor.GetString(
             new PromptStringOptions("\nNúmero/texto de cota: ")
             {
@@ -179,15 +171,12 @@ public sealed class UbicacionTool
         ApplyDimensionGeometry(dimension, sourcePoint, automaticTarget);
         editor.Regen();
 
-        // No obligamos al usuario a hacer un segundo clic.
-        // ENTER/clic derecho conserva automaticTarget.
         var correctionOptions = new PromptPointOptions(
             "\nMueva el cursor para corregir el snap; ENTER/clic derecho para aceptar: ")
         {
             AllowNone = true,
             UseBasePoint = true,
-            BasePoint = sourcePoint,
-            UserInputControls = UserInputControls.Accept3dCoordinates
+            BasePoint = sourcePoint
         };
 
         PromptPointResult correctionResult = editor.GetPoint(correctionOptions);
@@ -198,9 +187,6 @@ public sealed class UbicacionTool
             return automaticTarget;
         }
 
-        // Con SHORTCUTMENU=0, el clic derecho funciona como Enter.
-        // Si AutoCAD devuelve Cancel aquí, no borramos una cota por un gesto
-        // de aceptación; ESC sigue siendo cancelación desde el primer paso.
         if (correctionResult.Status != PromptStatus.OK)
         {
             transaction.Commit();
@@ -259,7 +245,6 @@ public sealed class UbicacionTool
 
             double cursorDistance = intersection.DistanceTo(cursorPoint);
 
-            // Elegimos la línea de enfrente que el cursor esté señalando.
             if (cursorDistance < bestCursorDistance ||
                 (Math.Abs(cursorDistance - bestCursorDistance) <= PointTolerance &&
                  rayDistance < bestAlongRayDistance))
@@ -497,8 +482,6 @@ public sealed class UbicacionTool
         double nearestDistance = double.MaxValue;
         bool found = false;
 
-        // Buscar en ambos sentidos permite que la línea de enfrente esté
-        // a cualquier lado de la línea seleccionada.
         foreach (Vector3d direction in new[] { searchDirection, -searchDirection })
         {
             foreach (StraightSegment candidate in candidates)
