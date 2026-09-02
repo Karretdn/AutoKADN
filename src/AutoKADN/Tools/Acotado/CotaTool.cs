@@ -72,14 +72,15 @@ public sealed class CotaTool
                 out Point3d endPoint,
                 out Vector3d direction))
         {
-            editor.WriteMessage("\nEl punto seleccionado no corresponde a una línea válida.\n");
+            editor.WriteMessage("\nEl punto seleccionado no corresponde a una línea o tramo recto válido.\n");
             return true;
         }
 
         Point3d midpoint = startPoint + (endPoint - startPoint) * 0.5;
         Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
 
-        // Posición inicial para visualizar la cota antes de moverla.
+        // La separación siempre es exactamente OffsetFromLine.
+        // La interacción posterior solo cambia el SIGNO de la normal.
         if (normal.Y < 0.0)
             normal = -normal;
 
@@ -127,9 +128,8 @@ public sealed class CotaTool
             return true;
         }
 
-        // La cota ya tiene su capa. Ahora se mantiene abierta para escritura
-        // durante todo el Drag; esto es necesario para que EntityJig pueda
-        // modificar DimLinePoint sin provocar eNotOpenForWrite.
+        // El Jig conserva siempre la misma distancia de 5.50.
+        // El mouse solo decide de qué lado de la línea queda la cota.
         if (!MoveDimensionToSide(
                 document,
                 editor,
@@ -192,8 +192,8 @@ public sealed class CotaTool
             return false;
         }
 
-        var jig = new DimensionSideJig(dimension, midpoint, normal);
-        editor.WriteMessage("\nMueva el mouse hacia el lado deseado y haga clic para fijar la cota.\n");
+        var jig = new DimensionSideJig(dimension, midpoint, normal, OffsetFromLine);
+        editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar la cota.\n");
 
         PromptResult result = editor.Drag(jig);
 
@@ -227,23 +227,61 @@ public sealed class CotaTool
 
         foreach (ObjectId objectId in currentSpace)
         {
-            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Line line)
+            if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
+            {
+                Point3d closest = line.GetClosestPointTo(point, false);
+                double distance = closest.DistanceTo(point);
+
+                if (distance <= PointTolerance && distance < bestDistance)
+                {
+                    Vector3d segmentVector = line.EndPoint - line.StartPoint;
+                    if (segmentVector.Length > Tolerance.Global.EqualPoint)
+                    {
+                        startPoint = line.StartPoint;
+                        endPoint = line.EndPoint;
+                        direction = segmentVector.GetNormal();
+                        bestDistance = distance;
+                        found = true;
+                    }
+                }
+
+                continue;
+            }
+
+            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Polyline polyline ||
+                polyline.NumberOfVertices < 2)
                 continue;
 
-            Point3d closest = line.GetClosestPointTo(point, false);
-            double distance = closest.DistanceTo(point);
-            if (distance > PointTolerance || distance >= bestDistance)
-                continue;
+            int segmentCount = polyline.Closed
+                ? polyline.NumberOfVertices
+                : polyline.NumberOfVertices - 1;
 
-            Vector3d segmentVector = line.EndPoint - line.StartPoint;
-            if (segmentVector.Length <= Tolerance.Global.EqualPoint)
-                continue;
+            for (int i = 0; i < segmentCount; i++)
+            {
+                if (polyline.GetSegmentType(i) != SegmentType.Line)
+                    continue;
 
-            startPoint = line.StartPoint;
-            endPoint = line.EndPoint;
-            direction = segmentVector.GetNormal();
-            bestDistance = distance;
-            found = true;
+                int nextIndex = (i + 1) % polyline.NumberOfVertices;
+                Point3d segmentStart = polyline.GetPoint3dAt(i);
+                Point3d segmentEnd = polyline.GetPoint3dAt(nextIndex);
+                Vector3d segmentVector = segmentEnd - segmentStart;
+
+                if (segmentVector.Length <= Tolerance.Global.EqualPoint)
+                    continue;
+
+                LineSegment3d segment = new LineSegment3d(segmentStart, segmentEnd);
+                Point3d closest = segment.GetClosestPointTo(point).Point;
+                double distance = closest.DistanceTo(point);
+
+                if (distance > PointTolerance || distance >= bestDistance)
+                    continue;
+
+                startPoint = segmentStart;
+                endPoint = segmentEnd;
+                direction = segmentVector.GetNormal();
+                bestDistance = distance;
+                found = true;
+            }
         }
 
         transaction.Commit();
@@ -291,25 +329,22 @@ public sealed class CotaTool
             return null;
         }
 
-        string menu = string.Join(
-            " / ",
-            available.Select((name, index) => $"{index + 1}={name}"));
-
-        var options = new PromptIntegerOptions(
-            $"\nSeleccione capa [{menu}]: ")
+        // Mostrar directamente los nombres de capa como keywords de AutoCAD.
+        // Ya no se presenta un cuadro para introducir 1, 2, etc.
+        var options = new PromptKeywordOptions(
+            $"\nSeleccione capa [{string.Join("/", available)}]: ")
         {
-            AllowNone = false,
-            AllowZero = false,
-            AllowNegative = false,
-            LowerLimit = 1,
-            UpperLimit = available.Count
+            AllowNone = false
         };
 
-        PromptIntegerResult result = editor.GetInteger(options);
+        foreach (string layerName in available)
+            options.Keywords.Add(layerName);
+
+        PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK)
             return null;
 
-        return available[result.Value - 1];
+        return result.StringResult;
     }
 
     private static void SetDimensionText(Database database, ObjectId dimensionId, string textValue)
@@ -373,24 +408,27 @@ public sealed class CotaTool
         private readonly RotatedDimension _dimension;
         private readonly Point3d _midpoint;
         private readonly Vector3d _normal;
+        private readonly double _fixedOffset;
         private Point3d _lastPoint;
 
         public DimensionSideJig(
             RotatedDimension dimension,
             Point3d midpoint,
-            Vector3d normal)
+            Vector3d normal,
+            double fixedOffset)
             : base(dimension)
         {
             _dimension = dimension;
             _midpoint = midpoint;
             _normal = normal.GetNormal();
+            _fixedOffset = fixedOffset;
             _lastPoint = dimension.DimLinePoint;
         }
 
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
             var options = new JigPromptPointOptions(
-                "\nMueva el mouse hacia dentro/fuera y haga clic para fijar: ")
+                "\nMueva el mouse al lado deseado y haga clic para fijar: ")
             {
                 UseBasePoint = true,
                 BasePoint = _midpoint
@@ -404,7 +442,16 @@ public sealed class CotaTool
             if (result.Status != PromptStatus.OK)
                 return SamplerStatus.Cancel;
 
-            Point3d projectedPoint = ProjectToPerpendicular(result.Value);
+            Vector3d fromCenter = result.Value - _midpoint;
+            double signedDistance = fromCenter.DotProduct(_normal);
+
+            // El mouse solo selecciona el lado. La distancia permanece fija.
+            Vector3d placementNormal = signedDistance >= 0.0
+                ? _normal
+                : -_normal;
+
+            Point3d projectedPoint = _midpoint + placementNormal * _fixedOffset;
+
             if (projectedPoint.IsEqualTo(_lastPoint))
                 return SamplerStatus.NoChange;
 
@@ -416,13 +463,6 @@ public sealed class CotaTool
         {
             _dimension.DimLinePoint = _lastPoint;
             return true;
-        }
-
-        private Point3d ProjectToPerpendicular(Point3d cursorPoint)
-        {
-            Vector3d fromCenter = cursorPoint - _midpoint;
-            double signedDistance = fromCenter.DotProduct(_normal);
-            return _midpoint + (_normal * signedDistance);
         }
     }
 }
