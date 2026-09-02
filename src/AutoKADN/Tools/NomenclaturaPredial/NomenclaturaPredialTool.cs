@@ -34,7 +34,7 @@ public sealed class NomenclaturaPredialTool
             return;
         }
 
-        Point3d center = ObtenerCentroPredial(document.Database, clickPoint) ?? clickPoint;
+        Point3d center = ObtenerCentroPredial(editor, clickPoint) ?? clickPoint;
 
         if (!_textCreationService.CreateTextWithJigAtFixedCenter(center, content))
         {
@@ -62,114 +62,67 @@ public sealed class NomenclaturaPredialTool
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
-    private static Point3d? ObtenerCentroPredial(Database database, Point3d clickPoint)
+    private static Point3d? ObtenerCentroPredial(Editor editor, Point3d clickPoint)
     {
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
-            database.CurrentSpaceId, OpenMode.ForRead);
+        // TraceBoundary usa el primer clic como punto semilla y obtiene
+        // exclusivamente el recinto cerrado que contiene ese punto.
+        // Esto evita confundir el predio con los espacios vecinos.
+        DBObjectCollection boundary = editor.TraceBoundary(clickPoint, false);
 
-        foreach (ObjectId objectId in currentSpace)
-        {
-            if (!objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Polyline))))
-                continue;
-
-            var polyline = transaction.GetObject(objectId, OpenMode.ForRead) as Polyline;
-            if (polyline is null || !polyline.Closed || polyline.NumberOfVertices < 3)
-                continue;
-
-            if (!PuntoDentroDePoligono(polyline, clickPoint))
-                continue;
-
-            Point3d center = CalcularCentroide(polyline);
-            transaction.Commit();
-            return center;
-        }
-
-        var curves = new DBObjectCollection();
+        if (boundary.Count == 0)
+            return null;
 
         try
         {
-            foreach (ObjectId objectId in currentSpace)
+            var curves = new DBObjectCollection();
+
+            foreach (DBObject dbObject in boundary)
             {
-                if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Line))))
-                {
-                    var line = transaction.GetObject(objectId, OpenMode.ForRead) as Line;
-                    if (line is null || !EstaCercaDelPunto(line.GeometricExtents, clickPoint))
-                        continue;
-
-                    curves.Add(new Line(line.StartPoint, line.EndPoint));
-                }
-                else if (objectId.ObjectClass.IsDerivedFrom(RXClass.GetClass(typeof(Polyline))))
-                {
-                    var polyline = transaction.GetObject(objectId, OpenMode.ForRead) as Polyline;
-                    if (polyline is null || polyline.Closed || !EstaCercaDelPunto(polyline.GeometricExtents, clickPoint))
-                        continue;
-
-                    if (polyline.Clone() is DBObject clone)
-                        curves.Add(clone);
-                }
+                if (dbObject is Curve)
+                    curves.Add(dbObject);
             }
 
             if (curves.Count == 0)
                 return null;
 
             DBObjectCollection regions = Region.CreateFromCurves(curves);
-            Region? bestRegion = null;
-            double bestArea = double.MaxValue;
+            Region? region = null;
 
             foreach (DBObject dbObject in regions)
             {
-                if (dbObject is not Region region)
+                if (dbObject is Region candidate)
                 {
-                    dbObject.Dispose();
-                    continue;
-                }
-
-                if (!PuntoDentroDeExtensiones(region.GeometricExtents, clickPoint))
-                {
-                    region.Dispose();
-                    continue;
-                }
-
-                Point3d origin = Point3d.Origin;
-                Vector3d xAxis = Vector3d.XAxis;
-                Vector3d yAxis = Vector3d.YAxis;
-                RegionAreaProperties properties = region.AreaProperties(ref origin, ref xAxis, ref yAxis);
-
-                if (properties.Area <= 0.0)
-                {
-                    region.Dispose();
-                    continue;
-                }
-
-                if (properties.Area < bestArea)
-                {
-                    bestRegion?.Dispose();
-                    bestRegion = region;
-                    bestArea = properties.Area;
-                }
-                else
-                {
-                    region.Dispose();
+                    region = candidate;
+                    break;
                 }
             }
 
-            if (bestRegion is null)
+            if (region is null)
                 return null;
 
-            Point3d centroidOrigin = Point3d.Origin;
-            Vector3d centroidXAxis = Vector3d.XAxis;
-            Vector3d centroidYAxis = Vector3d.YAxis;
-            RegionAreaProperties centroidProperties = bestRegion.AreaProperties(
-                ref centroidOrigin,
-                ref centroidXAxis,
-                ref centroidYAxis);
+            try
+            {
+                Point3d origin = Point3d.Origin;
+                Vector3d xAxis = Vector3d.XAxis;
+                Vector3d yAxis = Vector3d.YAxis;
 
-            Point2d centroid = centroidProperties.Centroid;
-            Point3d centerPoint = new Point3d(centroid.X, centroid.Y, clickPoint.Z);
-            bestRegion.Dispose();
-            transaction.Commit();
-            return centerPoint;
+                RegionAreaProperties properties = region.AreaProperties(
+                    ref origin,
+                    ref xAxis,
+                    ref yAxis);
+
+                Point2d centroid = properties.Centroid;
+
+                return new Point3d(
+                    centroid.X,
+                    centroid.Y,
+                    clickPoint.Z);
+            }
+            finally
+            {
+                foreach (DBObject dbObject in regions)
+                    dbObject.Dispose();
+            }
         }
         catch
         {
@@ -177,75 +130,11 @@ public sealed class NomenclaturaPredialTool
         }
         finally
         {
-            foreach (DBObject curve in curves)
-                curve.Dispose();
+            foreach (DBObject dbObject in boundary)
+            {
+                if (!dbObject.IsDisposed)
+                    dbObject.Dispose();
+            }
         }
-    }
-
-    private static bool EstaCercaDelPunto(Extents3d extents, Point3d point)
-    {
-        const double tolerance = 1000.0;
-        return point.X >= extents.MinPoint.X - tolerance
-            && point.X <= extents.MaxPoint.X + tolerance
-            && point.Y >= extents.MinPoint.Y - tolerance
-            && point.Y <= extents.MaxPoint.Y + tolerance;
-    }
-
-    private static bool PuntoDentroDeExtensiones(Extents3d extents, Point3d point)
-    {
-        const double tolerance = 1e-6;
-        return point.X >= extents.MinPoint.X - tolerance
-            && point.X <= extents.MaxPoint.X + tolerance
-            && point.Y >= extents.MinPoint.Y - tolerance
-            && point.Y <= extents.MaxPoint.Y + tolerance;
-    }
-
-    private static bool PuntoDentroDePoligono(Polyline polyline, Point3d point)
-    {
-        int count = polyline.NumberOfVertices;
-        bool inside = false;
-
-        for (int i = 0, j = count - 1; i < count; j = i++)
-        {
-            Point2d current = polyline.GetPoint2dAt(i);
-            Point2d previous = polyline.GetPoint2dAt(j);
-
-            bool intersects = ((current.Y > point.Y) != (previous.Y > point.Y))
-                && point.X < (previous.X - current.X)
-                    * (point.Y - current.Y)
-                    / (previous.Y - current.Y)
-                    + current.X;
-
-            if (intersects)
-                inside = !inside;
-        }
-
-        return inside;
-    }
-
-    private static Point3d CalcularCentroide(Polyline polyline)
-    {
-        double areaDoble = 0.0;
-        double centroX = 0.0;
-        double centroY = 0.0;
-        int count = polyline.NumberOfVertices;
-
-        for (int i = 0; i < count; i++)
-        {
-            Point2d current = polyline.GetPoint2dAt(i);
-            Point2d next = polyline.GetPoint2dAt((i + 1) % count);
-            double cross = current.X * next.Y - next.X * current.Y;
-            areaDoble += cross;
-            centroX += (current.X + next.X) * cross;
-            centroY += (current.Y + next.Y) * cross;
-        }
-
-        if (Math.Abs(areaDoble) < 1e-9)
-            return polyline.GeometricExtents.MinPoint;
-
-        return new Point3d(
-            centroX / (3.0 * areaDoble),
-            centroY / (3.0 * areaDoble),
-            polyline.Elevation);
     }
 }
