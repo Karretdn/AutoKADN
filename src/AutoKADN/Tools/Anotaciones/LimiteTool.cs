@@ -6,8 +6,8 @@ namespace AutoKADN.Tools.Anotaciones;
 
 public sealed class LimiteTool
 {
-    private const double OffsetFromLine = 1.10;
     private const double TextHeight = 1.45;
+    private const short NearestObjectSnap = 512;
 
     public void Run()
     {
@@ -16,43 +16,57 @@ public sealed class LimiteTool
             return;
 
         Editor editor = document.Editor;
-        editor.WriteMessage("\n[LIMIK] Límites. ESC para salir.\n");
+        editor.WriteMessage("\n[LIMIK] Límites. Snap LINEA/Nearest activado. ESC para salir.\n");
 
-        while (true)
+        object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
+        try
         {
-            // Primero se selecciona la posición/línea. El tipo LB/LP/LC se
-            // decide después de cada selección, de forma independiente.
-            PromptEntityOptions entityOptions = new PromptEntityOptions(
-                "\nSeleccione la línea y posición del límite (ESC para salir): ");
-            entityOptions.SetRejectMessage("\nDebe seleccionar una línea o una polilínea.");
-            entityOptions.AddAllowedClass(typeof(Line), true);
-            entityOptions.AddAllowedClass(typeof(Polyline), true);
+            // Para LIMIK queremos que el punto elegido quede exactamente sobre
+            // el eje de la línea. Se usa únicamente Object Snap NEAREST durante
+            // la selección y luego se restaura la configuración del usuario.
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
+                "OSMODE", NearestObjectSnap);
 
-            PromptEntityResult entityResult = editor.GetEntity(entityOptions);
-            if (entityResult.Status != PromptStatus.OK)
-                return;
-
-            if (!ObtenerSegmentoSeleccionado(
-                    document.Database,
-                    entityResult.ObjectId,
-                    entityResult.PickedPoint,
-                    out Point3d pointOnLine,
-                    out Vector3d direction))
+            while (true)
             {
-                editor.WriteMessage("\nNo se pudo determinar el segmento seleccionado.\n");
-                continue;
+                PromptEntityOptions entityOptions = new PromptEntityOptions(
+                    "\nSeleccione el punto sobre la línea (ESC para salir): ");
+                entityOptions.SetRejectMessage("\nDebe seleccionar una línea o una polilínea.");
+                entityOptions.AddAllowedClass(typeof(Line), true);
+                entityOptions.AddAllowedClass(typeof(Polyline), true);
+
+                PromptEntityResult entityResult = editor.GetEntity(entityOptions);
+                if (entityResult.Status != PromptStatus.OK)
+                    return;
+
+                if (!ObtenerSegmentoSeleccionado(
+                        document.Database,
+                        entityResult.ObjectId,
+                        entityResult.PickedPoint,
+                        out Point3d pointOnLine,
+                        out Vector3d direction))
+                {
+                    editor.WriteMessage("\nNo se pudo determinar el segmento seleccionado.\n");
+                    continue;
+                }
+
+                string? limite = SeleccionarLimite(editor);
+                if (limite is null)
+                    return;
+
+                // El texto nace EXACTAMENTE en el punto/eje seleccionado.
+                // No se aplica desplazamiento lateral.
+                double rotation = CalcularRotacionParalela(direction);
+
+                if (!CrearTextoConGiro(editor, document.Database, pointOnLine, rotation, limite))
+                    return;
             }
-
-            // Una vez fijada la posición, se elige el tipo de límite.
-            string? limite = SeleccionarLimite(editor);
-            if (limite is null)
-                return;
-
-            Point3d textPosition = CalcularPosicionTexto(pointOnLine, direction);
-            double rotation = CalcularRotacionParalela(direction);
-
-            if (!CrearTextoConGiro(editor, document.Database, textPosition, rotation, limite))
-                return;
+        }
+        finally
+        {
+            // LIMIK no debe cambiar permanentemente los snaps del usuario.
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable(
+                "OSMODE", originalOsMode);
         }
     }
 
@@ -131,17 +145,11 @@ public sealed class LimiteTool
         return false;
     }
 
-    private static Point3d CalcularPosicionTexto(Point3d pointOnLine, Vector3d direction)
-    {
-        Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
-        return pointOnLine + normal * OffsetFromLine;
-    }
-
     private static double CalcularRotacionParalela(Vector3d direction)
     {
         double rotation = Math.Atan2(direction.Y, direction.X);
 
-        // Mantener el texto legible y orientado con la línea.
+        // Mantener el texto legible y paralelo al eje seleccionado.
         if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0)
             rotation += rotation > 0.0 ? -Math.PI : Math.PI;
 
@@ -220,8 +228,6 @@ public sealed class LimiteTool
             if (result.Status == PromptStatus.Cancel)
                 return SamplerStatus.Cancel;
 
-            // AutoCAD puede entregar el clic derecho como None cuando está
-            // configurado para actuar como Enter.
             if (result.Status == PromptStatus.None)
                 return SamplerStatus.OK;
 
