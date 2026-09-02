@@ -240,7 +240,21 @@ public sealed class TextCreationService
         return layer.Name;
     }
 
-    private sealed record LineCandidate(Point3d Origin, Vector3d Direction, Point3d Projection, double Distance);
+    private sealed class LineCandidate
+    {
+        public Point3d Origin { get; }
+        public Vector3d Direction { get; }
+        public Point3d Projection { get; }
+        public double Distance { get; }
+
+        public LineCandidate(Point3d origin, Vector3d direction, Point3d projection, double distance)
+        {
+            Origin = origin;
+            Direction = direction;
+            Projection = projection;
+            Distance = distance;
+        }
+    }
 
     private sealed class NomenclaturaTextJig : EntityJig
     {
@@ -259,28 +273,36 @@ public sealed class TextCreationService
 
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
-            var options = new JigPromptPointOptions("\nGire el texto alrededor de su centro y haga clic para terminar: ")
+            var options = new JigPromptAngleOptions("\nIndique el angulo: ")
             {
-                UseBasePoint = true,
                 BasePoint = _center,
-                UserInputControls = UserInputControls.Accept3dCoordinates
-                    | UserInputControls.NoZeroResponseAccepted
+                UseBasePoint = true,
+                Cursor = CursorType.RubberBand,
+                UserInputControls = UserInputControls.Accept3dCoordinates |
+                                    UserInputControls.NoZeroResponseAccepted |
+                                    UserInputControls.NoNegativeResponseAccepted
             };
 
-            PromptPointResult result = prompts.AcquirePoint(options);
+            PromptDoubleResult result = prompts.AcquireAngle(options);
 
             if (result.Status == PromptStatus.Cancel)
                 return SamplerStatus.Cancel;
 
             if (result.Status != PromptStatus.OK)
-                return SamplerStatus.Cancel;
-
-            double rotation = CalcularRotacion(_center, result.Value, _orthoEnabled);
-
-            if (Math.Abs(rotation - _currentRotation) < 1e-9)
                 return SamplerStatus.NoChange;
 
-            _currentRotation = rotation;
+            double angle = result.Value;
+
+            if (_orthoEnabled)
+            {
+                double quarterTurn = Math.PI / 2.0;
+                angle = Math.Round(angle / quarterTurn) * quarterTurn;
+            }
+
+            if (Math.Abs(angle - _currentRotation) < 1e-10)
+                return SamplerStatus.NoChange;
+
+            _currentRotation = angle;
             return SamplerStatus.OK;
         }
 
@@ -290,22 +312,6 @@ public sealed class TextCreationService
             _text.AlignmentPoint = _center;
             _text.Rotation = _currentRotation;
             return true;
-        }
-
-        private static double CalcularRotacion(Point3d center, Point3d point, bool orthoEnabled)
-        {
-            double dx = point.X - center.X;
-            double dy = point.Y - center.Y;
-
-            if (Math.Abs(dx) < 1e-9 && Math.Abs(dy) < 1e-9)
-                return 0.0;
-
-            double angle = Math.Atan2(dy, dx);
-
-            if (orthoEnabled)
-                angle = Math.Round(angle / (Math.PI / 2.0)) * (Math.PI / 2.0);
-
-            return angle;
         }
     }
 }
