@@ -21,18 +21,30 @@ public sealed class CotaTool
         ("CANALIZACION 3-4\"", "UC_3-4")
     };
 
-    // Colores UC: ACI para colores estándar de AutoCAD y RGB para colores personalizados.
-    private static readonly (string Label, short? ColorIndex, int R, int G, int B)[] UCAttributes =
+    // Cada atributo UC tiene su propia clave estable y su color explícito.
+    // El color nunca se obtiene por posición de la lista ni por el nombre mostrado.
+    private sealed record UCAttribute(
+        string Keyword,
+        string Label,
+        short? Aci,
+        byte R,
+        byte G,
+        byte B);
+
+    private static readonly UCAttribute[] UCAttributes =
     {
-        ("ZONA VERDE", 3, 0, 0, 0),
-        ("ANDEN TABLETA", 1, 0, 0, 0),
-        ("CALZADA CONCRETO", 8, 0, 0, 0),
-        ("DESTAPADO", 2, 0, 0, 0),
-        ("CUNETA", null, 100, 33, 101),
-        ("ANDEN CONCRETO", 5, 0, 0, 0),
-        ("ASFALTO", 30, 0, 0, 0),
-        ("ADOQUIN", 4, 0, 0, 0)
+        new("UC_ZONA_VERDE", "ZONA VERDE", 3, 0, 0, 0),
+        new("UC_ANDEN_TABLETA", "ANDEN TABLETA", 1, 0, 0, 0),
+        new("UC_CALZADA_CONCRETO", "CALZADA CONCRETO", 8, 0, 0, 0),
+        new("UC_DESTAPADO", "DESTAPADO", 2, 0, 0, 0),
+        new("UC_CUNETA", "CUNETA", null, 100, 33, 101),
+        new("UC_ANDEN_CONCRETO", "ANDEN CONCRETO", 5, 0, 0, 0),
+        new("UC_ASFALTO", "ASFALTO", 30, 0, 0, 0),
+        new("UC_ADOQUIN", "ADOQUIN", 4, 0, 0, 0)
     };
+
+    private static readonly IReadOnlyDictionary<string, UCAttribute> UCAttributesByKeyword =
+        UCAttributes.ToDictionary(x => x.Keyword, StringComparer.OrdinalIgnoreCase);
 
     public void Run()
     {
@@ -340,24 +352,12 @@ public sealed class CotaTool
                 AllowNone = true
             };
 
-            string[] keywords =
-            {
-                "OPCION1",
-                "OPCION2",
-                "OPCION3",
-                "OPCION4",
-                "OPCION5",
-                "OPCION6",
-                "OPCION7",
-                "OPCION8"
-            };
-
-            for (int i = 0; i < UCAttributes.Length; i++)
+            foreach (UCAttribute attribute in UCAttributes)
             {
                 options.Keywords.Add(
-                    keywords[i],
-                    UCAttributes[i].Label,
-                    UCAttributes[i].Label,
+                    attribute.Keyword,
+                    attribute.Label,
+                    attribute.Label,
                     true,
                     true);
             }
@@ -365,18 +365,10 @@ public sealed class CotaTool
             PromptResult result = editor.GetKeywords(options);
             if (result.Status != PromptStatus.OK) return false;
 
-            int index = Array.IndexOf(keywords, result.StringResult);
-            if (index < 0 || index >= UCAttributes.Length) return false;
+            if (!UCAttributesByKeyword.TryGetValue(result.StringResult, out UCAttribute? selected))
+                return false;
 
-            var selected = UCAttributes[index];
-
-            return SetDimensionColor(
-                database,
-                dimensionId,
-                selected.ColorIndex,
-                selected.R,
-                selected.G,
-                selected.B);
+            return SetDimensionColor(database, dimensionId, selected);
         }
         finally
         {
@@ -387,10 +379,7 @@ public sealed class CotaTool
     private static bool SetDimensionColor(
         Database database,
         ObjectId dimensionId,
-        short? colorIndex,
-        int r,
-        int g,
-        int b)
+        UCAttribute attribute)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
 
@@ -400,19 +389,20 @@ public sealed class CotaTool
             return false;
         }
 
-        // Para ACI usamos directamente ColorIndex. Esto evita que AutoCAD
-        // convierta el índice estándar en un color RGB o ByLayer.
-        if (colorIndex.HasValue)
+        if (attribute.Aci.HasValue)
         {
-            dimension.ColorIndex = colorIndex.Value;
+            // ACI se asigna explícitamente como ACI. No depende del color de la capa.
+            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
+                Autodesk.AutoCAD.Colors.ColorMethod.ByAci,
+                attribute.Aci.Value);
         }
         else
         {
-            // CUNETA es el único color personalizado de la guía.
+            // Único RGB de la guía: CUNETA = 100, 33, 101.
             dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb(
-                (byte)r,
-                (byte)g,
-                (byte)b);
+                attribute.R,
+                attribute.G,
+                attribute.B);
         }
 
         transaction.Commit();
