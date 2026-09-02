@@ -1,12 +1,13 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using AutoKADN.Core;
 
 namespace AutoKADN.Tools.Anotaciones;
 
 public sealed class LimiteTool
 {
-    private const double OffsetFromLine = 1.25;
+    private const double OffsetFromLine = 2.00;
     private const double TextHeight = 2.40;
     private const short NearestObjectSnap = 512;
     private const double GeometryMatchTolerance = 1e-6;
@@ -67,9 +68,7 @@ public sealed class LimiteTool
                 Point3d closest = line.GetClosestPointTo(point, false);
                 double distance = closest.DistanceTo(point);
                 if (distance <= GeometryMatchTolerance && distance < bestDistance)
-                {
-                    bestDistance = distance; direction = lineVector.GetNormal(); found = true;
-                }
+                { bestDistance = distance; direction = lineVector.GetNormal(); found = true; }
                 continue;
             }
             if (transaction.GetObject(objectId, OpenMode.ForRead) is not Polyline polyline || polyline.NumberOfVertices < 2) continue;
@@ -92,9 +91,7 @@ public sealed class LimiteTool
 
     private static double CalcularRotacionParalela(Vector3d direction)
     {
-        double rotation = Math.Atan2(direction.Y, direction.X);
-        if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0) rotation += rotation > 0.0 ? -Math.PI : Math.PI;
-        return rotation;
+        return RotationStandard.MakeReadable(RotationStandard.FromDirection(direction, false));
     }
 
     private static bool CrearTextoConJig(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, Point3d pointOnLine, Vector3d direction, string content)
@@ -115,7 +112,7 @@ public sealed class LimiteTool
         using Transaction jigTransaction = document.Database.TransactionManager.StartTransaction();
         var textForJig = jigTransaction.GetObject(textId, OpenMode.ForWrite) as DBText;
         if (textForJig is null) { jigTransaction.Abort(); return false; }
-        var jig = new LimitSideJig(textForJig, pointOnLine, normal, OffsetFromLine);
+        var jig = new LimitSideJig(textForJig, pointOnLine, normal, OffsetFromLine, RotationStandard.IsOrthoEnabled());
         PromptResult result = editor.Drag(jig);
         if (result.Status != PromptStatus.OK) { textForJig.Erase(); jigTransaction.Commit(); editor.Regen(); return false; }
         jigTransaction.Commit(); editor.Regen(); return true;
@@ -127,9 +124,10 @@ public sealed class LimiteTool
         private readonly Point3d _pointOnLine;
         private readonly Vector3d _normal;
         private readonly double _fixedOffset;
+        private readonly bool _orthoEnabled;
         private Point3d _lastPoint;
-        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset) : base(text)
-        { _text = text; _pointOnLine = pointOnLine; _normal = normal.GetNormal(); _fixedOffset = fixedOffset; _lastPoint = text.Position; }
+        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset, bool orthoEnabled) : base(text)
+        { _text = text; _pointOnLine = pointOnLine; _normal = normal.GetNormal(); _fixedOffset = fixedOffset; _orthoEnabled = orthoEnabled; _lastPoint = text.Position; }
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
             var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ") { UseBasePoint = true, BasePoint = _pointOnLine };
@@ -140,7 +138,10 @@ public sealed class LimiteTool
             Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal;
             Point3d projectedPoint = _pointOnLine + placementNormal * _fixedOffset;
             if (projectedPoint.IsEqualTo(_lastPoint)) return SamplerStatus.NoChange;
-            _lastPoint = projectedPoint; return SamplerStatus.OK;
+            _lastPoint = projectedPoint;
+            double rotation = RotationStandard.FromPoint(_pointOnLine, result.Value, _orthoEnabled);
+            _text.Rotation = RotationStandard.MakeReadable(rotation);
+            return SamplerStatus.OK;
         }
         protected override bool Update()
         { _text.Position = _lastPoint; _text.AlignmentPoint = _lastPoint; return true; }
