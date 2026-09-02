@@ -254,15 +254,15 @@ public sealed class UbicacionTool
         {
             if (transaction.GetObject(objectId, OpenMode.ForRead) is Line line)
             {
-                Vector3d vector = line.EndPoint - line.StartPoint;
-                if (vector.Length <= PointTolerance) continue;
+                Vector3d lineVector = line.EndPoint - line.StartPoint;
+                if (lineVector.Length <= PointTolerance) continue;
 
                 Point3d closest = line.GetClosestPointTo(point, false);
                 double distance = closest.DistanceTo(point);
                 if (distance <= GeometryMatchTolerance && distance < bestDistance)
                 {
                     bestDistance = distance;
-                    direction = vector.GetNormal();
+                    direction = lineVector.GetNormal();
                     sourceObjectId = objectId;
                     found = true;
                 }
@@ -289,11 +289,11 @@ public sealed class UbicacionTool
             int nextIndex = (segmentIndex + 1) % polyline.NumberOfVertices;
             Point3d start = polyline.GetPoint3dAt(segmentIndex);
             Point3d end = polyline.GetPoint3dAt(nextIndex);
-            Vector3d vector = end - start;
-            if (vector.Length <= PointTolerance) continue;
+            Vector3d segmentVector = end - start;
+            if (segmentVector.Length <= PointTolerance) continue;
 
             bestDistance = polyDistance;
-            direction = vector.GetNormal();
+            direction = segmentVector.GetNormal();
             sourceObjectId = objectId;
             found = true;
         }
