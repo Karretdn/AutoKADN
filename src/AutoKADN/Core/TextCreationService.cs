@@ -15,9 +15,11 @@ public sealed class TextCreationService
         Database database = document.Database;
 
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        BlockTable blockTable = (BlockTable)transaction.GetObject(database.BlockTableId, OpenMode.ForRead);
-        BlockTableRecord modelSpace = (BlockTableRecord)transaction.GetObject(
-            blockTable[BlockTableRecord.ModelSpace],
+
+        // Use the space currently active in AutoCAD.
+        // This allows the command to work in both Model Space and Layouts.
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(
+            database.CurrentSpaceId,
             OpenMode.ForWrite);
 
         var text = new DBText
@@ -25,18 +27,20 @@ public sealed class TextCreationService
             Position = position,
             TextString = content.Trim(),
             Height = height,
-            Layer = database.Clayer.IsNull ? "0" : GetCurrentLayerName(database, transaction)
+            Layer = GetCurrentLayerName(database, transaction)
         };
 
-        modelSpace.AppendEntity(text);
+        currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
         transaction.Commit();
     }
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
     {
-        LayerTable layerTable = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
-        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(database.Clayer, OpenMode.ForRead);
+        LayerTableRecord layer = (LayerTableRecord)transaction.GetObject(
+            database.Clayer,
+            OpenMode.ForRead);
+
         return layer.Name;
     }
 }
