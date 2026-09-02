@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFrameworks>net48;net10.0-windows</TargetFrameworks>
     <UseWindowsForms>false</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
@@ -10,8 +10,14 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <AutoCADInstallDir Condition="'$(AutoCADInstallDir)' == ''">C:\Program Files\Autodesk\AutoCAD 2027</AutoCADInstallDir>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net48'">
+    <AutoCADInstallDir>C:\Program Files\Autodesk\AutoCAD 2022</AutoCADInstallDir>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\..\bin\AutoCAD2022\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <AutoCADInstallDir>C:\Program Files\Autodesk\AutoCAD 2027</AutoCADInstallDir>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\..\bin\AutoCAD2027\</OutputPath>
   </PropertyGroup>
 
   <ItemGroup>
