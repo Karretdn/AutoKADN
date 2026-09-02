@@ -21,8 +21,7 @@ public sealed class CotaTool
         ("CANALIZACION 3-4\"", "UC_3-4")
     };
 
-    // Colores UC: se usa ACI para los colores estándar de AutoCAD y RGB
-    // únicamente para los colores personalizados de la guía.
+    // Colores UC: ACI para colores estándar de AutoCAD y RGB para colores personalizados.
     private static readonly (string Label, short? ColorIndex, int R, int G, int B)[] UCAttributes =
     {
         ("ZONA VERDE", 3, 0, 0, 0),
@@ -401,16 +400,15 @@ public sealed class CotaTool
             return false;
         }
 
-        // Los colores básicos de AutoCAD se almacenan como ACI para conservar
-        // exactamente el índice estándar. Los colores personalizados usan RGB.
+        // Para ACI usamos directamente ColorIndex. Esto evita que AutoCAD
+        // convierta el índice estándar en un color RGB o ByLayer.
         if (colorIndex.HasValue)
         {
-            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
-                Autodesk.AutoCAD.Colors.ColorMethod.ByAci,
-                colorIndex.Value);
+            dimension.ColorIndex = colorIndex.Value;
         }
         else
         {
+            // CUNETA es el único color personalizado de la guía.
             dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb(
                 (byte)r,
                 (byte)g,
