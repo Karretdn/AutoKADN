@@ -130,14 +130,12 @@ public sealed class CotaTool
 
         // Después de elegir la capa, la cota queda viva bajo el mouse para
         // escoger visualmente el lado y la separación respecto a la línea.
-        PromptResult placementResult = MoveDimensionToSide(
-            document,
-            editor,
-            dimensionId,
-            midpoint,
-            normal);
-
-        if (placementResult.Status != PromptStatus.OK)
+        if (!MoveDimensionToSide(
+                document,
+                editor,
+                dimensionId,
+                midpoint,
+                normal))
         {
             EraseDimension(document.Database, dimensionId);
             return false;
@@ -178,20 +176,20 @@ public sealed class CotaTool
         return dimension.ObjectId;
     }
 
-    private static PromptResult MoveDimensionToSide(
+    private static bool MoveDimensionToSide(
         Autodesk.AutoCAD.ApplicationServices.Document document,
         Editor editor,
         ObjectId dimensionId,
         Point3d midpoint,
         Vector3d normal)
     {
-        Dimension? dimension = null;
+        RotatedDimension? dimension;
 
         using (Transaction transaction = document.Database.TransactionManager.StartTransaction())
         {
-            dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as Dimension;
+            dimension = transaction.GetObject(dimensionId, OpenMode.ForWrite) as RotatedDimension;
             if (dimension is null)
-                return new PromptResult(PromptStatus.Error);
+                return false;
 
             transaction.Commit();
         }
@@ -200,7 +198,7 @@ public sealed class CotaTool
         editor.WriteMessage("\nMueva el mouse hacia el lado deseado y haga clic para fijar la cota.\n");
 
         PromptResult result = editor.Drag(jig);
-        return result;
+        return result.Status == PromptStatus.OK;
     }
 
     private static bool FindLineAtPoint(
@@ -366,13 +364,13 @@ public sealed class CotaTool
 
     private sealed class DimensionSideJig : EntityJig
     {
-        private readonly Dimension _dimension;
+        private readonly RotatedDimension _dimension;
         private readonly Point3d _midpoint;
         private readonly Vector3d _normal;
         private Point3d _lastPoint;
 
         public DimensionSideJig(
-            Dimension dimension,
+            RotatedDimension dimension,
             Point3d midpoint,
             Vector3d normal)
             : base(dimension)
