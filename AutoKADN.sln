@@ -2,7 +2,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoKADN", "src\AutoKADN\AutoKADN.csproj", "{B8A0B5C2-0F51-4C0E-9B54-7D0A7A3F5C11}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoKADN 2022", "src\AutoKADN2022\AutoKADN2022.csproj", "{D2C8D7A1-2F7E-4F3E-9A1B-202200000001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoKADN 2027", "src\AutoKADN2027\AutoKADN2027.csproj", "{D2C8D7A1-2F7E-4F3E-9A1B-202700000001}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -10,9 +12,13 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{B8A0B5C2-0F51-4C0E-9B54-7D0A7A3F5C11}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B8A0B5C2-0F51-4C0E-9B54-7D0A7A3F5C11}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B8A0B5C2-0F51-4C0E-9B54-7D0A7A3F5C11}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B8A0B5C2-0F51-4C0E-9B54-7D0A7A3F5C11}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202200000001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202200000001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202200000001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202200000001}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202700000001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202700000001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202700000001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D2C8D7A1-2F7E-4F3E-9A1B-202700000001}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
