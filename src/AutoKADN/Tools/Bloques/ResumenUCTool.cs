@@ -35,6 +35,18 @@ public sealed class ResumenUCTool
         new("ASFALTO", 30, null, null, null), new("ADOQUIN", 4, null, null, null)
     };
 
+    private static readonly string[] SurfaceOrder =
+    {
+        "ZONA VERDE",
+        "ANDEN CONCRETO",
+        "CALZADA CONCRETO",
+        "ANDEN TABLETA",
+        "ADOQUIN",
+        "ASFALTO",
+        "CUNETA",
+        "DESTAPADO"
+    };
+
     public void Run()
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
@@ -110,8 +122,8 @@ public sealed class ResumenUCTool
         selectedUc = default;
 
         List<UcKey> availableUcs = quantities.Keys
-            .OrderBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.Surface, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => GetSurfaceOrder(x.Surface))
+            .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         if (availableUcs.Count == 0) return false;
@@ -184,7 +196,9 @@ public sealed class ResumenUCTool
         double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
         string summaryId = Guid.NewGuid().ToString("D");
         EnsureXDataRegApp(database, transaction);
-        IEnumerable<KeyValuePair<UcKey, double>> orderedItems = quantities.OrderBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Key.Surface, StringComparer.OrdinalIgnoreCase);
+        IEnumerable<KeyValuePair<UcKey, double>> orderedItems = quantities
+            .OrderBy(x => GetSurfaceOrder(x.Key.Surface))
+            .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase);
 
         int index = 0;
         foreach (var item in orderedItems)
@@ -205,6 +219,15 @@ public sealed class ResumenUCTool
             index++;
         }
         transaction.Commit();
+    }
+
+    private static int GetSurfaceOrder(string surface)
+    {
+        for (int i = 0; i < SurfaceOrder.Length; i++)
+        {
+            if (string.Equals(surface, SurfaceOrder[i], StringComparison.OrdinalIgnoreCase)) return i;
+        }
+        return SurfaceOrder.Length;
     }
 
     private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
