@@ -27,8 +27,9 @@ public sealed class ListaBloquesTool
     private const string BlocksLayer = "Mat";
     private const string PipeLayerHalf = "COTA_1-2";
     private const string PipeLayerThreeQuarter = "COTA_3-4";
-    private const string SpiralXDataAppName = "AUTOKADN";
+    private const string XDataAppName = "AUTOKADN";
     private const string SpiralType = "ESPIRAL";
+    private const string SummaryType = "RESUMEN_MATERIALES";
 
     private static readonly string[] ItemPriority =
     {
@@ -89,7 +90,7 @@ public sealed class ListaBloquesTool
             new PromptPointOptions("\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista: "));
         if (pointResult.Status != PromptStatus.OK) return;
 
-        CreateTexts(database, pointResult.Value, counts);
+        CreateTexts(database, pointResult.Value, counts, layoutName);
         editor.Regen();
         editor.WriteMessage($"\nLista generada en el layout '{layoutName}'.\n");
     }
@@ -113,13 +114,13 @@ public sealed class ListaBloquesTool
         unions = 0.0;
         tees = 0.0;
 
-        ResultBuffer? xdata = mtext.GetXDataForApplication(SpiralXDataAppName);
+        ResultBuffer? xdata = mtext.GetXDataForApplication(XDataAppName);
         if (xdata is null) return false;
 
         TypedValue[] values = xdata.AsArray();
         if (values.Length < 5) return false;
         if (values[0].TypeCode != (int)DxfCode.ExtendedDataRegAppName ||
-            !string.Equals(values[0].Value?.ToString(), SpiralXDataAppName, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(values[0].Value?.ToString(), XDataAppName, StringComparison.OrdinalIgnoreCase))
             return false;
         if (values[1].TypeCode != (int)DxfCode.ExtendedDataAsciiString ||
             !string.Equals(values[1].Value?.ToString(), SpiralType, StringComparison.OrdinalIgnoreCase))
@@ -162,13 +163,15 @@ public sealed class ListaBloquesTool
         return double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
-    private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, double> counts)
+    private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, double> counts, string layoutName)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
         double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
+        string summaryId = Guid.NewGuid().ToString("D");
+        EnsureXDataRegApp(database, transaction);
 
         IEnumerable<KeyValuePair<BlockKey, double>> orderedItems = counts
             .OrderBy(x => GetPriority(x.Key.Description))
@@ -191,13 +194,13 @@ public sealed class ListaBloquesTool
             double quantityX = columnX + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0) + QuantityCenterCorrection;
 
             AddLeftAlignedText(transaction, currentSpace, item.Key.Description,
-                new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
+                new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
             AddCenteredText(transaction, currentSpace, item.Key.Diameter,
-                new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId);
+                new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
             AddCenteredText(transaction, currentSpace, item.Key.Unit,
-                new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
+                new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
             AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit),
-                new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId);
+                new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
             index++;
         }
         transaction.Commit();
@@ -218,7 +221,8 @@ public sealed class ListaBloquesTool
     }
 
     private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace,
-        string value, Point3d position, double height, string layerName, ObjectId textStyleId)
+        string value, Point3d position, double height, string layerName, ObjectId textStyleId,
+        string layoutName, string summaryId)
     {
         var text = new DBText
         {
@@ -227,10 +231,12 @@ public sealed class ListaBloquesTool
             VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
     }
 
     private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace,
-        string value, Point3d position, double height, string layerName, ObjectId textStyleId)
+        string value, Point3d position, double height, string layerName, ObjectId textStyleId,
+        string layoutName, string summaryId)
     {
         var text = new DBText
         {
@@ -239,6 +245,27 @@ public sealed class ListaBloquesTool
             VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
+    }
+
+    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName, string summaryId)
+    {
+        entity.XData = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryType),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryId));
+    }
+
+    private static void EnsureXDataRegApp(Database database, Transaction transaction)
+    {
+        RegAppTable table = (RegAppTable)transaction.GetObject(database.RegAppTableId, OpenMode.ForRead);
+        if (table.Has(XDataAppName)) return;
+
+        table.UpgradeOpen();
+        var record = new RegAppTableRecord { Name = XDataAppName };
+        table.Add(record);
+        transaction.AddNewlyCreatedDBObject(record, true);
     }
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
