@@ -10,14 +10,19 @@ public sealed class ListaBloquesTool
 {
     private const double RowHeight = 5.0;
     private const double TextHeight = 2.5;
+    private const int SlotsPerColumn = 5;
+
     private const double DescriptionWidth = 30.0;
     private const double DiameterWidth = 27.0;
     private const double UnitWidth = 25.5;
     private const double QuantityWidth = 25.5;
+    private const double ColumnWidth = DescriptionWidth + DiameterWidth + UnitWidth + QuantityWidth;
+
     private const double DescriptionLeftMargin = 1.5;
     private const double DiameterCenterCorrection = -2.0;
     private const double UnitCenterCorrection = -1.5;
     private const double QuantityCenterCorrection = -4.5;
+
     private const string BlocksLayer = "Mat";
     private const string PipeLayerHalf = "COTA_1-2";
     private const string PipeLayerThreeQuarter = "COTA_3-4";
@@ -118,14 +123,21 @@ public sealed class ListaBloquesTool
             .ThenBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Key.Unit, StringComparer.OrdinalIgnoreCase);
 
-        int row = 0;
+        int index = 0;
         foreach (var item in orderedItems)
         {
-            double y = firstRowY - (row * RowHeight);
-            double descriptionX = topLeftPoint.X + DescriptionLeftMargin;
-            double diameterX = topLeftPoint.X + DescriptionWidth + (DiameterWidth / 2.0) + DiameterCenterCorrection;
-            double unitX = topLeftPoint.X + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0) + UnitCenterCorrection;
-            double quantityX = topLeftPoint.X + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0) + QuantityCenterCorrection;
+            // Los primeros 5 elementos ocupan los 5 slots verticales de la izquierda.
+            // A partir del sexto elemento, se continúa en los 5 slots de la derecha.
+            int column = index / SlotsPerColumn;
+            int slot = index % SlotsPerColumn;
+
+            double columnX = topLeftPoint.X + (column * ColumnWidth);
+            double y = firstRowY - (slot * RowHeight);
+
+            double descriptionX = columnX + DescriptionLeftMargin;
+            double diameterX = columnX + DescriptionWidth + (DiameterWidth / 2.0) + DiameterCenterCorrection;
+            double unitX = columnX + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0) + UnitCenterCorrection;
+            double quantityX = columnX + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0) + QuantityCenterCorrection;
 
             AddLeftAlignedText(transaction, currentSpace, item.Key.Description,
                 new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
@@ -135,7 +147,8 @@ public sealed class ListaBloquesTool
                 new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
             AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit),
                 new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId);
-            row++;
+
+            index++;
         }
         transaction.Commit();
     }
