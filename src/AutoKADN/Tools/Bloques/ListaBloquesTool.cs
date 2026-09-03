@@ -17,7 +17,7 @@ public sealed class ListaBloquesTool
     private const double UnitWidth = 25.5;
     private const double QuantityWidth = 25.5;
     private const double ColumnWidth = DescriptionWidth + DiameterWidth + UnitWidth + QuantityWidth;
-    private const double RightColumnShift = -2.0;
+    private const double RightColumnShift = -5.0;
 
     private const double DescriptionLeftMargin = 1.5;
     private const double DiameterCenterCorrection = -2.0;
