@@ -71,11 +71,12 @@ public sealed class AutoKADNRibbon
     {
         var group = new DrawingGroup();
         using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.2);
-        dc.DrawRoundedRectangle(null, pen, new System.Windows.Rect(4, 5, 32, 28), 4, 4);
-        dc.DrawLine(pen, new System.Windows.Point(9, 15), new System.Windows.Point(31, 15));
-        dc.DrawLine(pen, new System.Windows.Point(9, 22), new System.Windows.Point(26, 22));
-        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(30, 29), 3.2, 3.2);
+        var pen = new Pen(Brushes.White, 2.8);
+        dc.DrawRoundedRectangle(null, pen, new System.Windows.Rect(3, 4, 34, 30), 4.5, 4.5);
+        dc.DrawLine(pen, new System.Windows.Point(8, 14), new System.Windows.Point(32, 14));
+        dc.DrawLine(pen, new System.Windows.Point(8, 21), new System.Windows.Point(28, 21));
+        dc.DrawLine(pen, new System.Windows.Point(8, 28), new System.Windows.Point(23, 28));
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(30.5, 29), 3.4, 3.4);
         return new DrawingImage(group);
     }
 
@@ -83,12 +84,12 @@ public sealed class AutoKADNRibbon
     {
         var group = new DrawingGroup();
         using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.5);
-        dc.DrawLine(pen, new System.Windows.Point(5, 32), new System.Windows.Point(35, 7));
-        dc.DrawLine(pen, new System.Windows.Point(7, 12), new System.Windows.Point(34, 35));
-        dc.DrawEllipse(null, pen, new System.Windows.Point(20, 20), 4.5, 4.5);
-        dc.DrawLine(pen, new System.Windows.Point(20, 3), new System.Windows.Point(20, 10));
-        dc.DrawLine(pen, new System.Windows.Point(20, 30), new System.Windows.Point(20, 37));
+        var pen = new Pen(Brushes.White, 2.9);
+        dc.DrawLine(pen, new System.Windows.Point(4, 34), new System.Windows.Point(36, 6));
+        dc.DrawLine(pen, new System.Windows.Point(6, 10), new System.Windows.Point(34, 36));
+        dc.DrawEllipse(null, pen, new System.Windows.Point(20, 20), 4.8, 4.8);
+        dc.DrawLine(pen, new System.Windows.Point(20, 2), new System.Windows.Point(20, 9));
+        dc.DrawLine(pen, new System.Windows.Point(20, 31), new System.Windows.Point(20, 38));
         return new DrawingImage(group);
     }
 
@@ -96,16 +97,16 @@ public sealed class AutoKADNRibbon
     {
         var group = new DrawingGroup();
         using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.2);
-        dc.DrawLine(pen, new System.Windows.Point(6, 10), new System.Windows.Point(34, 10));
-        dc.DrawLine(pen, new System.Windows.Point(6, 30), new System.Windows.Point(34, 30));
-        dc.DrawLine(pen, new System.Windows.Point(6, 7), new System.Windows.Point(6, 33));
-        dc.DrawLine(pen, new System.Windows.Point(34, 7), new System.Windows.Point(34, 33));
-        dc.DrawLine(pen, new System.Windows.Point(10, 20), new System.Windows.Point(30, 20));
-        dc.DrawLine(pen, new System.Windows.Point(10, 20), new System.Windows.Point(15, 17));
-        dc.DrawLine(pen, new System.Windows.Point(10, 20), new System.Windows.Point(15, 23));
-        dc.DrawLine(pen, new System.Windows.Point(30, 20), new System.Windows.Point(25, 17));
-        dc.DrawLine(pen, new System.Windows.Point(30, 20), new System.Windows.Point(25, 23));
+        var pen = new Pen(Brushes.White, 2.8);
+        dc.DrawLine(pen, new System.Windows.Point(5, 8), new System.Windows.Point(35, 8));
+        dc.DrawLine(pen, new System.Windows.Point(5, 32), new System.Windows.Point(35, 32));
+        dc.DrawLine(pen, new System.Windows.Point(5, 5), new System.Windows.Point(5, 35));
+        dc.DrawLine(pen, new System.Windows.Point(35, 5), new System.Windows.Point(35, 35));
+        dc.DrawLine(pen, new System.Windows.Point(9, 20), new System.Windows.Point(31, 20));
+        dc.DrawLine(pen, new System.Windows.Point(9, 20), new System.Windows.Point(15, 16));
+        dc.DrawLine(pen, new System.Windows.Point(9, 20), new System.Windows.Point(15, 24));
+        dc.DrawLine(pen, new System.Windows.Point(31, 20), new System.Windows.Point(25, 16));
+        dc.DrawLine(pen, new System.Windows.Point(31, 20), new System.Windows.Point(25, 24));
         return new DrawingImage(group);
     }
 
@@ -113,12 +114,12 @@ public sealed class AutoKADNRibbon
     {
         var group = new DrawingGroup();
         using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.2);
-        dc.DrawLine(pen, new System.Windows.Point(5, 32), new System.Windows.Point(35, 8));
-        dc.DrawLine(pen, new System.Windows.Point(8, 10), new System.Windows.Point(32, 10));
-        dc.DrawLine(pen, new System.Windows.Point(8, 16), new System.Windows.Point(28, 16));
-        dc.DrawLine(pen, new System.Windows.Point(8, 22), new System.Windows.Point(25, 22));
-        dc.DrawLine(pen, new System.Windows.Point(8, 28), new System.Windows.Point(22, 28));
+        var pen = new Pen(Brushes.White, 2.8);
+        dc.DrawLine(pen, new System.Windows.Point(4, 35), new System.Windows.Point(36, 5));
+        dc.DrawLine(pen, new System.Windows.Point(7, 9), new System.Windows.Point(33, 9));
+        dc.DrawLine(pen, new System.Windows.Point(7, 16), new System.Windows.Point(29, 16));
+        dc.DrawLine(pen, new System.Windows.Point(7, 23), new System.Windows.Point(26, 23));
+        dc.DrawLine(pen, new System.Windows.Point(7, 30), new System.Windows.Point(23, 30));
         return new DrawingImage(group);
     }
 
