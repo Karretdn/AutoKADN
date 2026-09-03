@@ -23,7 +23,7 @@ public sealed class ResumenUCTool
     private const double UnitCenterCorrection = -1.0;
     private const double SubtotalCenterCorrection = -2.0;
 
-    // Ajustes solicitados para la posición de las columnas respecto al vértice superior izquierdo.
+    // Desplazamiento adicional solicitado respecto a la posición original de cada columna.
     private const double UnitHorizontalShift = 80.0;
     private const double SubtotalHorizontalShift = 85.0;
 
@@ -166,9 +166,10 @@ public sealed class ResumenUCTool
             double y = firstRowY - (slot * RowHeight);
             string description = $"Canalizacion Tubería De Polietileno De {item.Key.Diameter} Pulg. En {ToDisplaySurface(item.Key.Surface)}";
 
+            // Partimos de la posición original de cada columna y luego aplicamos el desplazamiento pedido.
+            double unitX = columnX + DescriptionWidth + (UnitWidth / 2.0) + UnitCenterCorrection + UnitHorizontalShift;
+            double subtotalX = columnX + DescriptionWidth + UnitWidth + (SubtotalWidth / 2.0) + SubtotalCenterCorrection + SubtotalHorizontalShift;
             double descriptionX = columnX + DescriptionLeftMargin;
-            double unitX = columnX + UnitHorizontalShift + UnitCenterCorrection;
-            double subtotalX = columnX + SubtotalHorizontalShift + SubtotalCenterCorrection;
 
             AddLeftAlignedText(transaction, currentSpace, description,
                 new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
