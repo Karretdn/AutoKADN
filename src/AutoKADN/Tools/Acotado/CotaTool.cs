@@ -40,9 +40,6 @@ public sealed class CotaTool
         new("ADOQUIN", 4, 0, 0, 0)
     };
 
-    private static readonly IReadOnlyDictionary<string, UCAttribute> UCAttributesByKeyword =
-        UCAttributes.ToDictionary(x => x.Keyword, StringComparer.OrdinalIgnoreCase);
-
     public void Run()
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
@@ -349,12 +346,16 @@ public sealed class CotaTool
                 AllowNone = false
             };
 
-            foreach (UCAttribute attribute in UCAttributes)
+            string[] keywords = Enumerable.Range(1, UCAttributes.Length)
+                .Select(i => $"OPCION{i}")
+                .ToArray();
+
+            for (int i = 0; i < UCAttributes.Length; i++)
             {
                 options.Keywords.Add(
-                    attribute.Keyword,
-                    attribute.Keyword,
-                    attribute.Keyword,
+                    keywords[i],
+                    UCAttributes[i].Keyword,
+                    UCAttributes[i].Keyword,
                     true,
                     true);
             }
@@ -362,11 +363,10 @@ public sealed class CotaTool
             PromptResult result = editor.GetKeywords(options);
             if (result.Status != PromptStatus.OK) return false;
 
-            if (string.IsNullOrEmpty(result.StringResult) ||
-                !UCAttributesByKeyword.TryGetValue(result.StringResult, out UCAttribute? selected))
-                return false;
+            int index = Array.IndexOf(keywords, result.StringResult);
+            if (index < 0 || index >= UCAttributes.Length) return false;
 
-            return SetDimensionColor(database, dimensionId, selected);
+            return SetDimensionColor(database, dimensionId, UCAttributes[index]);
         }
         finally
         {
