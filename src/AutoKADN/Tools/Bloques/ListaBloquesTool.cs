@@ -17,6 +17,7 @@ public sealed class ListaBloquesTool
     private const double UnitWidth = 25.5;
     private const double QuantityWidth = 25.5;
     private const double ColumnWidth = DescriptionWidth + DiameterWidth + UnitWidth + QuantityWidth;
+    private const double RightColumnShift = -2.0;
 
     private const double DescriptionLeftMargin = 1.5;
     private const double DiameterCenterCorrection = -2.0;
@@ -126,12 +127,13 @@ public sealed class ListaBloquesTool
         int index = 0;
         foreach (var item in orderedItems)
         {
-            // Los primeros 5 elementos ocupan los 5 slots verticales de la izquierda.
-            // A partir del sexto elemento, se continúa en los 5 slots de la derecha.
             int column = index / SlotsPerColumn;
             int slot = index % SlotsPerColumn;
 
             double columnX = topLeftPoint.X + (column * ColumnWidth);
+            if (column > 0)
+                columnX += RightColumnShift;
+
             double y = firstRowY - (slot * RowHeight);
 
             double descriptionX = columnX + DescriptionLeftMargin;
