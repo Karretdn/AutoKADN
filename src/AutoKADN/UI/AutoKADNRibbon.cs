@@ -52,6 +52,7 @@ public sealed class AutoKADNRibbon
         panelSource.Items.Add(CreateButton("LIMIK", "Límites", "LIMIK", CreateLimiteIcon()));
         panelSource.Items.Add(CreateButton("COTAK", "Cota", "COTAK", CreateCotaIcon()));
         panelSource.Items.Add(CreateButton("ANOTACIONES", "Anotaciones", "ANOTACIONES", CreateAnotacionesIcon()));
+        panelSource.Items.Add(CreateButton("LISTABLOQUES", "Lista bloques", "LISTABLOQUES", CreateListaBloquesIcon()));
 
         tab.Panels.Add(panel);
         ComponentManager.Ribbon.Tabs.Add(tab);
@@ -120,6 +121,21 @@ public sealed class AutoKADNRibbon
         dc.DrawLine(pen, new System.Windows.Point(7, 16), new System.Windows.Point(29, 16));
         dc.DrawLine(pen, new System.Windows.Point(7, 23), new System.Windows.Point(26, 23));
         dc.DrawLine(pen, new System.Windows.Point(7, 30), new System.Windows.Point(23, 30));
+        return new DrawingImage(group);
+    }
+
+    private static DrawingImage CreateListaBloquesIcon()
+    {
+        var group = new DrawingGroup();
+        using DrawingContext dc = group.Open();
+        var pen = new Pen(Brushes.White, 2.8);
+        dc.DrawRectangle(null, pen, new System.Windows.Rect(5, 4, 30, 32));
+        dc.DrawLine(pen, new System.Windows.Point(11, 12), new System.Windows.Point(29, 12));
+        dc.DrawLine(pen, new System.Windows.Point(11, 20), new System.Windows.Point(29, 20));
+        dc.DrawLine(pen, new System.Windows.Point(11, 28), new System.Windows.Point(29, 28));
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(7, 12), 1.6, 1.6);
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(7, 20), 1.6, 1.6);
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(7, 28), 1.6, 1.6);
         return new DrawingImage(group);
     }
 
