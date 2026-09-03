@@ -15,9 +15,11 @@ public sealed class ListaBloquesTool
     private const double QuantityWidth = 25.5;
 
     private const double DescriptionLeftMargin = 1.5;
-    private const double DiameterCenterCorrection = 0.0;
-    private const double UnitCenterCorrection = -2.5;
+    private const double DiameterCenterCorrection = -2.0;
+    private const double UnitCenterCorrection = -1.5;
     private const double QuantityCenterCorrection = -4.5;
+
+    private const string BlocksLayer = "Mat";
 
     public void Run()
     {
@@ -40,6 +42,10 @@ public sealed class ListaBloquesTool
                 if (transaction.GetObject(objectId, OpenMode.ForRead) is not BlockReference blockReference)
                     continue;
 
+                // Solo se procesan bloques colocados en la capa Mat.
+                if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 string description = GetBlockName(transaction, blockReference);
                 if (string.IsNullOrWhiteSpace(description)) continue;
 
@@ -53,7 +59,7 @@ public sealed class ListaBloquesTool
 
         if (counts.Count == 0)
         {
-            editor.WriteMessage($"\nNo se encontraron bloques en el layout '{layoutName}'.\n");
+            editor.WriteMessage($"\nNo se encontraron bloques en la capa '{BlocksLayer}' del layout '{layoutName}'.\n");
             return;
         }
 
@@ -63,7 +69,7 @@ public sealed class ListaBloquesTool
 
         CreateTexts(database, pointResult.Value, counts);
         editor.Regen();
-        editor.WriteMessage($"\nLista generada en el layout '{layoutName}': {counts.Count} tipos de bloque.\n");
+        editor.WriteMessage($"\nLista generada en el layout '{layoutName}' con bloques de la capa '{BlocksLayer}': {counts.Count} tipos.\n");
     }
 
     private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, int> counts)
