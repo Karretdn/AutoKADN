@@ -36,7 +36,7 @@ public sealed class ListaBloquesTool
                 if (string.IsNullOrWhiteSpace(description))
                     continue;
 
-                string diameter = GetDiameter(transaction, blockReference);
+                string diameter = GetDiameter(blockReference);
                 var key = new BlockKey(description, diameter);
 
                 counts.TryGetValue(key, out int currentCount);
@@ -137,31 +137,15 @@ public sealed class ListaBloquesTool
         return string.Empty;
     }
 
-    private static string GetDiameter(Transaction transaction, BlockReference blockReference)
+    private static string GetDiameter(BlockReference blockReference)
     {
-        if (!blockReference.AttributeCollection.IsNull)
+        if (!blockReference.IsDynamicBlock)
+            return string.Empty;
+
+        foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection)
         {
-            foreach (ObjectId attributeId in blockReference.AttributeCollection)
-            {
-                if (transaction.GetObject(attributeId, OpenMode.ForRead) is not AttributeReference attribute)
-                    continue;
-
-                if (string.Equals(attribute.Tag, "DIAMETRO", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(attribute.Tag, "DIAMETER", StringComparison.OrdinalIgnoreCase))
-                    return attribute.TextString.Trim();
-            }
-        }
-
-        if (blockReference.IsDynamicBlock)
-        {
-            foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection)
-            {
-                if (!string.Equals(property.PropertyName, "DIAMETRO", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(property.PropertyName, "DIAMETER", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
+            if (string.Equals(property.PropertyName, "DIAMETRO", StringComparison.OrdinalIgnoreCase))
                 return property.Value?.ToString()?.Trim() ?? string.Empty;
-            }
         }
 
         return string.Empty;
