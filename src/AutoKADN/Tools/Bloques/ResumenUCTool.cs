@@ -131,13 +131,14 @@ public sealed class ResumenUCTool
             double columnX = topLeftPoint.X + (column * ColumnWidth);
             if (column > 0) columnX += RightColumnShift;
             double y = firstRowY - (slot * RowHeight);
+            string rowId = Guid.NewGuid().ToString("D");
             string description = $"Canalizacion Tubería De Polietileno De {item.Key.Diameter} Pulg. En {ToDisplaySurface(item.Key.Surface)}";
             double descriptionX = columnX + DescriptionLeftMargin;
             double unitX = columnX + DescriptionWidth + (UnitWidth / 2.0) + UnitCenterCorrection + UnitHorizontalShift;
             double subtotalX = columnX + DescriptionWidth + UnitWidth + (SubtotalWidth / 2.0) + SubtotalCenterCorrection + SubtotalHorizontalShift;
-            AddLeftAlignedText(transaction, currentSpace, description, new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
-            AddCenteredText(transaction, currentSpace, "ML", new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
-            AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value), new Point3d(subtotalX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
+            AddLeftAlignedText(transaction, currentSpace, description, new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DESCRIPCION");
+            AddCenteredText(transaction, currentSpace, "ML", new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "UNIDAD");
+            AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value), new Point3d(subtotalX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "CANTIDAD");
             index++;
         }
         transaction.Commit();
@@ -152,27 +153,29 @@ public sealed class ResumenUCTool
 
     private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
 
-    private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId)
+    private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId, string rowId, string field)
     {
         var text = new DBText { TextString = value, Position = position, Height = height, TextStyleId = textStyleId, Layer = layerName, HorizontalMode = TextHorizontalMode.TextLeft, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
-        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
     }
 
-    private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId)
+    private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId, string rowId, string field)
     {
         var text = new DBText { TextString = value, Position = position, Height = height, TextStyleId = textStyleId, Layer = layerName, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
-        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
     }
 
-    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName, string summaryId)
+    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName, string summaryId, string rowId, string field)
     {
         entity.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryType),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryId));
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryId),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, rowId),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, field));
     }
 
     private static void EnsureXDataRegApp(Database database, Transaction transaction)
