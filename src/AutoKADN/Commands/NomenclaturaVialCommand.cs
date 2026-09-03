@@ -62,4 +62,10 @@ public class NomenclaturaVialCommand
     {
         new ListaBloquesTool().Run();
     }
+
+    [CommandMethod("RESUMENUC", CommandFlags.Modal)]
+    public void ResumenUC()
+    {
+        new ResumenUCTool().Run();
+    }
 }
