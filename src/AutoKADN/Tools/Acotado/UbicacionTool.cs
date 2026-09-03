@@ -286,6 +286,8 @@ public sealed class UbicacionTool
             Dimscale = OverallDimensionScale,
             Dimtad = 0,
             Dimjust = 0,
+            Dimtih = true,
+            Dimtoh = true,
             Layer = LayerName,
             ColorIndex = 256
         };

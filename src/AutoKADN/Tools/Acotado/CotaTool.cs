@@ -217,7 +217,9 @@ public sealed class CotaTool
         {
             Dimscale = OverallDimensionScale,
             Dimtad = 0,
-            Dimjust = 0
+            Dimjust = 0,
+            Dimtih = true,
+            Dimtoh = true
         };
 
         currentSpace.AppendEntity(dimension);
