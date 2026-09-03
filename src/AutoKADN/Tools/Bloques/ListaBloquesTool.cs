@@ -10,20 +10,22 @@ public sealed class ListaBloquesTool
 {
     private const double RowHeight = 5.0;
     private const double TextHeight = 2.5;
-
     private const double DescriptionWidth = 30.0;
     private const double DiameterWidth = 27.0;
     private const double UnitWidth = 25.5;
     private const double QuantityWidth = 25.5;
-
     private const double DescriptionLeftMargin = 1.5;
     private const double DiameterCenterCorrection = -2.0;
     private const double UnitCenterCorrection = -1.5;
     private const double QuantityCenterCorrection = -4.5;
-
     private const string BlocksLayer = "Mat";
     private const string PipeLayerHalf = "COTA_1-2";
     private const string PipeLayerThreeQuarter = "COTA_3-4";
+
+    private static readonly string[] ItemPriority =
+    {
+        "TUBERIA", "UNION", "TAPON", "TEE", "VALVULA", "REDUCCION", "SILLETA"
+    };
 
     public void Run()
     {
@@ -47,12 +49,9 @@ public sealed class ListaBloquesTool
 
                 if (entity is BlockReference blockReference)
                 {
-                    if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase))
-                        continue;
-
+                    if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) continue;
                     string description = GetBlockName(transaction, blockReference);
                     if (string.IsNullOrWhiteSpace(description)) continue;
-
                     string diameter = GetDiameter(blockReference);
                     var key = new BlockKey(description, diameter, "UND");
                     counts.TryGetValue(key, out double currentCount);
@@ -62,25 +61,19 @@ public sealed class ListaBloquesTool
                 {
                     string? diameter = GetPipeDiameter(dimension.Layer);
                     if (diameter is null) continue;
-
-                    // Estas cotas pueden tener un valor escrito manualmente
-                    // (override). Ese texto es el valor que debe meterse en el
-                    // listado, no Dimension.Measurement.
-                    if (!TryGetManualDimensionValue(dimension, out double value))
-                        continue;
+                    if (!TryGetManualDimensionValue(dimension, out double value)) continue;
 
                     var key = new BlockKey("TUBERIA", diameter, "ML");
                     counts.TryGetValue(key, out double currentLength);
                     counts[key] = currentLength + Math.Abs(value);
                 }
             }
-
             transaction.Commit();
         }
 
         if (counts.Count == 0)
         {
-            editor.WriteMessage($"\nNo se encontraron bloques en '{BlocksLayer}' ni cotas de tubería en '{PipeLayerHalf}'/'{PipeLayerThreeQuarter}' del layout '{layoutName}'.\n");
+            editor.WriteMessage($"\nNo se encontraron elementos para listar en el layout '{layoutName}'.\n");
             return;
         }
 
@@ -95,37 +88,20 @@ public sealed class ListaBloquesTool
 
     private static string? GetPipeDiameter(string layer)
     {
-        if (string.Equals(layer, PipeLayerHalf, StringComparison.OrdinalIgnoreCase))
-            return "1/2\"";
-
-        if (string.Equals(layer, PipeLayerThreeQuarter, StringComparison.OrdinalIgnoreCase))
-            return "3/4\"";
-
+        if (string.Equals(layer, PipeLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2\"";
+        if (string.Equals(layer, PipeLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4\"";
         return null;
     }
 
     private static bool TryGetManualDimensionValue(Dimension dimension, out double value)
     {
         value = 0.0;
-
-        // DimensionText contiene el texto mostrado/override de la cota.
-        // Si el usuario escribió manualmente un valor, usamos ese valor.
         string text = dimension.DimensionText?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        // Ignorar el marcador de medición automático cuando no existe override.
-        // Extraemos el primer número del texto, aceptando coma o punto decimal.
+        if (string.IsNullOrWhiteSpace(text)) return false;
         Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
-        if (!match.Success)
-            return false;
-
+        if (!match.Success) return false;
         string numericText = match.Value.Replace(',', '.');
-        return double.TryParse(
-            numericText,
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out value);
+        return double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, double> counts)
@@ -137,16 +113,15 @@ public sealed class ListaBloquesTool
         double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
 
         IEnumerable<KeyValuePair<BlockKey, double>> orderedItems = counts
-            .OrderBy(x => x.Key.Description == "TUBERIA" ? 0 : 1)
-            .ThenBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => GetPriority(x.Key.Description))
             .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Key.Unit, StringComparer.OrdinalIgnoreCase);
 
         int row = 0;
         foreach (var item in orderedItems)
         {
             double y = firstRowY - (row * RowHeight);
-
             double descriptionX = topLeftPoint.X + DescriptionLeftMargin;
             double diameterX = topLeftPoint.X + DescriptionWidth + (DiameterWidth / 2.0) + DiameterCenterCorrection;
             double unitX = topLeftPoint.X + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0) + UnitCenterCorrection;
@@ -160,10 +135,16 @@ public sealed class ListaBloquesTool
                 new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
             AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit),
                 new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId);
-
             row++;
         }
         transaction.Commit();
+    }
+
+    private static int GetPriority(string description)
+    {
+        int index = Array.FindIndex(ItemPriority,
+            item => string.Equals(item, description, StringComparison.OrdinalIgnoreCase));
+        return index >= 0 ? index : ItemPriority.Length;
     }
 
     private static string FormatQuantity(double value, string unit)
@@ -201,8 +182,7 @@ public sealed class ListaBloquesTool
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
     {
-        if (transaction.GetObject(database.Clayer, OpenMode.ForRead) is LayerTableRecord layer)
-            return layer.Name;
+        if (transaction.GetObject(database.Clayer, OpenMode.ForRead) is LayerTableRecord layer) return layer.Name;
         return string.Empty;
     }
 
@@ -211,8 +191,7 @@ public sealed class ListaBloquesTool
         ObjectId definitionId = blockReference.BlockTableRecord;
         if (blockReference.IsDynamicBlock && !blockReference.DynamicBlockTableRecord.IsNull)
             definitionId = blockReference.DynamicBlockTableRecord;
-        if (transaction.GetObject(definitionId, OpenMode.ForRead) is BlockTableRecord definition)
-            return definition.Name;
+        if (transaction.GetObject(definitionId, OpenMode.ForRead) is BlockTableRecord definition) return definition.Name;
         return string.Empty;
     }
 
