@@ -21,11 +21,8 @@ public sealed class CotaTool
         ("CANALIZACION 3-4\"", "UC_3-4")
     };
 
-    // Cada atributo UC tiene su propia clave estable y su color explícito.
-    // El color nunca se obtiene por posición de la lista ni por el nombre mostrado.
     private sealed record UCAttribute(
         string Keyword,
-        string Label,
         short? Aci,
         byte R,
         byte G,
@@ -33,14 +30,14 @@ public sealed class CotaTool
 
     private static readonly UCAttribute[] UCAttributes =
     {
-        new("UC_ZONA_VERDE", "ZONA VERDE", 3, 0, 0, 0),
-        new("UC_ANDEN_TABLETA", "ANDEN TABLETA", 1, 0, 0, 0),
-        new("UC_CALZADA_CONCRETO", "CALZADA CONCRETO", 8, 0, 0, 0),
-        new("UC_DESTAPADO", "DESTAPADO", 2, 0, 0, 0),
-        new("UC_CUNETA", "CUNETA", null, 100, 33, 101),
-        new("UC_ANDEN_CONCRETO", "ANDEN CONCRETO", 5, 0, 0, 0),
-        new("UC_ASFALTO", "ASFALTO", 30, 0, 0, 0),
-        new("UC_ADOQUIN", "ADOQUIN", 4, 0, 0, 0)
+        new("ZONA_VERDE", 3, 0, 0, 0),
+        new("ANDEN_TABLETA", 1, 0, 0, 0),
+        new("CALZADA_CONCRETO", 8, 0, 0, 0),
+        new("DESTAPADO", 2, 0, 0, 0),
+        new("CUNETA", null, 100, 33, 101),
+        new("ANDEN_CONCRETO", 5, 0, 0, 0),
+        new("ASFALTO", 30, 0, 0, 0),
+        new("ADOQUIN", 4, 0, 0, 0)
     };
 
     private static readonly IReadOnlyDictionary<string, UCAttribute> UCAttributesByKeyword =
@@ -346,8 +343,7 @@ public sealed class CotaTool
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
 
-            var options = new PromptKeywordOptions(
-                "\nSeleccione atributo UC [ZONA VERDE/ANDEN TABLETA/CALZADA CONCRETO/DESTAPADO/CUNETA/ANDEN CONCRETO/ASFALTO/ADOQUIN]: ")
+            var options = new PromptKeywordOptions("\nSeleccione atributo UC: ")
             {
                 AllowNone = true
             };
@@ -356,8 +352,8 @@ public sealed class CotaTool
             {
                 options.Keywords.Add(
                     attribute.Keyword,
-                    attribute.Label,
-                    attribute.Label,
+                    attribute.Keyword,
+                    attribute.Keyword,
                     true,
                     true);
             }
@@ -391,14 +387,18 @@ public sealed class CotaTool
 
         if (attribute.Aci.HasValue)
         {
-            // ACI se asigna explícitamente como ACI. No depende del color de la capa.
+            if (attribute.Aci.Value < 1 || attribute.Aci.Value > 255)
+            {
+                transaction.Abort();
+                return false;
+            }
+
             dimension.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
                 Autodesk.AutoCAD.Colors.ColorMethod.ByAci,
                 attribute.Aci.Value);
         }
         else
         {
-            // Único RGB de la guía: CUNETA = 100, 33, 101.
             dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb(
                 attribute.R,
                 attribute.G,
