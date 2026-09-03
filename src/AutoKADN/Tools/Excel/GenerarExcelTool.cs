@@ -109,18 +109,33 @@ public sealed class GenerarExcelTool
         Add(zip, "xl/_rels/workbook.xml.rels", WorkbookRels);
         Add(zip, "xl/styles.xml", Styles);
 
+        // Los identificadores se conservan internamente para relacionar la información,
+        // pero nunca se exportan como columnas visibles al usuario.
         Add(zip, "xl/worksheets/sheet1.xml", SheetXml(
-            new[] { "ID", "TIPO", "LAYOUT", "ELEMENTOS" },
+            new[] { "TIPO", "LAYOUT", "ELEMENTOS" },
             rows.GroupBy(r => new { r.Type, r.Layout, r.SummaryId })
-                .Select(g => new[] { g.Key.SummaryId, g.Key.Type, g.Key.Layout, g.Count().ToString(CultureInfo.InvariantCulture) })));
+                .Select(g => new[] { g.Key.Type, g.Key.Layout, g.Count().ToString(CultureInfo.InvariantCulture) })));
 
         Add(zip, "xl/worksheets/sheet2.xml", SheetXml(
-            new[] { "LAYOUT", "ID_TABLA", "ID_FILA", "DESCRIPCION", "DIAMETRO", "UNIDAD", "CANTIDAD" },
-            materialRows.Select(r => new[] { r.Layout, r.SummaryId, r.RowId, r.Get("DESCRIPCION"), r.Get("DIAMETRO"), r.Get("UNIDAD"), r.Get("CANTIDAD") })));
+            new[] { "LAYOUT", "DESCRIPCION", "DIAMETRO", "UNIDAD", "CANTIDAD" },
+            materialRows.Select(r => new[]
+            {
+                r.Layout,
+                r.Get("DESCRIPCION"),
+                r.Get("DIAMETRO"),
+                r.Get("UNIDAD"),
+                r.Get("CANTIDAD")
+            })));
 
         Add(zip, "xl/worksheets/sheet3.xml", SheetXml(
-            new[] { "LAYOUT", "ID_TABLA", "ID_FILA", "DESCRIPCION", "UNIDAD", "CANTIDAD" },
-            ucRows.Select(r => new[] { r.Layout, r.SummaryId, r.RowId, r.Get("DESCRIPCION"), r.Get("UNIDAD"), r.Get("CANTIDAD") })));
+            new[] { "LAYOUT", "DESCRIPCION", "UNIDAD", "CANTIDAD" },
+            ucRows.Select(r => new[]
+            {
+                r.Layout,
+                r.Get("DESCRIPCION"),
+                r.Get("UNIDAD"),
+                r.Get("CANTIDAD")
+            })));
 
         Add(zip, "xl/worksheets/sheet4.xml", SheetXml(
             new[] { "TIPO", "CANTIDAD DE TABLAS", "CANTIDAD DE FILAS" },
