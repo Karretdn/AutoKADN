@@ -153,9 +153,7 @@ public sealed class LimiteTool
         string layerName = EnsureMagentaLayer(document.Database, transaction);
         ObjectId dashedId = EnsureDashedLinetype(document.Database, transaction);
 
-        double rotation = Math.Atan2(direction.Y, direction.X);
-        if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0) rotation += rotation > 0.0 ? -Math.PI : Math.PI;
-
+        double rotation = CalcularRotacionParalela(direction);
         var text = new DBText
         {
             TextString = content,
@@ -168,7 +166,6 @@ public sealed class LimiteTool
             AlignmentPoint = textPoint,
             Rotation = rotation
         };
-        text.AdjustAlignment(document.Database);
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
 
@@ -200,19 +197,7 @@ public sealed class LimiteTool
             Entity? entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
             if (entity is Line line)
             {
-                Point3d[] candidates = { line.StartPoint, line.EndPoint };
-                foreach (Point3d candidate in candidates)
-                {
-                    double distance = candidate.DistanceTo(point);
-                    if (distance > VertexMatchTolerance || distance >= bestDistance) continue;
-                    Point3d other = candidate.IsEqualTo(line.StartPoint) ? line.EndPoint : line.StartPoint;
-                    Vector3d vector = other - candidate;
-                    if (vector.Length <= GeometryMatchTolerance) continue;
-                    bestDistance = distance;
-                    vertex = candidate;
-                    direction = vector.GetNormal();
-                    entityId = objectId;
-                }
+                EvaluarVerticeLinea(line, objectId, point, ref bestDistance, ref vertex, ref direction, ref entityId);
                 continue;
             }
 
@@ -223,33 +208,30 @@ public sealed class LimiteTool
                 double distance = candidate.DistanceTo(point);
                 if (distance > VertexMatchTolerance || distance >= bestDistance) continue;
 
-                int nextIndex = index + 1;
-                int previousIndex = index - 1;
-                if (nextIndex >= polyline.NumberOfVertices)
+                Vector3d vector;
+                bool valid;
+                if (index < polyline.NumberOfVertices - 1 && polyline.GetSegmentType(index) == SegmentType.Line)
                 {
-                    if (!polyline.Closed) nextIndex = -1;
-                    else nextIndex = 0;
+                    vector = polyline.GetPoint3dAt(index + 1) - candidate;
+                    valid = vector.Length > GeometryMatchTolerance;
                 }
-                if (previousIndex < 0)
+                else if (index > 0 && polyline.GetSegmentType(index - 1) == SegmentType.Line)
                 {
-                    if (!polyline.Closed) previousIndex = -1;
-                    else previousIndex = polyline.NumberOfVertices - 1;
+                    vector = polyline.GetPoint3dAt(index - 1) - candidate;
+                    valid = vector.Length > GeometryMatchTolerance;
+                }
+                else if (polyline.Closed && index == polyline.NumberOfVertices - 1 && polyline.GetSegmentType(index) == SegmentType.Line)
+                {
+                    vector = polyline.GetPoint3dAt(0) - candidate;
+                    valid = vector.Length > GeometryMatchTolerance;
+                }
+                else
+                {
+                    vector = Vector3d.XAxis;
+                    valid = false;
                 }
 
-                Vector3d vector = Vector3d.XAxis;
-                bool valid = false;
-                if (nextIndex >= 0 && nextIndex < polyline.NumberOfVertices && polyline.GetSegmentType(index) == SegmentType.Line)
-                {
-                    vector = polyline.GetPoint3dAt(nextIndex) - candidate;
-                    valid = vector.Length > GeometryMatchTolerance;
-                }
-                if (!valid && previousIndex >= 0 && polyline.GetSegmentType(previousIndex) == SegmentType.Line)
-                {
-                    vector = polyline.GetPoint3dAt(previousIndex) - candidate;
-                    valid = vector.Length > GeometryMatchTolerance;
-                }
                 if (!valid) continue;
-
                 bestDistance = distance;
                 vertex = candidate;
                 direction = vector.GetNormal();
@@ -260,28 +242,55 @@ public sealed class LimiteTool
         return entityId != ObjectId.Null;
     }
 
-    private static bool EncontrarPuntoFinalOpuesto(Database database, Point3d startVertex, Vector3d direction, ObjectId ignoredEntity, out Point3d oppositeVertex)
+    private static void EvaluarVerticeLinea(Line line, ObjectId objectId, Point3d point, ref double bestDistance, ref Point3d vertex, ref Vector3d direction, ref ObjectId entityId)
+    {
+        Point3d start = line.StartPoint;
+        Point3d end = line.EndPoint;
+        double startDistance = start.DistanceTo(point);
+        double endDistance = end.DistanceTo(point);
+
+        if (startDistance <= VertexMatchTolerance && startDistance < bestDistance)
+        {
+            Vector3d vector = end - start;
+            if (vector.Length > GeometryMatchTolerance)
+            {
+                bestDistance = startDistance;
+                vertex = start;
+                direction = vector.GetNormal();
+                entityId = objectId;
+            }
+        }
+
+        if (endDistance <= VertexMatchTolerance && endDistance < bestDistance)
+        {
+            Vector3d vector = start - end;
+            if (vector.Length > GeometryMatchTolerance)
+            {
+                bestDistance = endDistance;
+                vertex = end;
+                direction = vector.GetNormal();
+                entityId = objectId;
+            }
+        }
+    }
+
+    private static bool EncontrarPuntoFinalOpuesto(Database database, Point3d startVertex, Vector3d direction, ObjectId selectedEntityId, out Point3d oppositeVertex)
     {
         oppositeVertex = Point3d.Origin;
         double bestProjection = double.MaxValue;
         Vector3d axis = direction.GetNormal();
+        Vector3d perpendicular = new Vector3d(-axis.Y, axis.X, 0.0);
+
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
 
         foreach (ObjectId objectId in currentSpace)
         {
-            if (objectId == ignoredEntity) continue;
             Entity? entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
             if (entity is Line line)
             {
-                foreach (Point3d candidate in new[] { line.StartPoint, line.EndPoint })
-                {
-                    Vector3d delta = candidate - startVertex;
-                    double lateral = Math.Abs(delta.DotProduct(new Vector3d(-axis.Y, axis.X, 0.0)));
-                    double projection = delta.DotProduct(-axis);
-                    if (lateral > VertexMatchTolerance || projection <= OffsetFromLine + GeometryMatchTolerance) continue;
-                    if (projection < bestProjection) { bestProjection = projection; oppositeVertex = candidate; }
-                }
+                EvaluarPuntoOpuesto(line.StartPoint, startVertex, axis, perpendicular, ref bestProjection, ref oppositeVertex);
+                EvaluarPuntoOpuesto(line.EndPoint, startVertex, axis, perpendicular, ref bestProjection, ref oppositeVertex);
                 continue;
             }
 
@@ -289,15 +298,25 @@ public sealed class LimiteTool
             for (int index = 0; index < polyline.NumberOfVertices; index++)
             {
                 Point3d candidate = polyline.GetPoint3dAt(index);
-                Vector3d delta = candidate - startVertex;
-                double lateral = Math.Abs(delta.DotProduct(new Vector3d(-axis.Y, axis.X, 0.0)));
-                double projection = delta.DotProduct(-axis);
-                if (lateral > VertexMatchTolerance || projection <= OffsetFromLine + GeometryMatchTolerance) continue;
-                if (projection < bestProjection) { bestProjection = projection; oppositeVertex = candidate; }
+                EvaluarPuntoOpuesto(candidate, startVertex, axis, perpendicular, ref bestProjection, ref oppositeVertex);
             }
         }
+
         transaction.Commit();
         return bestProjection < double.MaxValue;
+    }
+
+    private static void EvaluarPuntoOpuesto(Point3d candidate, Point3d startVertex, Vector3d axis, Vector3d perpendicular, ref double bestProjection, ref Point3d oppositeVertex)
+    {
+        Vector3d delta = candidate - startVertex;
+        double lateral = Math.Abs(delta.DotProduct(perpendicular));
+        double projection = delta.DotProduct(-axis);
+        if (lateral > VertexMatchTolerance || projection <= OffsetFromLine + GeometryMatchTolerance) return;
+        if (projection < bestProjection)
+        {
+            bestProjection = projection;
+            oppositeVertex = candidate;
+        }
     }
 
     private static string EnsureMagentaLayer(Database database, Transaction transaction)
