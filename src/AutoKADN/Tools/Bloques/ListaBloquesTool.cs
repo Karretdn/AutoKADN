@@ -6,8 +6,17 @@ namespace AutoKADN.Tools.Bloques;
 
 public sealed class ListaBloquesTool
 {
+    // Medidas de la plantilla existente.
+    // El punto que selecciona el usuario es el vértice SUPERIOR DERECHO de la lista.
     private const double RowHeight = 7.0;
     private const double TextHeight = 2.5;
+
+    // Anchos de las columnas, de izquierda a derecha:
+    // DESCRIPCION | DIAMETRO | UNIDAD | CANTIDAD
+    private const double DescriptionWidth = 30.0;
+    private const double DiameterWidth = 20.0;
+    private const double UnitWidth = 18.0;
+    private const double QuantityWidth = 20.0;
 
     public void Run()
     {
@@ -21,6 +30,7 @@ public sealed class ListaBloquesTool
 
         var counts = new Dictionary<BlockKey, int>();
 
+        // 1. Detectar todos los bloques del Layout activo.
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
             ObjectId layoutId = LayoutManager.Current.GetLayoutId(layoutName);
@@ -52,68 +62,124 @@ public sealed class ListaBloquesTool
             return;
         }
 
-        PromptPointResult pointResult = editor.GetPoint("\nIndique el punto de inserción de la lista: ");
+        // 2. El usuario indica únicamente el vértice superior derecho de la plantilla.
+        PromptPointOptions options = new(
+            "\nSeleccione el vértice SUPERIOR DERECHO de la lista: ");
+        PromptPointResult pointResult = editor.GetPoint(options);
+
         if (pointResult.Status != PromptStatus.OK)
             return;
 
-        CreateTable(database, pointResult.Value, counts);
+        // 3. Crear únicamente textos. NO se crea ninguna celda, línea ni tabla.
+        CreateTexts(database, pointResult.Value, counts);
         editor.Regen();
-        editor.WriteMessage($"\nLista de bloques generada en el layout '{layoutName}'.\n");
+
+        editor.WriteMessage(
+            $"\nLista generada en el layout '{layoutName}': {counts.Count} tipos de bloque.\n");
     }
 
-    private static void CreateTable(
+    private static void CreateTexts(
         Database database,
-        Point3d insertionPoint,
+        Point3d topRightPoint,
         IReadOnlyDictionary<BlockKey, int> counts)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
+
         BlockTableRecord currentSpace =
             (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
 
-        int rows = counts.Count + 1;
-        const int columns = 4;
+        string layerName = GetCurrentLayerName(database, transaction);
+        ObjectId textStyleId = database.Textstyle;
 
-        var table = new Table
+        // La plantilla ya contiene el encabezado.
+        // Por eso la primera fila de datos queda inmediatamente debajo del encabezado.
+        double firstRowY = topRightPoint.Y - (RowHeight * 1.5);
+
+        IEnumerable<KeyValuePair<BlockKey, int>> orderedItems = counts
+            .OrderBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase);
+
+        int row = 0;
+        foreach (var item in orderedItems)
         {
-            Position = insertionPoint,
-            TableStyle = database.Tablestyle,
-            Layer = GetCurrentLayerName(database, transaction)
-        };
+            double y = firstRowY - (row * RowHeight);
 
-        table.SetSize(rows, columns);
-        table.SetRowHeight(RowHeight);
-        table.SetColumnWidth(30.0);
-        table.Columns[1].Width = 20.0;
-        table.Columns[2].Width = 18.0;
-        table.Columns[3].Width = 20.0;
+            // Desde el vértice superior derecho se calculan automáticamente
+            // los centros de las columnas de la plantilla.
+            double quantityX = topRightPoint.X - (QuantityWidth / 2.0);
+            double unitX = topRightPoint.X - QuantityWidth - (UnitWidth / 2.0);
+            double diameterX = topRightPoint.X - QuantityWidth - UnitWidth - (DiameterWidth / 2.0);
+            double descriptionX = topRightPoint.X
+                                  - QuantityWidth
+                                  - UnitWidth
+                                  - DiameterWidth
+                                  - (DescriptionWidth / 2.0);
 
-        SetCell(table, 0, 0, "DESCRIPCION");
-        SetCell(table, 0, 1, "DIAMETRO");
-        SetCell(table, 0, 2, "UNIDAD");
-        SetCell(table, 0, 3, "CANTIDAD");
+            AddCenteredText(
+                transaction,
+                currentSpace,
+                item.Key.Description,
+                new Point3d(descriptionX, y, 0),
+                TextHeight,
+                layerName,
+                textStyleId);
 
-        int row = 1;
-        foreach (var item in counts
-                     .OrderBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
-                     .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase))
-        {
-            SetCell(table, row, 0, item.Key.Description);
-            SetCell(table, row, 1, item.Key.Diameter);
-            SetCell(table, row, 2, "UND");
-            SetCell(table, row, 3, item.Value.ToString());
+            AddCenteredText(
+                transaction,
+                currentSpace,
+                item.Key.Diameter,
+                new Point3d(diameterX, y, 0),
+                TextHeight,
+                layerName,
+                textStyleId);
+
+            AddCenteredText(
+                transaction,
+                currentSpace,
+                "UND",
+                new Point3d(unitX, y, 0),
+                TextHeight,
+                layerName,
+                textStyleId);
+
+            AddCenteredText(
+                transaction,
+                currentSpace,
+                item.Value.ToString(),
+                new Point3d(quantityX, y, 0),
+                TextHeight,
+                layerName,
+                textStyleId);
+
             row++;
         }
 
-        currentSpace.AppendEntity(table);
-        transaction.AddNewlyCreatedDBObject(table, true);
-        table.GenerateLayout();
         transaction.Commit();
     }
 
-    private static void SetCell(Table table, int row, int column, string value)
+    private static void AddCenteredText(
+        Transaction transaction,
+        BlockTableRecord currentSpace,
+        string value,
+        Point3d position,
+        double height,
+        string layerName,
+        ObjectId textStyleId)
     {
-        table.Cells[row, column].TextHeight = TextHeight;
-        table.SetTextString(row, column, value);
+        var text = new DBText
+        {
+            TextString = value,
+            Position = position,
+            Height = height,
+            TextStyleId = textStyleId,
+            Layer = layerName,
+            HorizontalMode = TextHorizontalMode.TextCenter,
+            VerticalMode = TextVerticalMode.TextVerticalMid,
+            AlignmentPoint = position
+        };
+
+        currentSpace.AppendEntity(text);
+        transaction.AddNewlyCreatedDBObject(text, true);
     }
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
