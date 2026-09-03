@@ -27,6 +27,8 @@ public sealed class ListaBloquesTool
     private const string BlocksLayer = "Mat";
     private const string PipeLayerHalf = "COTA_1-2";
     private const string PipeLayerThreeQuarter = "COTA_3-4";
+    private const string SpiralXDataAppName = "AUTOKADN";
+    private const string SpiralType = "ESPIRAL";
 
     private static readonly string[] ItemPriority =
     {
@@ -60,18 +62,18 @@ public sealed class ListaBloquesTool
                     if (string.IsNullOrWhiteSpace(description)) continue;
                     string diameter = GetDiameter(blockReference);
                     var key = new BlockKey(description, diameter, "UND");
-                    counts.TryGetValue(key, out double currentCount);
-                    counts[key] = currentCount + 1.0;
+                    AddCount(counts, key, 1.0);
                 }
                 else if (entity is Dimension dimension)
                 {
                     string? diameter = GetPipeDiameter(dimension.Layer);
                     if (diameter is null) continue;
                     if (!TryGetManualDimensionValue(dimension, out double value)) continue;
-
-                    var key = new BlockKey("TUBERIA", diameter, "ML");
-                    counts.TryGetValue(key, out double currentLength);
-                    counts[key] = currentLength + Math.Abs(value);
+                    AddCount(counts, new BlockKey("TUBERIA", diameter, "ML"), Math.Abs(value));
+                }
+                else if (entity is MText mtext)
+                {
+                    AddSpiralCounts(mtext, counts);
                 }
             }
             transaction.Commit();
@@ -90,6 +92,56 @@ public sealed class ListaBloquesTool
         CreateTexts(database, pointResult.Value, counts);
         editor.Regen();
         editor.WriteMessage($"\nLista generada en el layout '{layoutName}'.\n");
+    }
+
+    private static void AddSpiralCounts(MText mtext, Dictionary<BlockKey, double> counts)
+    {
+        if (!string.Equals(mtext.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) return;
+        if (!TryReadSpiralXData(mtext, out double pipe, out double unions, out double tees)) return;
+
+        if (pipe > 0.0)
+            AddCount(counts, new BlockKey("TUBERIA", "3/4\"", "ML"), pipe);
+        if (unions > 0.0)
+            AddCount(counts, new BlockKey("UNION", "3/4\"", "UND"), unions);
+        if (tees > 0.0)
+            AddCount(counts, new BlockKey("TEE", "3/4\"", "UND"), tees);
+    }
+
+    private static bool TryReadSpiralXData(MText mtext, out double pipe, out double unions, out double tees)
+    {
+        pipe = 0.0;
+        unions = 0.0;
+        tees = 0.0;
+
+        ResultBuffer? xdata = mtext.GetXDataForApplication(SpiralXDataAppName);
+        if (xdata is null) return false;
+
+        TypedValue[] values = xdata.AsArray();
+        if (values.Length < 5) return false;
+        if (values[0].TypeCode != (int)DxfCode.ExtendedDataRegAppName ||
+            !string.Equals(values[0].Value?.ToString(), SpiralXDataAppName, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (values[1].TypeCode != (int)DxfCode.ExtendedDataAsciiString ||
+            !string.Equals(values[1].Value?.ToString(), SpiralType, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return TryGetReal(values[2], out pipe) &&
+               TryGetReal(values[3], out unions) &&
+               TryGetReal(values[4], out tees);
+    }
+
+    private static bool TryGetReal(TypedValue value, out double number)
+    {
+        number = 0.0;
+        if (value.TypeCode != (int)DxfCode.ExtendedDataReal) return false;
+        if (value.Value is double d) { number = d; return true; }
+        return double.TryParse(value.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out number);
+    }
+
+    private static void AddCount(Dictionary<BlockKey, double> counts, BlockKey key, double value)
+    {
+        counts.TryGetValue(key, out double current);
+        counts[key] = current + value;
     }
 
     private static string? GetPipeDiameter(string layer)
@@ -129,11 +181,8 @@ public sealed class ListaBloquesTool
         {
             int column = index / SlotsPerColumn;
             int slot = index % SlotsPerColumn;
-
             double columnX = topLeftPoint.X + (column * ColumnWidth);
-            if (column > 0)
-                columnX += RightColumnShift;
-
+            if (column > 0) columnX += RightColumnShift;
             double y = firstRowY - (slot * RowHeight);
 
             double descriptionX = columnX + DescriptionLeftMargin;
@@ -149,7 +198,6 @@ public sealed class ListaBloquesTool
                 new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
             AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit),
                 new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId);
-
             index++;
         }
         transaction.Commit();
@@ -178,8 +226,7 @@ public sealed class ListaBloquesTool
             Layer = layerName, HorizontalMode = TextHorizontalMode.TextLeft,
             VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
-        currentSpace.AppendEntity(text);
-        transaction.AddNewlyCreatedDBObject(text, true);
+        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
     }
 
     private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace,
@@ -191,8 +238,7 @@ public sealed class ListaBloquesTool
             Layer = layerName, HorizontalMode = TextHorizontalMode.TextCenter,
             VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
-        currentSpace.AppendEntity(text);
-        transaction.AddNewlyCreatedDBObject(text, true);
+        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
     }
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
