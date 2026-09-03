@@ -2,6 +2,7 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using AutoKADN.Tools.Anotaciones;
 using AutoKADN.Tools.Acotado;
+using AutoKADN.Tools.Bloques;
 using AutoKADN.Tools.NomenclaturaPredial;
 using AutoKADN.Tools.NomenclaturaVial;
 
@@ -54,5 +55,11 @@ public class NomenclaturaVialCommand
     public void Anotaciones()
     {
         new AnotacionesTool().Run();
+    }
+
+    [CommandMethod("LISTABLOQUES", CommandFlags.Modal)]
+    public void ListaBloques()
+    {
+        new ListaBloquesTool().Run();
     }
 }
