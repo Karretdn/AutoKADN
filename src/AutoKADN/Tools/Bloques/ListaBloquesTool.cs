@@ -6,15 +6,18 @@ namespace AutoKADN.Tools.Bloques;
 
 public sealed class ListaBloquesTool
 {
-    // Ajustado a la plantilla real mostrada en AutoCAD.
     private const double RowHeight = 5.0;
     private const double TextHeight = 2.5;
 
-    // Anchos reales aproximados de las columnas de la plantilla.
     private const double DescriptionWidth = 30.0;
     private const double DiameterWidth = 27.0;
     private const double UnitWidth = 25.5;
     private const double QuantityWidth = 25.5;
+
+    // Ajustes finos de la plantilla existente.
+    private const double DescriptionLeftMargin = 3.0;
+    private const double UnitCenterCorrection = -4.5;
+    private const double QuantityCenterCorrection = -4.5;
 
     public void Run()
     {
@@ -86,8 +89,6 @@ public sealed class ListaBloquesTool
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
 
-        // El punto indicado corresponde al vértice superior izquierdo.
-        // La primera fila disponible comienza inmediatamente debajo del encabezado.
         double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
 
         IEnumerable<KeyValuePair<BlockKey, int>> orderedItems = counts
@@ -99,15 +100,28 @@ public sealed class ListaBloquesTool
         {
             double y = firstRowY - (row * RowHeight);
 
-            // Posiciones calculadas desde el vértice superior izquierdo.
-            // No se agrega ningún desplazamiento adicional: las columnas ya
-            // están calibradas con las dimensiones de la plantilla existente.
-            double descriptionX = topLeftPoint.X + (DescriptionWidth / 2.0);
-            double diameterX = topLeftPoint.X + DescriptionWidth + (DiameterWidth / 2.0);
-            double unitX = topLeftPoint.X + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0);
-            double quantityX = topLeftPoint.X + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0);
+            // DESCRIPCION: justificada a la izquierda, con pequeño margen.
+            double descriptionX = topLeftPoint.X + DescriptionLeftMargin;
 
-            AddCenteredText(transaction, currentSpace, item.Key.Description,
+            // DIAMETRO: centrado en su columna.
+            double diameterX = topLeftPoint.X + DescriptionWidth + (DiameterWidth / 2.0);
+
+            // UNIDAD y CANTIDAD: centrados y corregidos ligeramente hacia la izquierda
+            // para coincidir con los centros visuales de la plantilla.
+            double unitX = topLeftPoint.X
+                           + DescriptionWidth
+                           + DiameterWidth
+                           + (UnitWidth / 2.0)
+                           + UnitCenterCorrection;
+
+            double quantityX = topLeftPoint.X
+                               + DescriptionWidth
+                               + DiameterWidth
+                               + UnitWidth
+                               + (QuantityWidth / 2.0)
+                               + QuantityCenterCorrection;
+
+            AddLeftAlignedText(transaction, currentSpace, item.Key.Description,
                 new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
 
             AddCenteredText(transaction, currentSpace, item.Key.Diameter,
@@ -123,6 +137,31 @@ public sealed class ListaBloquesTool
         }
 
         transaction.Commit();
+    }
+
+    private static void AddLeftAlignedText(
+        Transaction transaction,
+        BlockTableRecord currentSpace,
+        string value,
+        Point3d position,
+        double height,
+        string layerName,
+        ObjectId textStyleId)
+    {
+        var text = new DBText
+        {
+            TextString = value,
+            Position = position,
+            Height = height,
+            TextStyleId = textStyleId,
+            Layer = layerName,
+            HorizontalMode = TextHorizontalMode.TextLeft,
+            VerticalMode = TextVerticalMode.TextVerticalMid,
+            AlignmentPoint = position
+        };
+
+        currentSpace.AppendEntity(text);
+        transaction.AddNewlyCreatedDBObject(text, true);
     }
 
     private static void AddCenteredText(
