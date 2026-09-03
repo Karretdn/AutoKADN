@@ -9,14 +9,11 @@ public sealed class ListaBloquesTool
     private const double RowHeight = 7.0;
     private const double TextHeight = 2.5;
 
-    // Dimensiones de las columnas de la plantilla existente.
     private const double DescriptionWidth = 30.0;
     private const double DiameterWidth = 20.0;
     private const double UnitWidth = 18.0;
     private const double QuantityWidth = 20.0;
 
-    // Corrección solicitada: dejar 5 unidades adicionales desde el vértice
-    // superior izquierdo antes de ubicar el centro de cada columna.
     private const double ColumnOffset = 5.0;
 
     public void Run()
@@ -62,7 +59,6 @@ public sealed class ListaBloquesTool
             return;
         }
 
-        // El usuario selecciona el vértice SUPERIOR IZQUIERDO de la plantilla.
         PromptPointOptions options = new(
             "\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista: ");
         PromptPointResult pointResult = editor.GetPoint(options);
@@ -90,9 +86,10 @@ public sealed class ListaBloquesTool
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
 
-        // El encabezado ya existe en la plantilla. La primera fila de datos
-        // queda centrada en la primera fila inmediatamente debajo del encabezado.
-        double firstRowY = topLeftPoint.Y - (RowHeight * 1.5);
+        // El punto indicado es el vértice superior izquierdo, justo en la
+        // esquina inferior del encabezado. Por tanto, la primera fila de datos
+        // queda a media altura de la primera fila disponible.
+        double firstRowY = topLeftPoint.Y - (RowHeight * 0.5);
 
         IEnumerable<KeyValuePair<BlockKey, int>> orderedItems = counts
             .OrderBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
@@ -103,9 +100,6 @@ public sealed class ListaBloquesTool
         {
             double y = firstRowY - (row * RowHeight);
 
-            // Ahora las posiciones se calculan desde el VÉRTICE SUPERIOR IZQUIERDO.
-            // El desplazamiento adicional de 5 unidades permite que el texto
-            // llegue correctamente al centro de las columnas de la plantilla.
             double descriptionX = topLeftPoint.X + ColumnOffset + (DescriptionWidth / 2.0);
             double diameterX = topLeftPoint.X + ColumnOffset + DescriptionWidth + (DiameterWidth / 2.0);
             double unitX = topLeftPoint.X + ColumnOffset + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0);
