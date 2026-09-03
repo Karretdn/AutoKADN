@@ -70,10 +70,10 @@ public sealed class ResumenUCTool
             return;
         }
 
-        // El ajuste por espiral es opcional. Sin espiral, se continúa directamente
-        // a la generación de la tabla después del escaneo de las UC.
-        PromptKeywordOptions spiralOptions = new PromptKeywordOptions("\n¿HAY ESPIRAL? [Y/N]");
-        spiralOptions.AllowNone = false;
+        PromptKeywordOptions spiralOptions = new PromptKeywordOptions("\n¿HAY ESPIRAL? [Y/N]")
+        {
+            AllowNone = false
+        };
         spiralOptions.Keywords.Add("Y");
         spiralOptions.Keywords.Add("N");
         spiralOptions.Keywords.Default = "N";
@@ -116,31 +116,27 @@ public sealed class ResumenUCTool
 
         if (availableUcs.Count == 0) return false;
 
-        editor.WriteMessage("\nUC escaneadas disponibles para aplicar el espiral:");
-        PromptKeywordOptions options = new PromptKeywordOptions("\nSeleccione una UC");
-        options.AllowNone = false;
-
+        editor.WriteMessage("\nUC escaneadas disponibles para aplicar el espiral:\n");
         for (int i = 0; i < availableUcs.Count; i++)
         {
-            string keyword = "UC" + (i + 1).ToString(CultureInfo.InvariantCulture);
-            options.Keywords.Add(keyword);
-
             UcKey uc = availableUcs[i];
             editor.WriteMessage(
-                $"\n{keyword} = {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)} - {FormatQuantity(quantities[uc])} ML");
+                $"  {i + 1}. {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)} - {FormatQuantity(quantities[uc])} ML\n");
         }
 
-        PromptResult result = editor.GetKeywords(options);
+        PromptIntegerOptions options = new PromptIntegerOptions("\nEscriba el numero de la UC: ")
+        {
+            AllowNone = false,
+            AllowNegative = false,
+            AllowZero = false,
+            LowerLimit = 1,
+            UpperLimit = availableUcs.Count
+        };
+
+        PromptIntegerResult result = editor.GetInteger(options);
         if (result.Status != PromptStatus.OK) return false;
 
-        string selectedKeyword = result.StringResult;
-        if (!selectedKeyword.StartsWith("UC", StringComparison.OrdinalIgnoreCase)) return false;
-        if (!int.TryParse(selectedKeyword.Substring(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)) return false;
-
-        index--;
-        if (index < 0 || index >= availableUcs.Count) return false;
-
-        selectedUc = availableUcs[index];
+        selectedUc = availableUcs[result.Value - 1];
         return true;
     }
 
