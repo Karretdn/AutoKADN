@@ -1,6 +1,8 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace AutoKADN.Tools.Bloques;
 
@@ -45,7 +47,6 @@ public sealed class ListaBloquesTool
 
                 if (entity is BlockReference blockReference)
                 {
-                    // Los bloques de materiales solo se procesan si están en Mat.
                     if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase))
                         continue;
 
@@ -59,17 +60,18 @@ public sealed class ListaBloquesTool
                 }
                 else if (entity is Dimension dimension)
                 {
-                    // Las cotas de tubería se procesan por capa y su valor se suma.
                     string? diameter = GetPipeDiameter(dimension.Layer);
                     if (diameter is null) continue;
 
-                    double measurement = dimension.Measurement;
-                    if (double.IsNaN(measurement) || double.IsInfinity(measurement))
+                    // Estas cotas pueden tener un valor escrito manualmente
+                    // (override). Ese texto es el valor que debe meterse en el
+                    // listado, no Dimension.Measurement.
+                    if (!TryGetManualDimensionValue(dimension, out double value))
                         continue;
 
                     var key = new BlockKey("TUBERIA", diameter, "ML");
                     counts.TryGetValue(key, out double currentLength);
-                    counts[key] = currentLength + Math.Abs(measurement);
+                    counts[key] = currentLength + Math.Abs(value);
                 }
             }
 
@@ -100,6 +102,30 @@ public sealed class ListaBloquesTool
             return "3/4\"";
 
         return null;
+    }
+
+    private static bool TryGetManualDimensionValue(Dimension dimension, out double value)
+    {
+        value = 0.0;
+
+        // DimensionText contiene el texto mostrado/override de la cota.
+        // Si el usuario escribió manualmente un valor, usamos ese valor.
+        string text = dimension.DimensionText?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        // Ignorar el marcador de medición automático cuando no existe override.
+        // Extraemos el primer número del texto, aceptando coma o punto decimal.
+        Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
+        if (!match.Success)
+            return false;
+
+        string numericText = match.Value.Replace(',', '.');
+        return double.TryParse(
+            numericText,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out value);
     }
 
     private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, double> counts)
@@ -142,10 +168,9 @@ public sealed class ListaBloquesTool
 
     private static string FormatQuantity(double value, string unit)
     {
-        // Para ML se conserva la precisión de la suma; para UND se muestra entero.
         return unit == "ML"
-            ? value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
-            : value.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            ? value.ToString("0.###", CultureInfo.InvariantCulture)
+            : value.ToString("0", CultureInfo.InvariantCulture);
     }
 
     private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace,
