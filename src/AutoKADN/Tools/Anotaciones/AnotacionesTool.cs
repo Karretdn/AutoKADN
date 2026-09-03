@@ -164,9 +164,26 @@ public sealed class AnotacionesTool
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
         Vector3d direction = (endPoint - startPoint).GetNormal();
-        Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal(); if (normal.Y < 0.0) normal = -normal;
+        Vector3d normal = new Vector3d(-direction.Y, direction.X, 0.0).GetNormal();
+        if (normal.Y < 0.0) normal = -normal;
         Point3d textPoint = endPoint + normal * TextOffset;
-        var mtext = new MText { Location = textPoint, Contents = text, TextHeight = TextHeight, Attachment = AttachmentPoint.TopLeft, Rotation = 0.0, ColorIndex = 256, Layer = spiralData is not null ? GetOrCreateLayer(database, transaction, MaterialsLayer) : GetCurrentLayerName(database, transaction) };
+
+        // La línea derecha→izquierda necesita anclaje TopRight para que el MText
+        // se extienda hacia la izquierda desde el punto final y no invada la línea.
+        AttachmentPoint attachment = direction.X < -Tolerance.Global.EqualPoint
+            ? AttachmentPoint.TopRight
+            : AttachmentPoint.TopLeft;
+
+        var mtext = new MText
+        {
+            Location = textPoint,
+            Contents = text,
+            TextHeight = TextHeight,
+            Attachment = attachment,
+            Rotation = 0.0,
+            ColorIndex = 256,
+            Layer = spiralData is not null ? GetOrCreateLayer(database, transaction, MaterialsLayer) : GetCurrentLayerName(database, transaction)
+        };
         currentSpace.AppendEntity(mtext); transaction.AddNewlyCreatedDBObject(mtext, true);
         if (spiralData is not null) SetSpiralXData(database, transaction, mtext, spiralData);
         transaction.Commit();
