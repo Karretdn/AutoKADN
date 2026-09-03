@@ -343,9 +343,10 @@ public sealed class CotaTool
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
 
-            var options = new PromptKeywordOptions("\nSeleccione atributo UC: ")
+            var options = new PromptKeywordOptions(
+                $"\nSeleccione atributo UC [{string.Join("/", UCAttributes.Select(x => x.Keyword))}]: ")
             {
-                AllowNone = true
+                AllowNone = false
             };
 
             foreach (UCAttribute attribute in UCAttributes)
@@ -361,7 +362,8 @@ public sealed class CotaTool
             PromptResult result = editor.GetKeywords(options);
             if (result.Status != PromptStatus.OK) return false;
 
-            if (!UCAttributesByKeyword.TryGetValue(result.StringResult, out UCAttribute? selected))
+            if (string.IsNullOrEmpty(result.StringResult) ||
+                !UCAttributesByKeyword.TryGetValue(result.StringResult, out UCAttribute? selected))
                 return false;
 
             return SetDimensionColor(database, dimensionId, selected);
