@@ -70,11 +70,78 @@ public sealed class ResumenUCTool
             return;
         }
 
+        // El ajuste por espiral es opcional. Sin espiral, se continúa directamente
+        // a la generación de la tabla después del escaneo de las UC.
+        PromptKeywordOptions spiralOptions = new PromptKeywordOptions("\n¿HAY ESPIRAL? [Y/N]");
+        spiralOptions.AllowNone = false;
+        spiralOptions.Keywords.Add("Y");
+        spiralOptions.Keywords.Add("N");
+        spiralOptions.Keywords.Default = "N";
+
+        PromptResult spiralResult = editor.GetKeywords(spiralOptions);
+        if (spiralResult.Status != PromptStatus.OK) return;
+
+        if (string.Equals(spiralResult.StringResult, "Y", StringComparison.OrdinalIgnoreCase))
+        {
+            PromptDoubleOptions metersOptions = new PromptDoubleOptions("\n¿CUANTOS METROS DE ESPIRAL? ")
+            {
+                AllowZero = false,
+                AllowNegative = false,
+                AllowNone = false
+            };
+            PromptDoubleResult metersResult = editor.GetDouble(metersOptions);
+            if (metersResult.Status != PromptStatus.OK) return;
+
+            if (!TrySelectSpiralUc(editor, quantities, out UcKey selectedUc)) return;
+            quantities[selectedUc] += metersResult.Value;
+
+            editor.WriteMessage($"\nSe sumaron {FormatQuantity(metersResult.Value)} ML a {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)}.\n");
+        }
+
         PromptPointResult pointResult = editor.GetPoint(new PromptPointOptions("\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista de UNIDAD CONSTRUCTIVA: "));
         if (pointResult.Status != PromptStatus.OK) return;
         CreateTexts(database, pointResult.Value, quantities, layoutName);
         editor.Regen();
         editor.WriteMessage($"\nResumen UC generado en el layout '{layoutName}'.\n");
+    }
+
+    private static bool TrySelectSpiralUc(Editor editor, IReadOnlyDictionary<UcKey, double> quantities, out UcKey selectedUc)
+    {
+        selectedUc = default;
+
+        List<UcKey> availableUcs = quantities.Keys
+            .OrderBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Surface, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (availableUcs.Count == 0) return false;
+
+        editor.WriteMessage("\nUC escaneadas disponibles para aplicar el espiral:");
+        PromptKeywordOptions options = new PromptKeywordOptions("\nSeleccione una UC");
+        options.AllowNone = false;
+
+        for (int i = 0; i < availableUcs.Count; i++)
+        {
+            string keyword = "UC" + (i + 1).ToString(CultureInfo.InvariantCulture);
+            options.Keywords.Add(keyword);
+
+            UcKey uc = availableUcs[i];
+            editor.WriteMessage(
+                $"\n{keyword} = {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)} - {FormatQuantity(quantities[uc])} ML");
+        }
+
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK) return false;
+
+        string selectedKeyword = result.StringResult;
+        if (!selectedKeyword.StartsWith("UC", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!int.TryParse(selectedKeyword.Substring(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)) return false;
+
+        index--;
+        if (index < 0 || index >= availableUcs.Count) return false;
+
+        selectedUc = availableUcs[index];
+        return true;
     }
 
     private static string? GetUcDiameter(string layer)
