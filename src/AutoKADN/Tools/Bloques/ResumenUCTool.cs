@@ -23,7 +23,7 @@ public sealed class ResumenUCTool
     private const double UnitCenterCorrection = -1.0;
     private const double SubtotalCenterCorrection = -2.0;
 
-    private const double UnitHorizontalShift = 90.0;
+    private const double UnitHorizontalShift = 80.0;
     private const double SubtotalHorizontalShift = 95.0;
 
     private const string UcLayerHalf = "UC_1-2";
