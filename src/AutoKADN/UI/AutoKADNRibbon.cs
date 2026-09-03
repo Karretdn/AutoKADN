@@ -9,7 +9,6 @@ public sealed class AutoKADNRibbon
 {
     private static readonly AutoKADNRibbon Instance = new();
     private RibbonTab? _tab;
-
     private AutoKADNRibbon() { }
 
     public static void Initialize()
@@ -24,35 +23,27 @@ public sealed class AutoKADNRibbon
 
     private static void OnRibbonInitialized(object? sender, RibbonItemEventArgs e)
     {
-        if (ComponentManager.Ribbon is null)
-            return;
-
+        if (ComponentManager.Ribbon is null) return;
         ComponentManager.ItemInitialized -= OnRibbonInitialized;
         Instance.CreateTab();
     }
 
     private void CreateTab()
     {
-        if (ComponentManager.Ribbon is null || _tab is not null)
-            return;
-
-        RibbonTab? existing = ComponentManager.Ribbon.Tabs
-            .FirstOrDefault(tab => string.Equals(tab.Id, "AutoKADN_TAB", StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
-        {
-            _tab = existing;
-            return;
-        }
+        if (ComponentManager.Ribbon is null || _tab is not null) return;
+        RibbonTab? existing = ComponentManager.Ribbon.Tabs.FirstOrDefault(x => string.Equals(x.Id, "AutoKADN_TAB", StringComparison.OrdinalIgnoreCase));
+        if (existing is not null) { _tab = existing; return; }
 
         var tab = new RibbonTab { Id = "AutoKADN_TAB", Title = "AutoKADN" };
-        var panelSource = new RibbonPanelSource { Title = "Herramientas" };
-        var panel = new RibbonPanel { Source = panelSource };
+        var source = new RibbonPanelSource { Title = "Herramientas" };
+        var panel = new RibbonPanel { Source = source };
 
-        panelSource.Items.Add(CreateButton("NOMENK", "Nomenclatura", "NOMENK", CreateNomenclaturaIcon()));
-        panelSource.Items.Add(CreateButton("LIMIK", "Límites", "LIMIK", CreateLimiteIcon()));
-        panelSource.Items.Add(CreateButton("COTAK", "Cota", "COTAK", CreateCotaIcon()));
-        panelSource.Items.Add(CreateButton("ANOTACIONES", "Anotaciones", "ANOTACIONES", CreateAnotacionesIcon()));
-        panelSource.Items.Add(CreateButton("LISTABLOQUES", "Lista bloques", "LISTABLOQUES", CreateListaBloquesIcon()));
+        source.Items.Add(CreateButton("NOMENK", "Nomenclatura", "NOMENK"));
+        source.Items.Add(CreateButton("LIMIK", "Límites", "LIMIK"));
+        source.Items.Add(CreateButton("COTAK", "Cota", "COTAK"));
+        source.Items.Add(CreateButton("ANOTACIONES", "Anotaciones", "ANOTACIONES"));
+        source.Items.Add(CreateButton("LISTABLOQUES", "Resumen materiales", "LISTABLOQUES"));
+        source.Items.Add(CreateButton("RESUMENUC", "Resumen UC", "RESUMENUC"));
 
         tab.Panels.Add(panel);
         ComponentManager.Ribbon.Tabs.Add(tab);
@@ -60,102 +51,32 @@ public sealed class AutoKADNRibbon
         _tab = tab;
     }
 
-    private static RibbonButton CreateButton(string id, string text, string command, ImageSource icon) => new()
+    private static RibbonButton CreateButton(string id, string text, string command) => new()
     {
         Id = $"AutoKADN_{id}", Text = text, ShowText = true, ShowImage = true,
         Orientation = System.Windows.Controls.Orientation.Vertical,
-        Size = RibbonItemSize.Large, LargeImage = icon,
+        Size = RibbonItemSize.Large, LargeImage = CreateIcon(),
         CommandHandler = new RibbonCommandHandler(command)
     };
 
-    private static DrawingImage CreateNomenclaturaIcon()
+    private static DrawingImage CreateIcon()
     {
         var group = new DrawingGroup();
         using DrawingContext dc = group.Open();
         var pen = new Pen(Brushes.White, 2.8);
-        dc.DrawRoundedRectangle(null, pen, new System.Windows.Rect(3, 4, 34, 30), 4.5, 4.5);
-        dc.DrawLine(pen, new System.Windows.Point(8, 14), new System.Windows.Point(32, 14));
-        dc.DrawLine(pen, new System.Windows.Point(8, 21), new System.Windows.Point(28, 21));
-        dc.DrawLine(pen, new System.Windows.Point(8, 28), new System.Windows.Point(23, 28));
-        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(30.5, 29), 3.4, 3.4);
-        return new DrawingImage(group);
-    }
-
-    private static DrawingImage CreateLimiteIcon()
-    {
-        var group = new DrawingGroup();
-        using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.9);
-        dc.DrawLine(pen, new System.Windows.Point(4, 34), new System.Windows.Point(36, 6));
-        dc.DrawLine(pen, new System.Windows.Point(6, 10), new System.Windows.Point(34, 36));
-        dc.DrawEllipse(null, pen, new System.Windows.Point(20, 20), 4.8, 4.8);
-        dc.DrawLine(pen, new System.Windows.Point(20, 2), new System.Windows.Point(20, 9));
-        dc.DrawLine(pen, new System.Windows.Point(20, 31), new System.Windows.Point(20, 38));
-        return new DrawingImage(group);
-    }
-
-    private static DrawingImage CreateCotaIcon()
-    {
-        var group = new DrawingGroup();
-        using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.8);
-        dc.DrawLine(pen, new System.Windows.Point(5, 8), new System.Windows.Point(35, 8));
-        dc.DrawLine(pen, new System.Windows.Point(5, 32), new System.Windows.Point(35, 32));
-        dc.DrawLine(pen, new System.Windows.Point(5, 5), new System.Windows.Point(5, 35));
-        dc.DrawLine(pen, new System.Windows.Point(35, 5), new System.Windows.Point(35, 35));
-        dc.DrawLine(pen, new System.Windows.Point(9, 20), new System.Windows.Point(31, 20));
-        dc.DrawLine(pen, new System.Windows.Point(9, 20), new System.Windows.Point(15, 16));
-        dc.DrawLine(pen, new System.Windows.Point(9, 20), new System.Windows.Point(15, 24));
-        dc.DrawLine(pen, new System.Windows.Point(31, 20), new System.Windows.Point(25, 16));
-        dc.DrawLine(pen, new System.Windows.Point(31, 20), new System.Windows.Point(25, 24));
-        return new DrawingImage(group);
-    }
-
-    private static DrawingImage CreateAnotacionesIcon()
-    {
-        var group = new DrawingGroup();
-        using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.8);
-        dc.DrawLine(pen, new System.Windows.Point(4, 35), new System.Windows.Point(36, 5));
-        dc.DrawLine(pen, new System.Windows.Point(7, 9), new System.Windows.Point(33, 9));
-        dc.DrawLine(pen, new System.Windows.Point(7, 16), new System.Windows.Point(29, 16));
-        dc.DrawLine(pen, new System.Windows.Point(7, 23), new System.Windows.Point(26, 23));
-        dc.DrawLine(pen, new System.Windows.Point(7, 30), new System.Windows.Point(23, 30));
-        return new DrawingImage(group);
-    }
-
-    private static DrawingImage CreateListaBloquesIcon()
-    {
-        var group = new DrawingGroup();
-        using DrawingContext dc = group.Open();
-        var pen = new Pen(Brushes.White, 2.8);
-        dc.DrawRectangle(null, pen, new System.Windows.Rect(5, 4, 30, 32));
-        dc.DrawLine(pen, new System.Windows.Point(11, 12), new System.Windows.Point(29, 12));
-        dc.DrawLine(pen, new System.Windows.Point(11, 20), new System.Windows.Point(29, 20));
-        dc.DrawLine(pen, new System.Windows.Point(11, 28), new System.Windows.Point(29, 28));
-        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(7, 12), 1.6, 1.6);
-        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(7, 20), 1.6, 1.6);
-        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(7, 28), 1.6, 1.6);
+        dc.DrawRectangle(null, pen, new System.Windows.Rect(4, 4, 32, 32));
+        dc.DrawLine(pen, new System.Windows.Point(10, 13), new System.Windows.Point(30, 13));
+        dc.DrawLine(pen, new System.Windows.Point(10, 20), new System.Windows.Point(30, 20));
+        dc.DrawLine(pen, new System.Windows.Point(10, 27), new System.Windows.Point(30, 27));
         return new DrawingImage(group);
     }
 
     private sealed class RibbonCommandHandler : ICommand
     {
         private readonly string _command;
-
-        public RibbonCommandHandler(string command)
-        {
-            _command = command;
-        }
-
-        public event EventHandler? CanExecuteChanged
-        {
-            add { }
-            remove { }
-        }
-
+        public RibbonCommandHandler(string command) => _command = command;
+        public event EventHandler? CanExecuteChanged { add { } remove { } }
         public bool CanExecute(object? parameter) => true;
-
         public void Execute(object? parameter)
         {
             Document? document = Application.DocumentManager.MdiActiveDocument;
