@@ -24,6 +24,8 @@ public sealed class ResumenUCTool
     private const double SubtotalHorizontalShift = 95.0;
     private const string UcLayerHalf = "UC_1-2";
     private const string UcLayerThreeQuarter = "UC_3-4";
+    private const string XDataAppName = "AUTOKADN";
+    private const string SummaryType = "RESUMEN_UC";
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -70,7 +72,7 @@ public sealed class ResumenUCTool
 
         PromptPointResult pointResult = editor.GetPoint(new PromptPointOptions("\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista de UNIDAD CONSTRUCTIVA: "));
         if (pointResult.Status != PromptStatus.OK) return;
-        CreateTexts(database, pointResult.Value, quantities);
+        CreateTexts(database, pointResult.Value, quantities, layoutName);
         editor.Regen();
         editor.WriteMessage($"\nResumen UC generado en el layout '{layoutName}'.\n");
     }
@@ -110,13 +112,15 @@ public sealed class ResumenUCTool
         return double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
-    private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<UcKey, double> quantities)
+    private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<UcKey, double> quantities, string layoutName)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
         double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
+        string summaryId = Guid.NewGuid().ToString("D");
+        EnsureXDataRegApp(database, transaction);
         IEnumerable<KeyValuePair<UcKey, double>> orderedItems = quantities.OrderBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Key.Surface, StringComparer.OrdinalIgnoreCase);
 
         int index = 0;
@@ -131,9 +135,9 @@ public sealed class ResumenUCTool
             double descriptionX = columnX + DescriptionLeftMargin;
             double unitX = columnX + DescriptionWidth + (UnitWidth / 2.0) + UnitCenterCorrection + UnitHorizontalShift;
             double subtotalX = columnX + DescriptionWidth + UnitWidth + (SubtotalWidth / 2.0) + SubtotalCenterCorrection + SubtotalHorizontalShift;
-            AddLeftAlignedText(transaction, currentSpace, description, new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
-            AddCenteredText(transaction, currentSpace, "ML", new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
-            AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value), new Point3d(subtotalX, y, 0), TextHeight, layerName, textStyleId);
+            AddLeftAlignedText(transaction, currentSpace, description, new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
+            AddCenteredText(transaction, currentSpace, "ML", new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
+            AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value), new Point3d(subtotalX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
             index++;
         }
         transaction.Commit();
@@ -148,16 +152,37 @@ public sealed class ResumenUCTool
 
     private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
 
-    private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId)
+    private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId)
     {
         var text = new DBText { TextString = value, Position = position, Height = height, TextStyleId = textStyleId, Layer = layerName, HorizontalMode = TextHorizontalMode.TextLeft, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
     }
 
-    private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId)
+    private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId)
     {
         var text = new DBText { TextString = value, Position = position, Height = height, TextStyleId = textStyleId, Layer = layerName, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
+    }
+
+    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName, string summaryId)
+    {
+        entity.XData = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryType),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryId));
+    }
+
+    private static void EnsureXDataRegApp(Database database, Transaction transaction)
+    {
+        RegAppTable table = (RegAppTable)transaction.GetObject(database.RegAppTableId, OpenMode.ForRead);
+        if (table.Has(XDataAppName)) return;
+        table.UpgradeOpen();
+        var record = new RegAppTableRecord { Name = XDataAppName };
+        table.Add(record);
+        transaction.AddNewlyCreatedDBObject(record, true);
     }
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
