@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using System.Globalization;
+using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Xml.Linq;
