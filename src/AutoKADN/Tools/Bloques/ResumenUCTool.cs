@@ -13,7 +13,6 @@ public sealed class ResumenUCTool
     private const double TextHeight = 2.5;
     private const int SlotsPerColumn = 5;
 
-    // Dimensiones de la tabla mostrada como referencia: DESCRIPCION | UND | SUB TOTAL.
     private const double DescriptionWidth = 86.0;
     private const double UnitWidth = 8.0;
     private const double SubtotalWidth = 14.0;
@@ -23,6 +22,10 @@ public sealed class ResumenUCTool
     private const double DescriptionLeftMargin = 1.5;
     private const double UnitCenterCorrection = -1.0;
     private const double SubtotalCenterCorrection = -2.0;
+
+    // Ajustes solicitados para la posición de las columnas respecto al vértice superior izquierdo.
+    private const double UnitHorizontalShift = 80.0;
+    private const double SubtotalHorizontalShift = 85.0;
 
     private const string UcLayerHalf = "UC_1-2";
     private const string UcLayerThreeQuarter = "UC_3-4";
@@ -61,15 +64,12 @@ public sealed class ResumenUCTool
                     continue;
 
                 string? diameter = GetUcDiameter(dimension.Layer);
-                if (diameter is null)
-                    continue;
+                if (diameter is null) continue;
 
                 string? surface = GetSurface(transaction, dimension);
-                if (surface is null)
-                    continue;
+                if (surface is null) continue;
 
-                if (!TryGetDisplayedDimensionValue(dimension, out double value))
-                    continue;
+                if (!TryGetDisplayedDimensionValue(dimension, out double value)) continue;
 
                 var key = new UcKey(diameter, surface);
                 quantities.TryGetValue(key, out double current);
@@ -96,12 +96,8 @@ public sealed class ResumenUCTool
 
     private static string? GetUcDiameter(string layer)
     {
-        if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase))
-            return "1/2";
-
-        if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase))
-            return "3/4";
-
+        if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2";
+        if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4";
         return null;
     }
 
@@ -109,7 +105,6 @@ public sealed class ResumenUCTool
     {
         Color color = dimension.Color;
 
-        // Si la cota es ByLayer, el color efectivo se obtiene desde su capa.
         if (color.ColorIndex == 256 || color.IsByLayer)
         {
             ObjectId layerId = dimension.LayerId;
@@ -144,11 +139,7 @@ public sealed class ResumenUCTool
         if (!match.Success) return false;
 
         string numericText = match.Value.Replace(',', '.');
-        return double.TryParse(
-            numericText,
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out value);
+        return double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<UcKey, double> quantities)
@@ -170,15 +161,14 @@ public sealed class ResumenUCTool
             int slot = index % SlotsPerColumn;
 
             double columnX = topLeftPoint.X + (column * ColumnWidth);
-            if (column > 0)
-                columnX += RightColumnShift;
+            if (column > 0) columnX += RightColumnShift;
 
             double y = firstRowY - (slot * RowHeight);
             string description = $"Canalizacion Tubería De Polietileno De {item.Key.Diameter} Pulg. En {ToDisplaySurface(item.Key.Surface)}";
 
             double descriptionX = columnX + DescriptionLeftMargin;
-            double unitX = columnX + DescriptionWidth + (UnitWidth / 2.0) + UnitCenterCorrection;
-            double subtotalX = columnX + DescriptionWidth + UnitWidth + (SubtotalWidth / 2.0) + SubtotalCenterCorrection;
+            double unitX = columnX + UnitHorizontalShift + UnitCenterCorrection;
+            double subtotalX = columnX + SubtotalHorizontalShift + SubtotalCenterCorrection;
 
             AddLeftAlignedText(transaction, currentSpace, description,
                 new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
@@ -209,24 +199,16 @@ public sealed class ResumenUCTool
         };
     }
 
-    private static string FormatQuantity(double value)
-    {
-        return value.ToString("0.###", CultureInfo.InvariantCulture);
-    }
+    private static string FormatQuantity(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
     private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace,
         string value, Point3d position, double height, string layerName, ObjectId textStyleId)
     {
         var text = new DBText
         {
-            TextString = value,
-            Position = position,
-            Height = height,
-            TextStyleId = textStyleId,
-            Layer = layerName,
-            HorizontalMode = TextHorizontalMode.TextLeft,
-            VerticalMode = TextVerticalMode.TextVerticalMid,
-            AlignmentPoint = position
+            TextString = value, Position = position, Height = height, TextStyleId = textStyleId,
+            Layer = layerName, HorizontalMode = TextHorizontalMode.TextLeft,
+            VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
@@ -237,14 +219,9 @@ public sealed class ResumenUCTool
     {
         var text = new DBText
         {
-            TextString = value,
-            Position = position,
-            Height = height,
-            TextStyleId = textStyleId,
-            Layer = layerName,
-            HorizontalMode = TextHorizontalMode.TextCenter,
-            VerticalMode = TextVerticalMode.TextVerticalMid,
-            AlignmentPoint = position
+            TextString = value, Position = position, Height = height, TextStyleId = textStyleId,
+            Layer = layerName, HorizontalMode = TextHorizontalMode.TextCenter,
+            VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
         currentSpace.AppendEntity(text);
         transaction.AddNewlyCreatedDBObject(text, true);
@@ -252,17 +229,11 @@ public sealed class ResumenUCTool
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
     {
-        if (transaction.GetObject(database.Clayer, OpenMode.ForRead) is LayerTableRecord layer)
-            return layer.Name;
+        if (transaction.GetObject(database.Clayer, OpenMode.ForRead) is LayerTableRecord layer) return layer.Name;
         return string.Empty;
     }
 
     private readonly record struct UcKey(string Diameter, string Surface);
 
-    private readonly record struct UcSurface(
-        string Name,
-        int? ColorIndex,
-        int? Red,
-        int? Green,
-        int? Blue);
+    private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
 }
