@@ -15,6 +15,7 @@ public sealed class LimiteTool
     private const double VertexMatchTolerance = 2.00;
     private const string MagentaLayer = "COTAS MAGENTA";
     private const string DashedLinetype = "DASHED";
+    private const double DashedLinetypeScale = 5.0;
 
     public void Run()
     {
@@ -227,8 +228,6 @@ public sealed class LimiteTool
         object originalOsMode = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("OSMODE");
         try
         {
-            // Para la selección de vértices usamos exclusivamente ENDPOINT.
-            // Nearest se desactiva temporalmente para impedir que AutoCAD capture la línea.
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("OSMODE", 1);
             var options = new PromptPointOptions(message) { AllowNone = true };
             if (basePoint.HasValue)
@@ -251,8 +250,7 @@ public sealed class LimiteTool
         foreach (ObjectId objectId in currentSpace)
         {
             Entity? entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
-            if (entity is Line line && (line.StartPoint.DistanceTo(point) <= VertexMatchTolerance || line.EndPoint.DistanceTo(point) <= VertexMatchTolerance))
-                return true;
+            if (entity is Line line && (line.StartPoint.DistanceTo(point) <= VertexMatchTolerance || line.EndPoint.DistanceTo(point) <= VertexMatchTolerance)) return true;
             if (entity is Polyline polyline)
             {
                 for (int i = 0; i < polyline.NumberOfVertices; i++)
@@ -325,17 +323,25 @@ public sealed class LimiteTool
 
     private static bool CrearLinetaMagenta(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, Point3d firstVertex, Point3d secondVertex)
     {
-        Vector3d axis = secondVertex - firstVertex;
+        Vector3d axis = (secondVertex - firstVertex).GetNormal();
         if (axis.Length <= GeometryMatchTolerance) return false;
-        axis = axis.GetNormal();
         Point3d start = firstVertex + axis * OffsetFromLine;
         Point3d end = secondVertex - axis * OffsetFromLine;
-        if (start.DistanceTo(end) <= GeometryMatchTolerance) return false;
+        if (start.DistanceTo(end) <= GeometryMatchTolerance) return true;
+
         using Transaction transaction = document.Database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(document.Database.CurrentSpaceId, OpenMode.ForWrite);
         string layerName = EnsureMagentaLayer(document.Database, transaction);
         ObjectId linetypeId = EnsureDashedLinetype(document.Database, transaction);
-        var line = new Line(start, end) { Layer = layerName, ColorIndex = 256, LinetypeId = linetypeId, LinetypeScale = 1.0 };
+        var line = new Line
+        {
+            StartPoint = start,
+            EndPoint = end,
+            Layer = layerName,
+            ColorIndex = 256,
+            LinetypeId = linetypeId,
+            LinetypeScale = DashedLinetypeScale
+        };
         currentSpace.AppendEntity(line);
         transaction.AddNewlyCreatedDBObject(line, true);
         transaction.Commit();
@@ -364,23 +370,58 @@ public sealed class LimiteTool
             table = (LinetypeTable)transaction.GetObject(database.LinetypeTableId, OpenMode.ForRead);
             return table.Has(DashedLinetype) ? table[DashedLinetype] : ObjectId.Null;
         }
-        catch { return ObjectId.Null; }
+        catch
+        {
+            return ObjectId.Null;
+        }
     }
 
     private sealed class LimitSideJig : EntityJig
     {
-        private readonly DBText _text; private readonly Point3d _pointOnLine; private readonly Vector3d _normal; private readonly double _fixedOffset; private readonly double _fixedRotation; private Point3d _lastPoint;
-        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset, double fixedRotation) : base(text) { _text = text; _pointOnLine = pointOnLine; _normal = normal.GetNormal(); _fixedOffset = fixedOffset; _fixedRotation = fixedRotation; _lastPoint = text.Position; }
+        private readonly DBText _text;
+        private readonly Point3d _pointOnLine;
+        private readonly Vector3d _normal;
+        private readonly double _fixedOffset;
+        private readonly double _fixedRotation;
+        private Point3d _lastPoint;
+
+        public LimitSideJig(DBText text, Point3d pointOnLine, Vector3d normal, double fixedOffset, double fixedRotation) : base(text)
+        {
+            _text = text;
+            _pointOnLine = pointOnLine;
+            _normal = normal.GetNormal();
+            _fixedOffset = fixedOffset;
+            _fixedRotation = fixedRotation;
+            _lastPoint = text.Position;
+        }
+
         protected override SamplerStatus Sampler(JigPrompts prompts)
         {
-            var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ") { UseBasePoint = true, BasePoint = _pointOnLine, UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NullResponseAccepted };
+            var options = new JigPromptPointOptions("\nMueva el mouse al lado deseado y haga clic para fijar: ")
+            {
+                UseBasePoint = true,
+                BasePoint = _pointOnLine,
+                UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NullResponseAccepted
+            };
             PromptPointResult result = prompts.AcquirePoint(options);
             if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.None) return SamplerStatus.Cancel;
             if (result.Status != PromptStatus.OK) return SamplerStatus.Cancel;
-            Vector3d fromLine = result.Value - _pointOnLine; double signedDistance = fromLine.DotProduct(_normal); Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal; Point3d projectedPoint = _pointOnLine + placementNormal * _fixedOffset;
+            Vector3d fromLine = result.Value - _pointOnLine;
+            double signedDistance = fromLine.DotProduct(_normal);
+            Vector3d placementNormal = signedDistance >= 0.0 ? _normal : -_normal;
+            Point3d projectedPoint = _pointOnLine + placementNormal * _fixedOffset;
             if (projectedPoint.IsEqualTo(_lastPoint)) return SamplerStatus.NoChange;
-            _lastPoint = projectedPoint; _text.Rotation = _fixedRotation; return SamplerStatus.OK;
+            _lastPoint = projectedPoint;
+            _text.Rotation = _fixedRotation;
+            return SamplerStatus.OK;
         }
-        protected override bool Update() { _text.Position = _lastPoint; _text.AlignmentPoint = _lastPoint; _text.Rotation = _fixedRotation; return true; }
+
+        protected override bool Update()
+        {
+            _text.Position = _lastPoint;
+            _text.AlignmentPoint = _lastPoint;
+            _text.Rotation = _fixedRotation;
+            return true;
+        }
     }
 }
