@@ -6,15 +6,15 @@ namespace AutoKADN.Tools.Bloques;
 
 public sealed class ListaBloquesTool
 {
-    private const double RowHeight = 7.0;
+    // Ajustado a la plantilla real mostrada en AutoCAD.
+    private const double RowHeight = 5.0;
     private const double TextHeight = 2.5;
 
+    // Anchos reales aproximados de las columnas de la plantilla.
     private const double DescriptionWidth = 30.0;
-    private const double DiameterWidth = 20.0;
-    private const double UnitWidth = 18.0;
-    private const double QuantityWidth = 20.0;
-
-    private const double ColumnOffset = 5.0;
+    private const double DiameterWidth = 27.0;
+    private const double UnitWidth = 25.5;
+    private const double QuantityWidth = 25.5;
 
     public void Run()
     {
@@ -86,10 +86,9 @@ public sealed class ListaBloquesTool
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
 
-        // El punto indicado es el vértice superior izquierdo, justo en la
-        // esquina inferior del encabezado. Por tanto, la primera fila de datos
-        // queda a media altura de la primera fila disponible.
-        double firstRowY = topLeftPoint.Y - (RowHeight * 0.5);
+        // El punto indicado corresponde al vértice superior izquierdo.
+        // La primera fila disponible comienza inmediatamente debajo del encabezado.
+        double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
 
         IEnumerable<KeyValuePair<BlockKey, int>> orderedItems = counts
             .OrderBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
@@ -100,10 +99,13 @@ public sealed class ListaBloquesTool
         {
             double y = firstRowY - (row * RowHeight);
 
-            double descriptionX = topLeftPoint.X + ColumnOffset + (DescriptionWidth / 2.0);
-            double diameterX = topLeftPoint.X + ColumnOffset + DescriptionWidth + (DiameterWidth / 2.0);
-            double unitX = topLeftPoint.X + ColumnOffset + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0);
-            double quantityX = topLeftPoint.X + ColumnOffset + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0);
+            // Posiciones calculadas desde el vértice superior izquierdo.
+            // No se agrega ningún desplazamiento adicional: las columnas ya
+            // están calibradas con las dimensiones de la plantilla existente.
+            double descriptionX = topLeftPoint.X + (DescriptionWidth / 2.0);
+            double diameterX = topLeftPoint.X + DescriptionWidth + (DiameterWidth / 2.0);
+            double unitX = topLeftPoint.X + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0);
+            double quantityX = topLeftPoint.X + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0);
 
             AddCenteredText(transaction, currentSpace, item.Key.Description,
                 new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
