@@ -187,6 +187,7 @@ public sealed class ListaBloquesTool
             double columnX = topLeftPoint.X + (column * ColumnWidth);
             if (column > 0) columnX += RightColumnShift;
             double y = firstRowY - (slot * RowHeight);
+            string rowId = Guid.NewGuid().ToString("D");
 
             double descriptionX = columnX + DescriptionLeftMargin;
             double diameterX = columnX + DescriptionWidth + (DiameterWidth / 2.0) + DiameterCenterCorrection;
@@ -194,13 +195,13 @@ public sealed class ListaBloquesTool
             double quantityX = columnX + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0) + QuantityCenterCorrection;
 
             AddLeftAlignedText(transaction, currentSpace, item.Key.Description,
-                new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
+                new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DESCRIPCION");
             AddCenteredText(transaction, currentSpace, item.Key.Diameter,
-                new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
+                new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DIAMETRO");
             AddCenteredText(transaction, currentSpace, item.Key.Unit,
-                new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
+                new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "UNIDAD");
             AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit),
-                new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId);
+                new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "CANTIDAD");
             index++;
         }
         transaction.Commit();
@@ -222,7 +223,7 @@ public sealed class ListaBloquesTool
 
     private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace,
         string value, Point3d position, double height, string layerName, ObjectId textStyleId,
-        string layoutName, string summaryId)
+        string layoutName, string summaryId, string rowId, string field)
     {
         var text = new DBText
         {
@@ -231,12 +232,12 @@ public sealed class ListaBloquesTool
             VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
-        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
     }
 
     private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace,
         string value, Point3d position, double height, string layerName, ObjectId textStyleId,
-        string layoutName, string summaryId)
+        string layoutName, string summaryId, string rowId, string field)
     {
         var text = new DBText
         {
@@ -245,16 +246,19 @@ public sealed class ListaBloquesTool
             VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
         };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
-        AttachSummaryXData(text, SummaryType, layoutName, summaryId);
+        AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
     }
 
-    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName, string summaryId)
+    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName,
+        string summaryId, string rowId, string field)
     {
         entity.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryType),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryId));
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryId),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, rowId),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, field));
     }
 
     private static void EnsureXDataRegApp(Database database, Transaction transaction)
