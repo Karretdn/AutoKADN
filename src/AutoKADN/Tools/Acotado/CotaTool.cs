@@ -334,44 +334,28 @@ public sealed class CotaTool
 
     private static bool SelectUCAttribute(Database database, Editor editor, ObjectId dimensionId)
     {
-        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-
-        try
+        editor.WriteMessage("\nSeleccione atributo UC:");
+        for (int i = 0; i < UCAttributes.Length; i++)
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-
-            var options = new PromptKeywordOptions(
-                $"\nSeleccione atributo UC [{string.Join("/", UCAttributes.Select(x => x.Keyword))}]: ")
-            {
-                AllowNone = false
-            };
-
-            string[] keywords = Enumerable.Range(1, UCAttributes.Length)
-                .Select(i => $"OPCION{i}")
-                .ToArray();
-
-            for (int i = 0; i < UCAttributes.Length; i++)
-            {
-                options.Keywords.Add(
-                    keywords[i],
-                    UCAttributes[i].Keyword,
-                    UCAttributes[i].Keyword,
-                    true,
-                    true);
-            }
-
-            PromptResult result = editor.GetKeywords(options);
-            if (result.Status != PromptStatus.OK) return false;
-
-            int index = Array.IndexOf(keywords, result.StringResult);
-            if (index < 0 || index >= UCAttributes.Length) return false;
-
-            return SetDimensionColor(database, dimensionId, UCAttributes[index]);
+            editor.WriteMessage($"\n  {i + 1}. {UCAttributes[i].Keyword}");
         }
-        finally
+
+        var options = new PromptIntegerOptions("\nNúmero de atributo: ")
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
-        }
+            AllowNegative = false,
+            AllowZero = false,
+            AllowNone = true,
+            LowerLimit = 1,
+            UpperLimit = UCAttributes.Length
+        };
+
+        PromptIntegerResult result = editor.GetInteger(options);
+        if (result.Status != PromptStatus.OK) return false;
+
+        int index = result.Value - 1;
+        if (index < 0 || index >= UCAttributes.Length) return false;
+
+        return SetDimensionColor(database, dimensionId, UCAttributes[index]);
     }
 
     private static bool SetDimensionColor(
