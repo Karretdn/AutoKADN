@@ -6,17 +6,18 @@ namespace AutoKADN.Tools.Bloques;
 
 public sealed class ListaBloquesTool
 {
-    // Medidas de la plantilla existente.
-    // El punto que selecciona el usuario es el vértice SUPERIOR DERECHO de la lista.
     private const double RowHeight = 7.0;
     private const double TextHeight = 2.5;
 
-    // Anchos de las columnas, de izquierda a derecha:
-    // DESCRIPCION | DIAMETRO | UNIDAD | CANTIDAD
+    // Dimensiones de las columnas de la plantilla existente.
     private const double DescriptionWidth = 30.0;
     private const double DiameterWidth = 20.0;
     private const double UnitWidth = 18.0;
     private const double QuantityWidth = 20.0;
+
+    // Corrección solicitada: dejar 5 unidades adicionales desde el vértice
+    // superior izquierdo antes de ubicar el centro de cada columna.
+    private const double ColumnOffset = 5.0;
 
     public void Run()
     {
@@ -30,7 +31,6 @@ public sealed class ListaBloquesTool
 
         var counts = new Dictionary<BlockKey, int>();
 
-        // 1. Detectar todos los bloques del Layout activo.
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
             ObjectId layoutId = LayoutManager.Current.GetLayoutId(layoutName);
@@ -62,15 +62,14 @@ public sealed class ListaBloquesTool
             return;
         }
 
-        // 2. El usuario indica únicamente el vértice superior derecho de la plantilla.
+        // El usuario selecciona el vértice SUPERIOR IZQUIERDO de la plantilla.
         PromptPointOptions options = new(
-            "\nSeleccione el vértice SUPERIOR DERECHO de la lista: ");
+            "\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista: ");
         PromptPointResult pointResult = editor.GetPoint(options);
 
         if (pointResult.Status != PromptStatus.OK)
             return;
 
-        // 3. Crear únicamente textos. NO se crea ninguna celda, línea ni tabla.
         CreateTexts(database, pointResult.Value, counts);
         editor.Regen();
 
@@ -80,7 +79,7 @@ public sealed class ListaBloquesTool
 
     private static void CreateTexts(
         Database database,
-        Point3d topRightPoint,
+        Point3d topLeftPoint,
         IReadOnlyDictionary<BlockKey, int> counts)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
@@ -91,9 +90,9 @@ public sealed class ListaBloquesTool
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
 
-        // La plantilla ya contiene el encabezado.
-        // Por eso la primera fila de datos queda inmediatamente debajo del encabezado.
-        double firstRowY = topRightPoint.Y - (RowHeight * 1.5);
+        // El encabezado ya existe en la plantilla. La primera fila de datos
+        // queda centrada en la primera fila inmediatamente debajo del encabezado.
+        double firstRowY = topLeftPoint.Y - (RowHeight * 1.5);
 
         IEnumerable<KeyValuePair<BlockKey, int>> orderedItems = counts
             .OrderBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
@@ -104,52 +103,25 @@ public sealed class ListaBloquesTool
         {
             double y = firstRowY - (row * RowHeight);
 
-            // Desde el vértice superior derecho se calculan automáticamente
-            // los centros de las columnas de la plantilla.
-            double quantityX = topRightPoint.X - (QuantityWidth / 2.0);
-            double unitX = topRightPoint.X - QuantityWidth - (UnitWidth / 2.0);
-            double diameterX = topRightPoint.X - QuantityWidth - UnitWidth - (DiameterWidth / 2.0);
-            double descriptionX = topRightPoint.X
-                                  - QuantityWidth
-                                  - UnitWidth
-                                  - DiameterWidth
-                                  - (DescriptionWidth / 2.0);
+            // Ahora las posiciones se calculan desde el VÉRTICE SUPERIOR IZQUIERDO.
+            // El desplazamiento adicional de 5 unidades permite que el texto
+            // llegue correctamente al centro de las columnas de la plantilla.
+            double descriptionX = topLeftPoint.X + ColumnOffset + (DescriptionWidth / 2.0);
+            double diameterX = topLeftPoint.X + ColumnOffset + DescriptionWidth + (DiameterWidth / 2.0);
+            double unitX = topLeftPoint.X + ColumnOffset + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0);
+            double quantityX = topLeftPoint.X + ColumnOffset + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0);
 
-            AddCenteredText(
-                transaction,
-                currentSpace,
-                item.Key.Description,
-                new Point3d(descriptionX, y, 0),
-                TextHeight,
-                layerName,
-                textStyleId);
+            AddCenteredText(transaction, currentSpace, item.Key.Description,
+                new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
 
-            AddCenteredText(
-                transaction,
-                currentSpace,
-                item.Key.Diameter,
-                new Point3d(diameterX, y, 0),
-                TextHeight,
-                layerName,
-                textStyleId);
+            AddCenteredText(transaction, currentSpace, item.Key.Diameter,
+                new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId);
 
-            AddCenteredText(
-                transaction,
-                currentSpace,
-                "UND",
-                new Point3d(unitX, y, 0),
-                TextHeight,
-                layerName,
-                textStyleId);
+            AddCenteredText(transaction, currentSpace, "UND",
+                new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
 
-            AddCenteredText(
-                transaction,
-                currentSpace,
-                item.Value.ToString(),
-                new Point3d(quantityX, y, 0),
-                TextHeight,
-                layerName,
-                textStyleId);
+            AddCenteredText(transaction, currentSpace, item.Value.ToString(),
+                new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId);
 
             row++;
         }
