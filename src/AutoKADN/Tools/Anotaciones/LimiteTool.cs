@@ -1,3 +1,4 @@
+using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
@@ -11,6 +12,9 @@ public sealed class LimiteTool
     private const double TextHeight = 2.40;
     private const short NearestObjectSnap = 512;
     private const double GeometryMatchTolerance = 1e-6;
+    private const double VertexMatchTolerance = 2.00;
+    private const string MagentaLayer = "COTAS MAGENTA";
+    private const string DashedLinetype = "DASHED";
 
     public void Run()
     {
@@ -38,6 +42,13 @@ public sealed class LimiteTool
                 }
                 string? limite = SeleccionarLimite(editor);
                 if (limite is null) return;
+                if (limite == "0.0")
+                {
+                    string? limiteCero = SeleccionarLimiteCero(editor);
+                    if (limiteCero is null) return;
+                    if (!CrearLimiteCero(document, editor, pointOnLine, limiteCero)) return;
+                    continue;
+                }
                 if (!CrearTextoConJig(document, editor, pointOnLine, direction, limite)) return;
             }
         }
@@ -50,8 +61,16 @@ public sealed class LimiteTool
 
     private static string? SeleccionarLimite(Editor editor)
     {
-        var options = new PromptKeywordOptions("\n¿Qué desea colocar? [LB/LP/LC]: ") { AllowNone = true };
-        options.Keywords.Add("LB"); options.Keywords.Add("LP"); options.Keywords.Add("LC");
+        var options = new PromptKeywordOptions("\n¿Qué desea colocar? [LB/LP/LC/0.0]: ") { AllowNone = true };
+        options.Keywords.Add("LB"); options.Keywords.Add("LP"); options.Keywords.Add("LC"); options.Keywords.Add("0.0");
+        PromptResult result = editor.GetKeywords(options);
+        return result.Status == PromptStatus.OK ? result.StringResult.ToUpperInvariant() : null;
+    }
+
+    private static string? SeleccionarLimiteCero(Editor editor)
+    {
+        var options = new PromptKeywordOptions("\n¿Qué límite 0.0 desea colocar? [LC0.0/LP0.0/LB0.0]: ") { AllowNone = true };
+        options.Keywords.Add("LC0.0"); options.Keywords.Add("LP0.0"); options.Keywords.Add("LB0.0");
         PromptResult result = editor.GetKeywords(options);
         return result.Status == PromptStatus.OK ? result.StringResult.ToUpperInvariant() : null;
     }
@@ -108,6 +127,208 @@ public sealed class LimiteTool
         PromptResult result = editor.Drag(jig);
         if (result.Status != PromptStatus.OK) { textForJig.Erase(); jigTransaction.Commit(); editor.Regen(); return false; }
         jigTransaction.Commit(); editor.Regen(); return true;
+    }
+
+    private static bool CrearLimiteCero(Autodesk.AutoCAD.ApplicationServices.Document document, Editor editor, Point3d selectedPoint, string content)
+    {
+        if (!EncontrarVerticeYDireccion(document.Database, selectedPoint, out Point3d vertex, out Vector3d direction, out ObjectId selectedEntityId))
+        {
+            editor.WriteMessage("\nNo se pudo identificar el vértice seleccionado. Haga clic exactamente sobre un vértice.\n");
+            return true;
+        }
+
+        if (!EncontrarPuntoFinalOpuesto(document.Database, vertex, direction, selectedEntityId, out Point3d oppositeVertex))
+        {
+            editor.WriteMessage("\nNo se encontró un vértice enfrente para terminar la lineta.\n");
+            return true;
+        }
+
+        Point3d textPoint = vertex + direction * OffsetFromLine;
+        Point3d lineStart = vertex - direction * OffsetFromLine;
+        Point3d lineEnd = oppositeVertex + direction * OffsetFromLine;
+        if (lineStart.DistanceTo(lineEnd) <= GeometryMatchTolerance) return true;
+
+        using Transaction transaction = document.Database.TransactionManager.StartTransaction();
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(document.Database.CurrentSpaceId, OpenMode.ForWrite);
+        string layerName = EnsureMagentaLayer(document.Database, transaction);
+        ObjectId dashedId = EnsureDashedLinetype(document.Database, transaction);
+
+        double rotation = Math.Atan2(direction.Y, direction.X);
+        if (rotation > Math.PI / 2.0 || rotation <= -Math.PI / 2.0) rotation += rotation > 0.0 ? -Math.PI : Math.PI;
+
+        var text = new DBText
+        {
+            TextString = content,
+            Height = TextHeight,
+            Layer = layerName,
+            ColorIndex = 256,
+            HorizontalMode = TextHorizontalMode.TextLeft,
+            VerticalMode = TextVerticalMode.TextVerticalMid,
+            Position = textPoint,
+            AlignmentPoint = textPoint,
+            Rotation = rotation
+        };
+        text.AdjustAlignment(document.Database);
+        currentSpace.AppendEntity(text);
+        transaction.AddNewlyCreatedDBObject(text, true);
+
+        var extension = new Line(lineStart, lineEnd)
+        {
+            Layer = layerName,
+            ColorIndex = 256,
+            LinetypeId = dashedId,
+            LinetypeScale = 1.0
+        };
+        currentSpace.AppendEntity(extension);
+        transaction.AddNewlyCreatedDBObject(extension, true);
+        transaction.Commit();
+        editor.Regen();
+        return true;
+    }
+
+    private static bool EncontrarVerticeYDireccion(Database database, Point3d point, out Point3d vertex, out Vector3d direction, out ObjectId entityId)
+    {
+        vertex = Point3d.Origin;
+        direction = Vector3d.XAxis;
+        entityId = ObjectId.Null;
+        double bestDistance = double.MaxValue;
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
+
+        foreach (ObjectId objectId in currentSpace)
+        {
+            Entity? entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
+            if (entity is Line line)
+            {
+                Point3d[] candidates = { line.StartPoint, line.EndPoint };
+                foreach (Point3d candidate in candidates)
+                {
+                    double distance = candidate.DistanceTo(point);
+                    if (distance > VertexMatchTolerance || distance >= bestDistance) continue;
+                    Point3d other = candidate.IsEqualTo(line.StartPoint) ? line.EndPoint : line.StartPoint;
+                    Vector3d vector = other - candidate;
+                    if (vector.Length <= GeometryMatchTolerance) continue;
+                    bestDistance = distance;
+                    vertex = candidate;
+                    direction = vector.GetNormal();
+                    entityId = objectId;
+                }
+                continue;
+            }
+
+            if (entity is not Polyline polyline || polyline.NumberOfVertices < 2) continue;
+            for (int index = 0; index < polyline.NumberOfVertices; index++)
+            {
+                Point3d candidate = polyline.GetPoint3dAt(index);
+                double distance = candidate.DistanceTo(point);
+                if (distance > VertexMatchTolerance || distance >= bestDistance) continue;
+
+                int nextIndex = index + 1;
+                int previousIndex = index - 1;
+                if (nextIndex >= polyline.NumberOfVertices)
+                {
+                    if (!polyline.Closed) nextIndex = -1;
+                    else nextIndex = 0;
+                }
+                if (previousIndex < 0)
+                {
+                    if (!polyline.Closed) previousIndex = -1;
+                    else previousIndex = polyline.NumberOfVertices - 1;
+                }
+
+                Vector3d vector = Vector3d.XAxis;
+                bool valid = false;
+                if (nextIndex >= 0 && nextIndex < polyline.NumberOfVertices && polyline.GetSegmentType(index) == SegmentType.Line)
+                {
+                    vector = polyline.GetPoint3dAt(nextIndex) - candidate;
+                    valid = vector.Length > GeometryMatchTolerance;
+                }
+                if (!valid && previousIndex >= 0 && polyline.GetSegmentType(previousIndex) == SegmentType.Line)
+                {
+                    vector = polyline.GetPoint3dAt(previousIndex) - candidate;
+                    valid = vector.Length > GeometryMatchTolerance;
+                }
+                if (!valid) continue;
+
+                bestDistance = distance;
+                vertex = candidate;
+                direction = vector.GetNormal();
+                entityId = objectId;
+            }
+        }
+        transaction.Commit();
+        return entityId != ObjectId.Null;
+    }
+
+    private static bool EncontrarPuntoFinalOpuesto(Database database, Point3d startVertex, Vector3d direction, ObjectId ignoredEntity, out Point3d oppositeVertex)
+    {
+        oppositeVertex = Point3d.Origin;
+        double bestProjection = double.MaxValue;
+        Vector3d axis = direction.GetNormal();
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
+
+        foreach (ObjectId objectId in currentSpace)
+        {
+            if (objectId == ignoredEntity) continue;
+            Entity? entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
+            if (entity is Line line)
+            {
+                foreach (Point3d candidate in new[] { line.StartPoint, line.EndPoint })
+                {
+                    Vector3d delta = candidate - startVertex;
+                    double lateral = Math.Abs(delta.DotProduct(new Vector3d(-axis.Y, axis.X, 0.0)));
+                    double projection = delta.DotProduct(-axis);
+                    if (lateral > VertexMatchTolerance || projection <= OffsetFromLine + GeometryMatchTolerance) continue;
+                    if (projection < bestProjection) { bestProjection = projection; oppositeVertex = candidate; }
+                }
+                continue;
+            }
+
+            if (entity is not Polyline polyline || polyline.NumberOfVertices < 2) continue;
+            for (int index = 0; index < polyline.NumberOfVertices; index++)
+            {
+                Point3d candidate = polyline.GetPoint3dAt(index);
+                Vector3d delta = candidate - startVertex;
+                double lateral = Math.Abs(delta.DotProduct(new Vector3d(-axis.Y, axis.X, 0.0)));
+                double projection = delta.DotProduct(-axis);
+                if (lateral > VertexMatchTolerance || projection <= OffsetFromLine + GeometryMatchTolerance) continue;
+                if (projection < bestProjection) { bestProjection = projection; oppositeVertex = candidate; }
+            }
+        }
+        transaction.Commit();
+        return bestProjection < double.MaxValue;
+    }
+
+    private static string EnsureMagentaLayer(Database database, Transaction transaction)
+    {
+        LayerTable layerTable = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
+        if (layerTable.Has(MagentaLayer)) return MagentaLayer;
+        layerTable.UpgradeOpen();
+        var layer = new LayerTableRecord
+        {
+            Name = MagentaLayer,
+            Color = Color.FromColorIndex(ColorMethod.ByAci, 6)
+        };
+        layerTable.Add(layer);
+        transaction.AddNewlyCreatedDBObject(layer, true);
+        return MagentaLayer;
+    }
+
+    private static ObjectId EnsureDashedLinetype(Database database, Transaction transaction)
+    {
+        LinetypeTable table = (LinetypeTable)transaction.GetObject(database.LinetypeTableId, OpenMode.ForRead);
+        if (table.Has(DashedLinetype)) return table[DashedLinetype];
+        try
+        {
+            database.LoadLineTypeFile(DashedLinetype, "acad.lin");
+            table = (LinetypeTable)transaction.GetObject(database.LinetypeTableId, OpenMode.ForRead);
+            return table.Has(DashedLinetype) ? table[DashedLinetype] : ObjectId.Null;
+        }
+        catch
+        {
+            return ObjectId.Null;
+        }
     }
 
     private sealed class LimitSideJig : EntityJig
