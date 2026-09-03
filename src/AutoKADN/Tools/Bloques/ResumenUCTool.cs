@@ -20,21 +20,17 @@ public sealed class ResumenUCTool
     private const double DescriptionLeftMargin = 1.5;
     private const double UnitCenterCorrection = -1.0;
     private const double SubtotalCenterCorrection = -2.0;
-    private const double UnitHorizontalShift = 78.0;
+    private const double UnitHorizontalShift = 82.0;
     private const double SubtotalHorizontalShift = 95.0;
     private const string UcLayerHalf = "UC_1-2";
     private const string UcLayerThreeQuarter = "UC_3-4";
 
     private static readonly UcSurface[] Surfaces =
     {
-        new("ZONA VERDE", 3, null, null, null),
-        new("ANDEN TABLETA", 1, null, null, null),
-        new("CALZADA CONCRETO", 8, null, null, null),
-        new("DESTAPADO", 2, null, null, null),
-        new("CUNETA", null, 100, 33, 101),
-        new("ANDEN CONCRETO", 5, null, null, null),
-        new("ASFALTO", 30, null, null, null),
-        new("ADOQUIN", 4, null, null, null)
+        new("ZONA VERDE", 3, null, null, null), new("ANDEN TABLETA", 1, null, null, null),
+        new("CALZADA CONCRETO", 8, null, null, null), new("DESTAPADO", 2, null, null, null),
+        new("CUNETA", null, 100, 33, 101), new("ANDEN CONCRETO", 5, null, null, null),
+        new("ASFALTO", 30, null, null, null), new("ADOQUIN", 4, null, null, null)
     };
 
     public void Run()
@@ -92,8 +88,7 @@ public sealed class ResumenUCTool
         if (color.ColorIndex == 256 || color.IsByLayer)
         {
             ObjectId layerId = dimension.LayerId;
-            if (!layerId.IsNull && transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer)
-                color = layer.Color;
+            if (!layerId.IsNull && transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer) color = layer.Color;
         }
         foreach (UcSurface surface in Surfaces)
         {
@@ -112,8 +107,7 @@ public sealed class ResumenUCTool
         if (string.IsNullOrWhiteSpace(text)) return false;
         Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
         if (!match.Success) return false;
-        string numericText = match.Value.Replace(',', '.');
-        return double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        return double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<UcKey, double> quantities)
@@ -137,7 +131,6 @@ public sealed class ResumenUCTool
             double descriptionX = columnX + DescriptionLeftMargin;
             double unitX = columnX + DescriptionWidth + (UnitWidth / 2.0) + UnitCenterCorrection + UnitHorizontalShift;
             double subtotalX = columnX + DescriptionWidth + UnitWidth + (SubtotalWidth / 2.0) + SubtotalCenterCorrection + SubtotalHorizontalShift;
-
             AddLeftAlignedText(transaction, currentSpace, description, new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
             AddCenteredText(transaction, currentSpace, "ML", new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
             AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value), new Point3d(subtotalX, y, 0), TextHeight, layerName, textStyleId);
@@ -148,15 +141,9 @@ public sealed class ResumenUCTool
 
     private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
     {
-        "zona verde" => "Zona Verde",
-        "anden tableta" => "Anden Tableta",
-        "calzada concreto" => "Calzada Concreto",
-        "destapado" => "Destapado",
-        "cuneta" => "Cuneta",
-        "anden concreto" => "Anden Concreto",
-        "asfalto" => "Asfalto",
-        "adoquin" => "Adoquin",
-        _ => value
+        "zona verde" => "Zona Verde", "anden tableta" => "Anden Tableta", "calzada concreto" => "Calzada Concreto",
+        "destapado" => "Destapado", "cuneta" => "Cuneta", "anden concreto" => "Anden Concreto",
+        "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
     };
 
     private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
