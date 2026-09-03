@@ -20,6 +20,8 @@ public sealed class ListaBloquesTool
     private const double QuantityCenterCorrection = -4.5;
 
     private const string BlocksLayer = "Mat";
+    private const string PipeLayerHalf = "COTA_1-2";
+    private const string PipeLayerThreeQuarter = "COTA_3-4";
 
     public void Run()
     {
@@ -29,7 +31,7 @@ public sealed class ListaBloquesTool
         Editor editor = document.Editor;
         Database database = document.Database;
         string layoutName = LayoutManager.Current.CurrentLayout;
-        var counts = new Dictionary<BlockKey, int>();
+        var counts = new Dictionary<BlockKey, double>();
 
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
@@ -39,27 +41,44 @@ public sealed class ListaBloquesTool
 
             foreach (ObjectId objectId in layoutSpace)
             {
-                if (transaction.GetObject(objectId, OpenMode.ForRead) is not BlockReference blockReference)
-                    continue;
+                DBObject entity = transaction.GetObject(objectId, OpenMode.ForRead);
 
-                // Solo se procesan bloques colocados en la capa Mat.
-                if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase))
-                    continue;
+                if (entity is BlockReference blockReference)
+                {
+                    // Los bloques de materiales solo se procesan si están en Mat.
+                    if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase))
+                        continue;
 
-                string description = GetBlockName(transaction, blockReference);
-                if (string.IsNullOrWhiteSpace(description)) continue;
+                    string description = GetBlockName(transaction, blockReference);
+                    if (string.IsNullOrWhiteSpace(description)) continue;
 
-                string diameter = GetDiameter(blockReference);
-                var key = new BlockKey(description, diameter);
-                counts.TryGetValue(key, out int currentCount);
-                counts[key] = currentCount + 1;
+                    string diameter = GetDiameter(blockReference);
+                    var key = new BlockKey(description, diameter, "UND");
+                    counts.TryGetValue(key, out double currentCount);
+                    counts[key] = currentCount + 1.0;
+                }
+                else if (entity is Dimension dimension)
+                {
+                    // Las cotas de tubería se procesan por capa y su valor se suma.
+                    string? diameter = GetPipeDiameter(dimension.Layer);
+                    if (diameter is null) continue;
+
+                    double measurement = dimension.Measurement;
+                    if (double.IsNaN(measurement) || double.IsInfinity(measurement))
+                        continue;
+
+                    var key = new BlockKey("TUBERIA", diameter, "ML");
+                    counts.TryGetValue(key, out double currentLength);
+                    counts[key] = currentLength + Math.Abs(measurement);
+                }
             }
+
             transaction.Commit();
         }
 
         if (counts.Count == 0)
         {
-            editor.WriteMessage($"\nNo se encontraron bloques en la capa '{BlocksLayer}' del layout '{layoutName}'.\n");
+            editor.WriteMessage($"\nNo se encontraron bloques en '{BlocksLayer}' ni cotas de tubería en '{PipeLayerHalf}'/'{PipeLayerThreeQuarter}' del layout '{layoutName}'.\n");
             return;
         }
 
@@ -69,10 +88,21 @@ public sealed class ListaBloquesTool
 
         CreateTexts(database, pointResult.Value, counts);
         editor.Regen();
-        editor.WriteMessage($"\nLista generada en el layout '{layoutName}' con bloques de la capa '{BlocksLayer}': {counts.Count} tipos.\n");
+        editor.WriteMessage($"\nLista generada en el layout '{layoutName}'.\n");
     }
 
-    private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, int> counts)
+    private static string? GetPipeDiameter(string layer)
+    {
+        if (string.Equals(layer, PipeLayerHalf, StringComparison.OrdinalIgnoreCase))
+            return "1/2\"";
+
+        if (string.Equals(layer, PipeLayerThreeQuarter, StringComparison.OrdinalIgnoreCase))
+            return "3/4\"";
+
+        return null;
+    }
+
+    private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, double> counts)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
@@ -80,9 +110,11 @@ public sealed class ListaBloquesTool
         ObjectId textStyleId = database.Textstyle;
         double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
 
-        IEnumerable<KeyValuePair<BlockKey, int>> orderedItems = counts
-            .OrderBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase);
+        IEnumerable<KeyValuePair<BlockKey, double>> orderedItems = counts
+            .OrderBy(x => x.Key.Description == "TUBERIA" ? 0 : 1)
+            .ThenBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Key.Unit, StringComparer.OrdinalIgnoreCase);
 
         int row = 0;
         foreach (var item in orderedItems)
@@ -98,14 +130,22 @@ public sealed class ListaBloquesTool
                 new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId);
             AddCenteredText(transaction, currentSpace, item.Key.Diameter,
                 new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId);
-            AddCenteredText(transaction, currentSpace, "UND",
+            AddCenteredText(transaction, currentSpace, item.Key.Unit,
                 new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId);
-            AddCenteredText(transaction, currentSpace, item.Value.ToString(),
+            AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit),
                 new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId);
 
             row++;
         }
         transaction.Commit();
+    }
+
+    private static string FormatQuantity(double value, string unit)
+    {
+        // Para ML se conserva la precisión de la suma; para UND se muestra entero.
+        return unit == "ML"
+            ? value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+            : value.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace,
@@ -162,5 +202,5 @@ public sealed class ListaBloquesTool
         return string.Empty;
     }
 
-    private readonly record struct BlockKey(string Description, string Diameter);
+    private readonly record struct BlockKey(string Description, string Diameter, string Unit);
 }
