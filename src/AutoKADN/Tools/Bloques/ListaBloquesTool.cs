@@ -14,8 +14,9 @@ public sealed class ListaBloquesTool
     private const double UnitWidth = 25.5;
     private const double QuantityWidth = 25.5;
 
-    // Ajustes finos de la plantilla existente.
-    private const double DescriptionLeftMargin = 3.0;
+    // Calibración final solicitada sobre la plantilla.
+    private const double DescriptionLeftMargin = 1.5;
+    private const double DiameterCenterCorrection = 2.0;
     private const double UnitCenterCorrection = -4.5;
     private const double QuantityCenterCorrection = -4.5;
 
@@ -100,14 +101,15 @@ public sealed class ListaBloquesTool
         {
             double y = firstRowY - (row * RowHeight);
 
-            // DESCRIPCION: justificada a la izquierda, con pequeño margen.
+            // DESCRIPCION: alineación izquierda y un poco más cerca del borde.
             double descriptionX = topLeftPoint.X + DescriptionLeftMargin;
 
-            // DIAMETRO: centrado en su columna.
-            double diameterX = topLeftPoint.X + DescriptionWidth + (DiameterWidth / 2.0);
+            // DIAMETRO: centrado con una corrección mínima hacia la derecha.
+            double diameterX = topLeftPoint.X
+                               + DescriptionWidth
+                               + (DiameterWidth / 2.0)
+                               + DiameterCenterCorrection;
 
-            // UNIDAD y CANTIDAD: centrados y corregidos ligeramente hacia la izquierda
-            // para coincidir con los centros visuales de la plantilla.
             double unitX = topLeftPoint.X
                            + DescriptionWidth
                            + DiameterWidth
