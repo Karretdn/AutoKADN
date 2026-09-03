@@ -165,7 +165,7 @@ public sealed class ListaBloquesTool
     private static string FormatQuantity(double value, string unit)
     {
         return unit == "ML"
-            ? value.ToString("0.###", CultureInfo.InvariantCulture)
+            ? value.ToString("0.0##", CultureInfo.InvariantCulture)
             : value.ToString("0", CultureInfo.InvariantCulture);
     }
 
