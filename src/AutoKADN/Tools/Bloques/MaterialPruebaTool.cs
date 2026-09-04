@@ -9,7 +9,8 @@ namespace AutoKADN.Tools.Bloques;
 
 public sealed class MaterialPruebaTool
 {
-    private const double TextHeight = 2.50;
+    private const double TextHeight = 2.00;
+    private const double VerticalOffset = 2.00;
     private const string XDataAppName = "AUTOKADN";
     private const string MaterialTestType = "MATERIAL_PRUEBA";
     private const string UcLayerHalf = "UC_1-2";
@@ -182,10 +183,11 @@ public sealed class MaterialPruebaTool
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
         string materialText = BuildMaterialText(assignments);
+        Point3d insertionPoint = topLeftPoint + Vector3d.YAxis * VerticalOffset;
 
         var mtext = new MText
         {
-            Location = topLeftPoint,
+            Location = insertionPoint,
             Contents = materialText,
             TextHeight = TextHeight,
             Attachment = AttachmentPoint.TopLeft,
