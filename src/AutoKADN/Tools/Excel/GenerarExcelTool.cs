@@ -67,6 +67,19 @@ public sealed class GenerarExcelTool
             ["1/2|ADOQUIN"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ADOQUIN"
         };
 
+    private static readonly Dictionary<string, string> SurfaceFileCode =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ZONA VERDE"] = "ZV",
+            ["ANDEN CONCRETO"] = "AC",
+            ["CALZADA CONCRETO"] = "CC",
+            ["ADOQUIN"] = "ADO",
+            ["DESTAPADO"] = "DES",
+            ["ANDEN TABLETA"] = "AT",
+            ["CUNETA"] = "CUN",
+            ["ASFALTO"] = "ASF"
+        };
+
     public void Run()
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
@@ -114,7 +127,8 @@ public sealed class GenerarExcelTool
                 PromptSaveFileOptions saveOptions = new PromptSaveFileOptions("\nGuardar formato Excel: ")
                 {
                     Filter = "Excel (*.xlsx)|*.xlsx",
-                    DialogCaption = "Guardar formato - " + uc.Diameter + " Pulg. " + ToDisplaySurface(uc.Surface)
+                    DialogCaption = "Guardar formato - " + uc.Diameter + " Pulg. " + ToDisplaySurface(uc.Surface),
+                    InitialFileName = GetSuggestedFileName(uc)
                 };
 
                 PromptFileNameResult saveResult = editor.GetFileNameForSave(saveOptions);
@@ -255,6 +269,16 @@ public sealed class GenerarExcelTool
     private static string BuildKey(UcKey uc)
     {
         return uc.Diameter + "|" + uc.Surface;
+    }
+
+    private static string GetSuggestedFileName(UcKey uc)
+    {
+        string surfaceCode;
+        if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode))
+            surfaceCode = "UC";
+
+        string diameterCode = uc.Diameter == "1/2" ? "1-2" : "3-4";
+        return surfaceCode + " " + diameterCode + " PULG.xlsx";
     }
 
     private static string FindTemplatePath(Database database)
