@@ -10,7 +10,8 @@ namespace AutoKADN.Tools.Bloques;
 public sealed class MaterialPruebaTool
 {
     private const double TextHeight = 2.00;
-    private const double VerticalOffset = 2.00;
+    private const double VerticalOffset = 2.50;
+    private const double HorizontalOffset = 1.00;
     private const string XDataAppName = "AUTOKADN";
     private const string MaterialTestType = "MATERIAL_PRUEBA";
     private const string UcLayerHalf = "UC_1-2";
@@ -226,7 +227,9 @@ public sealed class MaterialPruebaTool
         string layerName = GetCurrentLayerName(database, transaction);
         ObjectId textStyleId = database.Textstyle;
         string materialText = BuildMaterialText(assignments);
-        Point3d insertionPoint = topLeftPoint + Vector3d.YAxis * VerticalOffset;
+        Point3d insertionPoint = topLeftPoint
+            + Vector3d.YAxis * VerticalOffset
+            + Vector3d.XAxis * HorizontalOffset;
 
         var mtext = new MText
         {
@@ -364,7 +367,7 @@ public sealed class MaterialPruebaTool
     private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
 
     private readonly record struct TestMaterial(string Name, string Diameter, string Unit);
+    private readonly record struct UcSurface(string Name, int? ColorIndex, byte? Red, byte? Green, byte? Blue);
     private readonly record struct UcKey(string Diameter, string Surface);
-    private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
-    private sealed record TestMaterialAssignment(UcKey Uc, TestMaterial Material, int Quantity);
+    private readonly record struct TestMaterialAssignment(UcKey Uc, TestMaterial Material, int Quantity);
 }
