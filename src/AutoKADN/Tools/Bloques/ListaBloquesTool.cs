@@ -29,6 +29,7 @@ public sealed class ListaBloquesTool
     private const string PipeLayerThreeQuarter = "COTA_3-4";
     private const string XDataAppName = "AUTOKADN";
     private const string SpiralType = "ESPIRAL";
+    private const string MaterialType = "MATERIAL";
     private const string SummaryType = "RESUMEN_MATERIALES";
 
     private static readonly string[] ItemPriority =
@@ -62,6 +63,7 @@ public sealed class ListaBloquesTool
                     string description = GetBlockName(transaction, blockReference);
                     if (string.IsNullOrWhiteSpace(description)) continue;
                     string diameter = GetDiameter(blockReference);
+                    AttachMaterialXData(database, transaction, blockReference, description, diameter, layoutName);
                     var key = new BlockKey(description, diameter, "UND");
                     AddCount(counts, key, 1.0);
                 }
@@ -259,6 +261,24 @@ public sealed class ListaBloquesTool
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, summaryId),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, rowId),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, field));
+    }
+
+    private static void AttachMaterialXData(Database database, Transaction transaction,
+        BlockReference blockReference, string description, string diameter, string layoutName)
+    {
+        EnsureXDataRegApp(database, transaction);
+        ResultBuffer? existing = blockReference.GetXDataForApplication(XDataAppName);
+        if (existing is not null) return;
+
+        blockReference.UpgradeOpen();
+        blockReference.XData = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, MaterialType),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, description),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, diameter),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, "UND"),
+            new TypedValue((int)DxfCode.ExtendedDataReal, 1.0),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName));
     }
 
     private static void EnsureXDataRegApp(Database database, Transaction transaction)
