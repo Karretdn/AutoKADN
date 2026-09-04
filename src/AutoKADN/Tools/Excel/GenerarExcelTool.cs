@@ -1,281 +1,439 @@
+using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using System.Globalization;
-using System.IO;
 using System.IO.Compression;
-using System.Text;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace AutoKADN.Tools.Excel;
 
 public sealed class GenerarExcelTool
 {
-    private const string AppName = "AUTOKADN";
-    private const string Materials = "RESUMEN_MATERIALES";
-    private const string Uc = "RESUMEN_UC";
+    private const string TemplateFileName = "FORMATO LEGALIZACION OBRA CIVIL_FT-09-PD-O-02 (V-2).xlsx";
+    private const string TargetSheetName = "Formato de legalización.";
+    private const string TargetCell = "D14";
+    private const string UcLayerHalf = "UC_1-2";
+    private const string UcLayerThreeQuarter = "UC_3-4";
+
+    private static readonly UcSurface[] Surfaces =
+    {
+        new("ZONA VERDE", 3, null, null, null),
+        new("ANDEN TABLETA", 1, null, null, null),
+        new("CALZADA CONCRETO", 8, null, null, null),
+        new("DESTAPADO", 2, null, null, null),
+        new("CUNETA", null, 100, 33, 101),
+        new("ANDEN CONCRETO", 5, null, null, null),
+        new("ASFALTO", 30, null, null, null),
+        new("ADOQUIN", 4, null, null, null)
+    };
+
+    private static readonly string[] SurfaceOrder =
+    {
+        "ZONA VERDE",
+        "ANDEN CONCRETO",
+        "CALZADA CONCRETO",
+        "ANDEN TABLETA",
+        "ADOQUIN",
+        "ASFALTO",
+        "CUNETA",
+        "DESTAPADO"
+    };
+
+    private static readonly Dictionary<string, string> ExcelActivityByKey =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["3/4|ANDEN CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ANDEN CONCRETO",
+            ["3/4|ANDEN TABLETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ANDÉN TABLETA, BALDOSÍN, GRAVILLA",
+            ["3/4|ASFALTO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN CALZADA ASFALTO",
+            ["3/4|CALZADA CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN CALZADA CONCRETO",
+            ["3/4|ZONA VERDE"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ZONA VERDE",
+            ["3/4|DESTAPADO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN DESTAPADO",
+            ["3/4|CUNETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN CUNETA",
+            ["3/4|ADOQUIN"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ADOQUIN",
+            ["1/2|ANDEN CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ANDEN CONCRETO",
+            ["1/2|ANDEN TABLETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ANDÉN TABLETA, BALDOSÍN, GRAVILLA",
+            ["1/2|ASFALTO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN CALZADA ASFALTO",
+            ["1/2|CALZADA CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN CALZADA CONCRETO",
+            ["1/2|ZONA VERDE"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ZONA VERDE",
+            ["1/2|DESTAPADO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN DESTAPADO",
+            ["1/2|CUNETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN CUNETA",
+            ["1/2|ADOQUIN"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ADOQUIN"
+        };
 
     public void Run()
     {
-        var doc = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
-        if (doc is null) return;
-        Editor ed = doc.Editor;
+        var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
+        if (document is null) return;
 
-        List<Row> rows = ReadRows(doc.Database);
-        if (rows.Count == 0)
-        {
-            ed.WriteMessage("\nNo se encontraron resúmenes identificados.\n");
-            return;
-        }
-
-        PromptSaveFileOptions opt = new PromptSaveFileOptions("\nGuardar Excel: ")
-        {
-            Filter = "Excel (*.xlsx)|*.xlsx",
-            DialogCaption = "Generar Excel"
-        };
-        PromptFileNameResult save = ed.GetFileNameForSave(opt);
-        if (save.Status != PromptStatus.OK) return;
-
-        string path = save.StringResult.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
-            ? save.StringResult
-            : save.StringResult + ".xlsx";
+        Editor editor = document.Editor;
+        Database database = document.Database;
 
         try
         {
-            WriteWorkbook(path, rows);
-            ed.WriteMessage($"\nExcel generado correctamente: {path}\n");
+            string? templatePath = FindTemplatePath(database);
+            if (templatePath is null)
+            {
+                editor.WriteMessage($"\nNo se encontró la plantilla '{TemplateFileName}'.\n");
+                editor.WriteMessage("Coloque la plantilla junto al DLL de AutoKADN o dentro de una carpeta 'Resources' o 'Templates'.\n");
+                return;
+            }
+
+            List<UcKey> detectedUcs = ScanUcs(database);
+            if (detectedUcs.Count == 0)
+            {
+                editor.WriteMessage($"\nNo se encontraron UC válidas en los layouts 'ANILLO X UC'.\n");
+                return;
+            }
+
+            editor.WriteMessage($"\nUC detectadas: {detectedUcs.Count}\n");
+            for (int i = 0; i < detectedUcs.Count; i++)
+            {
+                UcKey uc = detectedUcs[i];
+                editor.WriteMessage($"  {i + 1}. {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)}\n");
+            }
+
+            int generated = 0;
+            foreach (UcKey uc in detectedUcs)
+            {
+                string activity = GetExcelActivity(uc);
+                if (activity.Length == 0)
+                {
+                    editor.WriteMessage($"\nNo existe correspondencia en el formato para {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)}.\n");
+                    return;
+                }
+
+                editor.WriteMessage($"\nUC {generated + 1}/{detectedUcs.Count}: {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)}\n");
+                editor.WriteMessage($"Actividad seleccionada: {activity}\n");
+
+                PromptSaveFileOptions saveOptions = new PromptSaveFileOptions("\nGuardar formato Excel: ")
+                {
+                    Filter = "Excel (*.xlsx)|*.xlsx",
+                    DialogCaption = $"Guardar formato - {uc.Diameter} Pulg. {ToDisplaySurface(uc.Surface)}"
+                };
+
+                PromptFileNameResult saveResult = editor.GetFileNameForSave(saveOptions);
+                if (saveResult.Status != PromptStatus.OK)
+                {
+                    editor.WriteMessage("\nGeneración cancelada.\n");
+                    return;
+                }
+
+                string outputPath = EnsureXlsxExtension(saveResult.StringResult);
+                if (string.Equals(Path.GetFullPath(outputPath), Path.GetFullPath(templatePath), StringComparison.OrdinalIgnoreCase))
+                {
+                    editor.WriteMessage("\nNo se puede sobrescribir la plantilla original. Seleccione otro archivo.\n");
+                    return;
+                }
+
+                if (File.Exists(outputPath)) File.Delete(outputPath);
+                File.Copy(templatePath, outputPath, true);
+                SetActivitySelection(outputPath, activity);
+
+                generated++;
+                editor.WriteMessage($"Excel generado: {outputPath}\n");
+            }
+
+            editor.WriteMessage($"\nProceso terminado. Se generaron {generated} formato(s) Excel.\n");
         }
         catch (Exception ex)
         {
-            ed.WriteMessage($"\nError generando Excel: {ex.Message}\n");
+            editor.WriteMessage($"\nError generando Excel: {ex.Message}\n");
         }
     }
 
-    private static List<Row> ReadRows(Database db)
+    private static List<UcKey> ScanUcs(Database database)
     {
-        var result = new List<Row>();
-        using Transaction tr = db.TransactionManager.StartTransaction();
-        BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+        var quantities = new HashSet<UcKey>();
 
-        foreach (ObjectId bid in bt)
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        DBDictionary layoutDictionary = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
+
+        foreach (DBDictionaryEntry entry in layoutDictionary)
         {
-            if (tr.GetObject(bid, OpenMode.ForRead) is not BlockTableRecord space || !space.IsLayout)
-                continue;
+            if (entry.Value.IsNull) continue;
+            if (transaction.GetObject(entry.Value, OpenMode.ForRead) is not Layout layout) continue;
 
-            string layout = ((Layout)tr.GetObject(space.LayoutId, OpenMode.ForRead)).LayoutName;
+            string layoutName = layout.LayoutName.Trim();
+            if (!TryGetRingNumber(layoutName, out _)) continue;
 
-            foreach (ObjectId oid in space)
+            BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+            foreach (ObjectId objectId in space)
             {
-                if (tr.GetObject(oid, OpenMode.ForRead) is not DBText text)
-                    continue;
+                if (transaction.GetObject(objectId, OpenMode.ForRead) is not Dimension dimension) continue;
 
-                ResultBuffer? data = text.GetXDataForApplication(AppName);
-                if (data is null) continue;
+                string? diameter = GetUcDiameter(dimension.Layer);
+                if (diameter is null) continue;
 
-                TypedValue[] v = data.AsArray();
-                if (v.Length < 4) continue;
-                if (!string.Equals(v[0].Value?.ToString(), AppName, StringComparison.OrdinalIgnoreCase)) continue;
+                string? surface = GetSurface(transaction, dimension);
+                if (surface is null) continue;
 
-                string type = v[1].Value?.ToString() ?? string.Empty;
-                if (!type.Equals(Materials, StringComparison.OrdinalIgnoreCase) &&
-                    !type.Equals(Uc, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string taggedLayout = v[2].Value?.ToString() ?? layout;
-                string summaryId = v[3].Value?.ToString() ?? string.Empty;
-                string rowId = v.Length >= 5 ? v[4].Value?.ToString() ?? string.Empty : string.Empty;
-                string field = v.Length >= 6 ? v[5].Value?.ToString() ?? string.Empty : string.Empty;
-
-                result.Add(new Row(type, taggedLayout, summaryId, rowId, field, text.TextString ?? string.Empty, text.Position));
+                if (!TryGetDisplayedDimensionValue(dimension, out _)) continue;
+                quantities.Add(new UcKey(diameter, surface));
             }
         }
 
-        tr.Commit();
-        return result;
+        transaction.Commit();
+
+        return quantities
+            .OrderBy(x => GetSurfaceOrder(x.Surface))
+            .ThenBy(x => DiameterOrder(x.Diameter))
+            .ToList();
     }
 
-    private static void WriteWorkbook(string path, List<Row> rows)
+    private static bool TryGetRingNumber(string layoutName, out int ringNumber)
     {
-        if (File.Exists(path)) File.Delete(path);
-
-        List<LogicalRow> materialRows = BuildLogicalRows(rows, Materials, 4);
-        List<LogicalRow> ucRows = BuildLogicalRows(rows, Uc, 3);
-
-        using FileStream fs = File.Create(path);
-        using ZipArchive zip = new ZipArchive(fs, ZipArchiveMode.Create);
-
-        Add(zip, "[Content_Types].xml", ContentTypes);
-        Add(zip, "_rels/.rels", RootRels);
-        Add(zip, "xl/workbook.xml", Workbook);
-        Add(zip, "xl/_rels/workbook.xml.rels", WorkbookRels);
-        Add(zip, "xl/styles.xml", Styles);
-
-        // Los identificadores se conservan internamente para relacionar la información,
-        // pero nunca se exportan como columnas visibles al usuario.
-        Add(zip, "xl/worksheets/sheet1.xml", SheetXml(
-            new[] { "TIPO", "LAYOUT", "ELEMENTOS" },
-            rows.GroupBy(r => new { r.Type, r.Layout, r.SummaryId })
-                .Select(g => new[] { g.Key.Type, g.Key.Layout, g.Count().ToString(CultureInfo.InvariantCulture) })));
-
-        Add(zip, "xl/worksheets/sheet2.xml", SheetXml(
-            new[] { "LAYOUT", "DESCRIPCION", "DIAMETRO", "UNIDAD", "CANTIDAD" },
-            materialRows.Select(r => new[]
-            {
-                r.Layout,
-                r.Get("DESCRIPCION"),
-                r.Get("DIAMETRO"),
-                r.Get("UNIDAD"),
-                r.Get("CANTIDAD")
-            })));
-
-        Add(zip, "xl/worksheets/sheet3.xml", SheetXml(
-            new[] { "LAYOUT", "DESCRIPCION", "UNIDAD", "CANTIDAD" },
-            ucRows.Select(r => new[]
-            {
-                r.Layout,
-                r.Get("DESCRIPCION"),
-                r.Get("UNIDAD"),
-                r.Get("CANTIDAD")
-            })));
-
-        Add(zip, "xl/worksheets/sheet4.xml", SheetXml(
-            new[] { "TIPO", "CANTIDAD DE TABLAS", "CANTIDAD DE FILAS" },
-            rows.GroupBy(r => r.Type)
-                .Select(g => new[]
-                {
-                    g.Key,
-                    g.Select(x => x.SummaryId).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(CultureInfo.InvariantCulture),
-                    BuildLogicalRows(rows, g.Key, g.Key.Equals(Materials, StringComparison.OrdinalIgnoreCase) ? 4 : 3).Count.ToString(CultureInfo.InvariantCulture)
-                })));
+        ringNumber = 0;
+        Match match = Regex.Match(layoutName, @"^ANILLO\s+(\d+)\s+UC$", RegexOptions.IgnoreCase);
+        return match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out ringNumber);
     }
 
-    private static List<LogicalRow> BuildLogicalRows(List<Row> rows, string type, int expectedFields)
+    private static string? GetUcDiameter(string layer)
     {
-        var selected = rows.Where(r => r.Type.Equals(type, StringComparison.OrdinalIgnoreCase)).ToList();
-        var result = new List<LogicalRow>();
+        if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2";
+        if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4";
+        return null;
+    }
 
-        foreach (IGrouping<string, Row> summary in selected.GroupBy(r => r.SummaryId, StringComparer.OrdinalIgnoreCase))
+    private static string? GetSurface(Transaction transaction, Dimension dimension)
+    {
+        Color color = dimension.Color;
+        if (color.ColorIndex == 256 || color.IsByLayer)
         {
-            // Los resúmenes nuevos llevan RowId. Ese identificador es la relación real entre
-            // descripción, diámetro, unidad y cantidad de una misma fila.
-            foreach (IGrouping<string, Row> rowGroup in summary.Where(r => !string.IsNullOrWhiteSpace(r.RowId))
-                                                               .GroupBy(r => r.RowId, StringComparer.OrdinalIgnoreCase))
-            {
-                var logical = new LogicalRow(summary.Key, rowGroup.First().Layout, rowGroup.Key);
-                foreach (Row row in rowGroup)
-                    logical.Fields[row.Field.ToUpperInvariant()] = row.Text;
-                result.Add(logical);
-            }
-
-            // Compatibilidad con resúmenes antiguos que solo tienen ID de tabla.
-            List<Row> legacy = summary.Where(r => string.IsNullOrWhiteSpace(r.RowId))
-                                     .OrderByDescending(r => r.Position.Y)
-                                     .ThenBy(r => r.Position.X)
-                                     .ToList();
-            if (legacy.Count > 0)
-            {
-                double tolerance = 0.01;
-                foreach (IGrouping<int, Row> yGroup in legacy.GroupBy(r => (int)Math.Round(r.Position.Y / tolerance)))
-                {
-                    var logical = new LogicalRow(summary.Key, yGroup.First().Layout, "LEGACY_" + yGroup.Key.ToString(CultureInfo.InvariantCulture));
-                    foreach (Row row in yGroup.OrderBy(r => r.Position.X))
-                    {
-                        string field = GuessLegacyField(type, row.Position.X, yGroup.Min(x => x.Position.X), expectedFields);
-                        if (!logical.Fields.ContainsKey(field)) logical.Fields[field] = row.Text;
-                    }
-                    result.Add(logical);
-                }
-            }
+            ObjectId layerId = dimension.LayerId;
+            if (!layerId.IsNull && transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer)
+                color = layer.Color;
         }
 
-        return result.OrderBy(r => r.Layout, StringComparer.OrdinalIgnoreCase)
-                     .ThenBy(r => r.SummaryId, StringComparer.OrdinalIgnoreCase)
-                     .ThenBy(r => r.RowId, StringComparer.OrdinalIgnoreCase)
-                     .ToList();
-    }
-
-    private static string GuessLegacyField(string type, double x, double minX, int expectedFields)
-    {
-        double delta = x - minX;
-        if (type.Equals(Materials, StringComparison.OrdinalIgnoreCase))
+        foreach (UcSurface surface in Surfaces)
         {
-            if (delta < 35.0) return "DESCRIPCION";
-            if (delta < 62.0) return "DIAMETRO";
-            if (delta < 88.0) return "UNIDAD";
-            return "CANTIDAD";
+            if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
+            if (surface.Red.HasValue && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
         }
 
-        if (delta < 88.0) return "DESCRIPCION";
-        if (delta < 103.0) return "UNIDAD";
-        return "CANTIDAD";
+        return null;
     }
 
-    private static void Add(ZipArchive zip, string name, string xml)
+    private static bool IsSameRgb(Color color, int red, int green, int blue) =>
+        color.Red == red && color.Green == green && color.Blue == blue;
+
+    private static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
     {
-        using StreamWriter sw = new StreamWriter(zip.CreateEntry(name).Open(), new UTF8Encoding(false));
-        sw.Write(xml);
+        value = 0.0;
+        string text = dimension.DimensionText?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
+        if (!match.Success) return false;
+
+        return double.TryParse(
+            match.Value.Replace(',', '.'),
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out value);
     }
 
-    private static string SheetXml(string[] header, IEnumerable<string[]> data)
+    private static string GetExcelActivity(UcKey uc)
     {
-        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-        var all = new List<string[]> { header };
-        all.AddRange(data);
+        return ExcelActivityByKey.TryGetValue(BuildKey(uc), out string? activity)
+            ? activity
+            : string.Empty;
+    }
 
-        XElement sheetData = new XElement(ns + "sheetData");
-        for (int r = 0; r < all.Count; r++)
+    private static string BuildKey(UcKey uc) => $"{uc.Diameter}|{uc.Surface}";
+
+    private static string? FindTemplatePath(Database database)
+    {
+        var candidates = new List<string>();
+        string? assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+        if (!string.IsNullOrWhiteSpace(assemblyDirectory))
         {
-            XElement row = new XElement(ns + "row", new XAttribute("r", r + 1));
-            for (int c = 0; c < all[r].Length; c++)
+            candidates.Add(Path.Combine(assemblyDirectory, TemplateFileName));
+            candidates.Add(Path.Combine(assemblyDirectory, "Resources", TemplateFileName));
+            candidates.Add(Path.Combine(assemblyDirectory, "Templates", TemplateFileName));
+        }
+
+        candidates.Add(Path.Combine(AppContext.BaseDirectory, TemplateFileName));
+        candidates.Add(Path.Combine(AppContext.BaseDirectory, "Resources", TemplateFileName));
+        candidates.Add(Path.Combine(AppContext.BaseDirectory, "Templates", TemplateFileName));
+
+        try
+        {
+            string drawingDirectory = Path.GetDirectoryName(database.Filename) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(drawingDirectory))
             {
-                row.Add(new XElement(ns + "c",
-                    new XAttribute("r", Cell(c, r)),
-                    new XAttribute("t", "inlineStr"),
-                    new XElement(ns + "is",
-                        new XElement(ns + "t",
-                            new XAttribute(XNamespace.Xml + "space", "preserve"),
-                            all[r][c] ?? string.Empty))));
+                candidates.Add(Path.Combine(drawingDirectory, TemplateFileName));
+                candidates.Add(Path.Combine(drawingDirectory, "Resources", TemplateFileName));
+                candidates.Add(Path.Combine(drawingDirectory, "Templates", TemplateFileName));
             }
+        }
+        catch
+        {
+            // El dibujo puede no tener una ruta de archivo todavía.
+        }
+
+        return candidates
+            .Where(File.Exists)
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    private static void SetActivitySelection(string path, string activity)
+    {
+        using FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Update, leaveOpen: false);
+
+        XNamespace mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+
+        ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml")
+            ?? throw new InvalidDataException("La plantilla no contiene xl/workbook.xml.");
+        ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels")
+            ?? throw new InvalidDataException("La plantilla no contiene las relaciones del workbook.");
+
+        XElement workbook = LoadXml(workbookEntry);
+        XElement workbookRels = LoadXml(workbookRelsEntry);
+
+        XElement? targetSheet = workbook.Root?
+            .Element(mainNs + "sheets")?
+            .Elements(mainNs + "sheet")
+            .FirstOrDefault(x => string.Equals(
+                (string?)x.Attribute("name"),
+                TargetSheetName,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (targetSheet is null)
+            throw new InvalidDataException($"No se encontró la hoja '{TargetSheetName}'.");
+
+        string relationshipId = (string?)targetSheet.Attribute(relNs + "id") ?? string.Empty;
+        if (relationshipId.Length == 0)
+            throw new InvalidDataException($"La hoja '{TargetSheetName}' no tiene relación XML.");
+
+        XElement? relationship = workbookRels.Root?
+            .Elements(packageRelNs + "Relationship")
+            .FirstOrDefault(x => string.Equals((string?)x.Attribute("Id"), relationshipId, StringComparison.Ordinal));
+
+        if (relationship is null)
+            throw new InvalidDataException($"No se encontró la relación XML de la hoja '{TargetSheetName}'.");
+
+        string target = (string?)relationship.Attribute("Target") ?? string.Empty;
+        if (target.Length == 0)
+            throw new InvalidDataException($"La relación de '{TargetSheetName}' no tiene destino.");
+
+        string worksheetPath = ResolveZipPath("xl/workbook.xml", target);
+        ZipArchiveEntry worksheetEntry = archive.GetEntry(worksheetPath)
+            ?? throw new InvalidDataException($"No se encontró la hoja XML '{worksheetPath}'.");
+
+        XElement worksheet = LoadXml(worksheetEntry);
+        XElement sheetData = worksheet.Root?.Element(mainNs + "sheetData")
+            ?? throw new InvalidDataException("La hoja objetivo no contiene sheetData.");
+
+        XElement? row = sheetData.Elements(mainNs + "row")
+            .FirstOrDefault(x => string.Equals((string?)x.Attribute("r"), "14", StringComparison.Ordinal));
+
+        if (row is null)
+        {
+            row = new XElement(mainNs + "row", new XAttribute("r", "14"));
             sheetData.Add(row);
         }
 
-        return new XElement(ns + "worksheet", sheetData).ToString(SaveOptions.DisableFormatting);
-    }
+        XElement? cell = row.Elements(mainNs + "c")
+            .FirstOrDefault(x => string.Equals((string?)x.Attribute("r"), TargetCell, StringComparison.OrdinalIgnoreCase));
 
-    private static string Cell(int c, int r)
-    {
-        int n = c + 1;
-        StringBuilder s = new StringBuilder();
-        while (n > 0)
+        if (cell is null)
         {
-            int rem = (n - 1) % 26;
-            s.Insert(0, (char)('A' + rem));
-            n = (n - 1) / 26;
-        }
-        return s.ToString() + (r + 1).ToString(CultureInfo.InvariantCulture);
-    }
-
-    private static readonly string ContentTypes = "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet3.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet4.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>";
-    private static readonly string RootRels = "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>";
-    private static readonly string Workbook = "<?xml version=\"1.0\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"TABLAS_PROCESADAS\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"MATERIALES\" sheetId=\"2\" r:id=\"rId2\"/><sheet name=\"UC\" sheetId=\"3\" r:id=\"rId3\"/><sheet name=\"RESUMEN\" sheetId=\"4\" r:id=\"rId4\"/></sheets></workbook>";
-    private static readonly string WorkbookRels = "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/><Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet3.xml\"/><Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet4.xml\"/></Relationships>";
-    private static readonly string Styles = "<?xml version=\"1.0\"?><styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts><fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills><borders count=\"1\"><border/></borders><cellStyleXfs count=\"1\"><xf/></cellStyleXfs><cellXfs count=\"1\"><xf xfId=\"0\"/></cellXfs></styleSheet>";
-
-    private readonly record struct Row(string Type, string Layout, string SummaryId, string RowId, string Field, string Text, Autodesk.AutoCAD.Geometry.Point3d Position);
-
-    private sealed class LogicalRow
-    {
-        public string SummaryId { get; }
-        public string Layout { get; }
-        public string RowId { get; }
-        public Dictionary<string, string> Fields { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        public LogicalRow(string summaryId, string layout, string rowId)
-        {
-            SummaryId = summaryId;
-            Layout = layout;
-            RowId = rowId;
+            cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell));
+            row.Add(cell);
         }
 
-        public string Get(string field) => Fields.TryGetValue(field, out string? value) ? value : string.Empty;
+        XAttribute? styleAttribute = cell.Attribute("s");
+        cell.RemoveNodes();
+        cell.SetAttributeValue("t", "inlineStr");
+        if (styleAttribute is not null) cell.SetAttributeValue("s", styleAttribute.Value);
+        cell.Add(new XElement(
+            mainNs + "is",
+            new XElement(mainNs + "t",
+                new XAttribute(XNamespace.Xml + "space", "preserve"),
+                activity)));
+
+        SaveXml(worksheetEntry, worksheet);
     }
+
+    private static XElement LoadXml(ZipArchiveEntry entry)
+    {
+        using Stream stream = entry.Open();
+        return XElement.Load(stream, LoadOptions.PreserveWhitespace);
+    }
+
+    private static void SaveXml(ZipArchiveEntry entry, XElement xml)
+    {
+        using Stream stream = entry.Open();
+        xml.Save(stream, SaveOptions.DisableFormatting);
+    }
+
+    private static string ResolveZipPath(string baseEntry, string target)
+    {
+        if (target.StartsWith("/", StringComparison.Ordinal))
+            return target.TrimStart('/');
+
+        string baseDirectory = Path.GetDirectoryName(baseEntry)?.Replace('\\', '/') ?? string.Empty;
+        string combined = string.IsNullOrWhiteSpace(baseDirectory)
+            ? target
+            : baseDirectory.TrimEnd('/') + "/" + target;
+
+        var parts = new List<string>();
+        foreach (string part in combined.Split('/'))
+        {
+            if (part.Length == 0 || part == ".") continue;
+            if (part == "..")
+            {
+                if (parts.Count > 0) parts.RemoveAt(parts.Count - 1);
+                continue;
+            }
+            parts.Add(part);
+        }
+
+        return string.Join("/", parts);
+    }
+
+    private static string EnsureXlsxExtension(string path)
+    {
+        return path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+            ? path
+            : path + ".xlsx";
+    }
+
+    private static int GetSurfaceOrder(string surface)
+    {
+        for (int i = 0; i < SurfaceOrder.Length; i++)
+        {
+            if (string.Equals(surface, SurfaceOrder[i], StringComparison.OrdinalIgnoreCase)) return i;
+        }
+        return SurfaceOrder.Length;
+    }
+
+    private static int DiameterOrder(string diameter) =>
+        diameter.Equals("1/2", StringComparison.OrdinalIgnoreCase) ? 0 :
+        diameter.Equals("3/4", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
+
+    private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
+    {
+        "zona verde" => "Zona Verde",
+        "anden tableta" => "Anden Tableta",
+        "calzada concreto" => "Calzada Concreto",
+        "destapado" => "Destapado",
+        "cuneta" => "Cuneta",
+        "anden concreto" => "Anden Concreto",
+        "asfalto" => "Asfalto",
+        "adoquin" => "Adoquin",
+        _ => value
+    };
+
+    private readonly record struct UcKey(string Diameter, string Surface);
+    private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
 }
