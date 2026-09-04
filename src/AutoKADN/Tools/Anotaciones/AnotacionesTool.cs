@@ -12,6 +12,7 @@ public sealed class AnotacionesTool
     private const double TextOffset = 1.00;
     private const string MaterialsLayer = "Mat";
     private const string XDataAppName = "AUTOKADN";
+    private const string ActivityType = "ACTIVIDAD";
 
     public void Run()
     {
@@ -31,9 +32,10 @@ public sealed class AnotacionesTool
                 string? type = SelectAnnotationType(editor);
                 if (type is null) { EraseEntity(document.Database, lineId); return; }
                 SpiralData? spiralData = null;
-                string? text = BuildAnnotation(editor, type, out spiralData);
+                ActivityData? activityData = null;
+                string? text = BuildAnnotation(editor, type, out spiralData, out activityData);
                 if (text is null) { EraseEntity(document.Database, lineId); return; }
-                if (!string.IsNullOrWhiteSpace(text)) CreateText(document.Database, startPoint, endPoint, text, spiralData);
+                if (!string.IsNullOrWhiteSpace(text)) CreateText(document.Database, startPoint, endPoint, text, type, spiralData, activityData);
                 editor.Regen();
             }
         }
@@ -74,9 +76,10 @@ public sealed class AnotacionesTool
         };
     }
 
-    private static string? BuildAnnotation(Editor editor, string type, out SpiralData? spiralData)
+    private static string? BuildAnnotation(Editor editor, string type, out SpiralData? spiralData, out ActivityData? activityData)
     {
         spiralData = null;
+        activityData = null;
         if (type.Equals("LIBRE", StringComparison.OrdinalIgnoreCase)) return ReadFreeText(editor);
         if (type.Equals("ESPIRAL", StringComparison.OrdinalIgnoreCase)) return ReadSpiral(editor, out spiralData);
         string label = type switch { "CAMISA" => "CAMISA", "PANTALLA" => "PANTALLA", "CRUCE_TOPO" => "CRUCE CON TOPO", "EMPEDRADO" => "EMPEDRADO", "VIGA_CONCRETO" => "VIGA EN CONCRETO", _ => type };
@@ -84,6 +87,9 @@ public sealed class AnotacionesTool
         PromptResult result = editor.GetString(options);
         if (result.Status != PromptStatus.OK) return null;
         string value = result.StringResult.Trim(); if (value.Length == 0) return null;
+        if (!double.TryParse(value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double length) || length < 0.0)
+            return null;
+        activityData = new ActivityData(type, length);
         return $"{label}\\PLONG.: {value}ML";
     }
 
@@ -159,7 +165,7 @@ public sealed class AnotacionesTool
         var line = new Line(startPoint, endPoint) { ColorIndex = 256 }; currentSpace.AppendEntity(line); transaction.AddNewlyCreatedDBObject(line, true); transaction.Commit(); return line.ObjectId;
     }
 
-    private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text, SpiralData? spiralData)
+    private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text, string type, SpiralData? spiralData, ActivityData? activityData)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
@@ -186,6 +192,7 @@ public sealed class AnotacionesTool
         };
         currentSpace.AppendEntity(mtext); transaction.AddNewlyCreatedDBObject(mtext, true);
         if (spiralData is not null) SetSpiralXData(database, transaction, mtext, spiralData);
+        if (activityData is not null) SetActivityXData(database, transaction, mtext, activityData);
         transaction.Commit();
     }
 
@@ -198,6 +205,18 @@ public sealed class AnotacionesTool
             new TypedValue((int)DxfCode.ExtendedDataReal, data.Pipe),
             new TypedValue((int)DxfCode.ExtendedDataReal, data.Unions),
             new TypedValue((int)DxfCode.ExtendedDataReal, data.Tees));
+    }
+
+    private static void SetActivityXData(Database database, Transaction transaction, MText mtext, ActivityData data)
+    {
+        EnsureRegApp(database, transaction);
+        string layoutName = LayoutManager.Current.CurrentLayout;
+        mtext.XData = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, ActivityType),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.Type),
+            new TypedValue((int)DxfCode.ExtendedDataReal, data.Length),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName));
     }
 
     private static void EnsureRegApp(Database database, Transaction transaction)
@@ -229,4 +248,5 @@ public sealed class AnotacionesTool
     }
 
     private sealed record SpiralData(double Pipe, double Unions, double Tees);
+    private sealed record ActivityData(string Type, double Length);
 }
