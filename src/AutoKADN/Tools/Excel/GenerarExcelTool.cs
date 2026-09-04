@@ -76,8 +76,7 @@ public sealed class GenerarExcelTool
             string? templatePath = FindTemplatePath(database);
             if (templatePath is null)
             {
-                editor.WriteMessage($"\nNo se encontró la plantilla '{TemplateFileName}'.\n");
-                editor.WriteMessage("Coloque la plantilla junto al DLL de AutoKADN o dentro de una carpeta 'Resources' o 'Templates'.\n");
+                editor.WriteMessage($"\nNo se encontró la plantilla '{TemplateFileName}' en la raíz del proyecto ni junto al DLL.\n");
                 return;
             }
 
@@ -251,24 +250,21 @@ public sealed class GenerarExcelTool
 
         if (!string.IsNullOrWhiteSpace(assemblyDirectory))
         {
-            candidates.Add(Path.Combine(assemblyDirectory, TemplateFileName));
-            candidates.Add(Path.Combine(assemblyDirectory, "Resources", TemplateFileName));
-            candidates.Add(Path.Combine(assemblyDirectory, "Templates", TemplateFileName));
+            string? currentDirectory = assemblyDirectory;
+            for (int i = 0; i < 6 && !string.IsNullOrWhiteSpace(currentDirectory); i++)
+            {
+                candidates.Add(Path.Combine(currentDirectory, TemplateFileName));
+                currentDirectory = Directory.GetParent(currentDirectory)?.FullName;
+            }
         }
 
         candidates.Add(Path.Combine(AppContext.BaseDirectory, TemplateFileName));
-        candidates.Add(Path.Combine(AppContext.BaseDirectory, "Resources", TemplateFileName));
-        candidates.Add(Path.Combine(AppContext.BaseDirectory, "Templates", TemplateFileName));
 
         try
         {
             string drawingDirectory = Path.GetDirectoryName(database.Filename) ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(drawingDirectory))
-            {
                 candidates.Add(Path.Combine(drawingDirectory, TemplateFileName));
-                candidates.Add(Path.Combine(drawingDirectory, "Resources", TemplateFileName));
-                candidates.Add(Path.Combine(drawingDirectory, "Templates", TemplateFileName));
-            }
         }
         catch
         {
@@ -343,7 +339,7 @@ public sealed class GenerarExcelTool
         }
 
         XElement? cell = row.Elements(mainNs + "c")
-            .FirstOrDefault(x => string.Equals((string?)x.Attribute("r"), TargetCell, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(x => string.Equals((string?)x.Attribute("r"), TargetCell, StringComparison.Ordinal));
 
         if (cell is null)
         {
@@ -351,15 +347,11 @@ public sealed class GenerarExcelTool
             row.Add(cell);
         }
 
-        XAttribute? styleAttribute = cell.Attribute("s");
+        string? style = (string?)cell.Attribute("s");
         cell.RemoveNodes();
         cell.SetAttributeValue("t", "inlineStr");
-        if (styleAttribute is not null) cell.SetAttributeValue("s", styleAttribute.Value);
-        cell.Add(new XElement(
-            mainNs + "is",
-            new XElement(mainNs + "t",
-                new XAttribute(XNamespace.Xml + "space", "preserve"),
-                activity)));
+        if (style is not null) cell.SetAttributeValue("s", style);
+        cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", activity)));
 
         SaveXml(worksheetEntry, worksheet);
     }
@@ -370,24 +362,19 @@ public sealed class GenerarExcelTool
         return XElement.Load(stream, LoadOptions.PreserveWhitespace);
     }
 
-    private static void SaveXml(ZipArchiveEntry entry, XElement xml)
+    private static void SaveXml(ZipArchiveEntry entry, XElement document)
     {
         using Stream stream = entry.Open();
-        xml.Save(stream, SaveOptions.DisableFormatting);
+        document.Save(stream, SaveOptions.DisableFormatting);
     }
 
-    private static string ResolveZipPath(string baseEntry, string target)
+    private static string ResolveZipPath(string basePath, string target)
     {
-        if (target.StartsWith("/", StringComparison.Ordinal))
-            return target.TrimStart('/');
-
-        string baseDirectory = Path.GetDirectoryName(baseEntry)?.Replace('\\', '/') ?? string.Empty;
-        string combined = string.IsNullOrWhiteSpace(baseDirectory)
-            ? target
-            : baseDirectory.TrimEnd('/') + "/" + target;
-
+        string baseDirectory = Path.GetDirectoryName(basePath)?.Replace('\\', '/') ?? string.Empty;
+        string combined = string.IsNullOrWhiteSpace(baseDirectory) ? target : $"{baseDirectory}/{target}";
         var parts = new List<string>();
-        foreach (string part in combined.Split('/'))
+
+        foreach (string part in combined.Replace('\\', '/').Split('/'))
         {
             if (part.Length == 0 || part == ".") continue;
             if (part == "..")
@@ -408,32 +395,27 @@ public sealed class GenerarExcelTool
             : path + ".xlsx";
     }
 
-    private static int GetSurfaceOrder(string surface)
+    private static string ToDisplaySurface(string surface) => surface switch
     {
-        for (int i = 0; i < SurfaceOrder.Length; i++)
-        {
-            if (string.Equals(surface, SurfaceOrder[i], StringComparison.OrdinalIgnoreCase)) return i;
-        }
-        return SurfaceOrder.Length;
-    }
-
-    private static int DiameterOrder(string diameter) =>
-        diameter.Equals("1/2", StringComparison.OrdinalIgnoreCase) ? 0 :
-        diameter.Equals("3/4", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
-
-    private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
-    {
-        "zona verde" => "Zona Verde",
-        "anden tableta" => "Anden Tableta",
-        "calzada concreto" => "Calzada Concreto",
-        "destapado" => "Destapado",
-        "cuneta" => "Cuneta",
-        "anden concreto" => "Anden Concreto",
-        "asfalto" => "Asfalto",
-        "adoquin" => "Adoquin",
-        _ => value
+        "ANDEN TABLETA" => "ANDÉN TABLETA, BALDOSÍN, GRAVILLA",
+        "CALZADA CONCRETO" => "CALZADA CONCRETO",
+        _ => surface
     };
 
+    private static int GetSurfaceOrder(string surface)
+    {
+        int index = Array.FindIndex(SurfaceOrder, value => string.Equals(value, surface, StringComparison.OrdinalIgnoreCase));
+        return index < 0 ? int.MaxValue : index;
+    }
+
+    private static int DiameterOrder(string diameter) => diameter == "1/2" ? 0 : 1;
+
     private readonly record struct UcKey(string Diameter, string Surface);
-    private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
+
+    private readonly record struct UcSurface(
+        string Name,
+        int? ColorIndex,
+        int? Red,
+        int? Green,
+        int? Blue);
 }
