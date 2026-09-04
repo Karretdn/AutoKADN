@@ -211,6 +211,7 @@ public sealed class GenerarExcelTool
             XNamespace mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
             XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
             XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+            XNamespace xmlNs = "http://www.w3.org/XML/1998/namespace";
 
             ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml");
             ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
@@ -243,7 +244,7 @@ public sealed class GenerarExcelTool
             cell.RemoveNodes();
             cell.SetAttributeValue("t", "inlineStr");
             if (style != null) cell.SetAttributeValue("s", style.Value);
-            cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", activity)));
+            cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", new XAttribute(xmlNs + "space", "preserve"), activity)));
             SaveXml(archive, worksheetPath, worksheetEntry, worksheet);
 
             SetWorkbookCalculationMode(archive, workbook, mainNs);
@@ -290,7 +291,7 @@ public sealed class GenerarExcelTool
             if (cell == null) continue;
             string value = ReadCellText(cell, mainNs, sharedStrings);
             string normalized = NormalizeActivityText(value);
-            if (normalized.IndexOf(diameterToken, StringComparison.Ordinal) >= 0 && normalized.IndexOf(surfaceToken, StringComparison.Ordinal) >= 0) return value.Trim();
+            if (normalized.IndexOf(diameterToken, StringComparison.Ordinal) >= 0 && normalized.IndexOf(surfaceToken, StringComparison.Ordinal) >= 0) return value;
         }
         return null;
     }
