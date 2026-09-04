@@ -36,6 +36,10 @@ public sealed class AnotacionesTool
         @"^ANILLO\s+(\d+)\s+DETALLE$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    private static readonly Regex UcLayoutPattern = new(
+        @"^ANILLO\s+(\d+)\s+UC$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     public void Run()
     {
         var document = Application.DocumentManager.MdiActiveDocument;
@@ -118,7 +122,7 @@ public sealed class AnotacionesTool
         string detailLayoutName = LayoutManager.Current.CurrentLayout;
         if (!TryGetPairedUcLayout(database, detailLayoutName, out string ucLayoutName))
         {
-            editor.WriteMessage($"\nLa actividad debe ejecutarse en un layout DETALLE con pareja UC. Layout actual: '{detailLayoutName}'.\n");
+            editor.WriteMessage($"\nNo se encontró la pareja UC para el layout '{detailLayoutName}'. Debe existir un layout 'ANILLO X UC' con el mismo número.\n");
             return null;
         }
 
@@ -153,15 +157,17 @@ public sealed class AnotacionesTool
         ucLayoutName = string.Empty;
         Match match = DetailLayoutPattern.Match(detailLayoutName.Trim());
         if (!match.Success) return false;
-        string expectedName = $"ANILLO {match.Groups[1].Value} UC";
+        string ringNumber = match.Groups[1].Value;
 
         using Transaction transaction = database.TransactionManager.StartTransaction();
         DBDictionary layoutDictionary = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
         foreach (DBDictionaryEntry entry in layoutDictionary)
         {
-            if (string.Equals(entry.Key, expectedName, StringComparison.OrdinalIgnoreCase))
+            string candidateName = entry.Key.Trim();
+            Match ucMatch = UcLayoutPattern.Match(candidateName);
+            if (ucMatch.Success && string.Equals(ucMatch.Groups[1].Value, ringNumber, StringComparison.Ordinal))
             {
-                ucLayoutName = entry.Key;
+                ucLayoutName = candidateName;
                 transaction.Commit();
                 return true;
             }
