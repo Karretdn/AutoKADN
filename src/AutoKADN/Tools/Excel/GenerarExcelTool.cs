@@ -305,7 +305,35 @@ public sealed class GenerarExcelTool
             if (style != null) cell.SetAttributeValue("s", style.Value);
             cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", activity)));
             SaveXml(worksheetEntry, worksheet);
+
+            SetWorkbookCalculationMode(archive, workbook, mainNs);
+            RemoveCalculationChain(archive);
         }
+    }
+
+    private static void SetWorkbookCalculationMode(ZipArchive archive, XElement workbook, XNamespace mainNs)
+    {
+        XElement calcPr = workbook.Element(mainNs + "calcPr");
+        if (calcPr == null)
+        {
+            calcPr = new XElement(mainNs + "calcPr");
+            workbook.Add(calcPr);
+        }
+
+        calcPr.SetAttributeValue("calcMode", "auto");
+        calcPr.SetAttributeValue("fullCalcOnLoad", "1");
+        calcPr.SetAttributeValue("forceFullCalc", "1");
+        calcPr.SetAttributeValue("calcOnSave", "1");
+
+        ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml");
+        if (workbookEntry == null) throw new InvalidDataException("No se encontró xl/workbook.xml al guardar la configuración de cálculo.");
+        SaveXml(workbookEntry, workbook);
+    }
+
+    private static void RemoveCalculationChain(ZipArchive archive)
+    {
+        ZipArchiveEntry calculationChain = archive.GetEntry("xl/calcChain.xml");
+        if (calculationChain != null) calculationChain.Delete();
     }
 
     private static XElement LoadXml(ZipArchiveEntry entry) { using (Stream stream = entry.Open()) return XElement.Load(stream, LoadOptions.PreserveWhitespace); }
