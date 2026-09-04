@@ -30,5 +30,6 @@ public class NomenclaturaVialCommand
     [CommandMethod("ANOTACIONES", CommandFlags.Modal)] public void Anotaciones() => new AnotacionesTool().Run();
     [CommandMethod("LISTABLOQUES", CommandFlags.Modal)] public void ListaBloques() => new ListaBloquesTool().Run();
     [CommandMethod("RESUMENUC", CommandFlags.Modal)] public void ResumenUC() => new ResumenUCTool().Run();
+    [CommandMethod("MATERIALPRUEBA", CommandFlags.Modal)] public void MaterialPrueba() => new MaterialPruebaTool().Run();
     [CommandMethod("GENERAREXCEL", CommandFlags.Modal)] public void GenerarExcel() => new GenerarExcelTool().Run();
 }
