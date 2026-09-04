@@ -274,7 +274,7 @@ public sealed class GenerarExcelTool
             if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
             XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
             if (row == null) { row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
-            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.Ordinal));
+            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.OrdinalIgnoreCase));
             if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell)); row.Add(cell); }
 
             XAttribute style = cell.Attribute("s");
@@ -341,7 +341,7 @@ public sealed class GenerarExcelTool
             if (string.IsNullOrWhiteSpace(value)) continue;
             string normalized = NormalizeActivityText(value);
 
-            if (normalized.Contains(diameterToken, StringComparison.Ordinal) && normalized.Contains(surfaceToken, StringComparison.Ordinal))
+            if (normalized.IndexOf(diameterToken, StringComparison.Ordinal) >= 0 && normalized.IndexOf(surfaceToken, StringComparison.Ordinal) >= 0)
                 return value.Trim();
         }
 
