@@ -211,7 +211,7 @@ public sealed class MaterialPruebaTool
         if (parts.Count == 2)
             return $"MATERIAL DE PRUEBA: {parts[0]} Y {parts[1]}.";
 
-        return $"MATERIAL DE PRUEBA: {string.Join(", ", parts.Take(parts.Count - 1))} Y {parts[^1]}.";
+        return $"MATERIAL DE PRUEBA: {string.Join(", ", parts.Take(parts.Count - 1))} Y {parts.Last()}.";
     }
 
     private static string FormatMaterialName(string name, int quantity)
