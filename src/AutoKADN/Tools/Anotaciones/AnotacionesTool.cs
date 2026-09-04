@@ -32,6 +32,10 @@ public sealed class AnotacionesTool
         "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
     };
 
+    private static readonly Regex DetailLayoutPattern = new(
+        @"^ANILLO\s+(\d+)\s+DETALLE$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     public void Run()
     {
         var document = Application.DocumentManager.MdiActiveDocument;
@@ -49,11 +53,13 @@ public sealed class AnotacionesTool
                 if (lineId == ObjectId.Null) return;
                 string? type = SelectAnnotationType(editor);
                 if (type is null) { EraseEntity(document.Database, lineId); return; }
+
                 SpiralData? spiralData = null;
                 ActivityData? activityData = null;
                 string? text = BuildAnnotation(editor, document.Database, type, out spiralData, out activityData);
                 if (text is null) { EraseEntity(document.Database, lineId); return; }
-                if (!string.IsNullOrWhiteSpace(text)) CreateText(document.Database, startPoint, endPoint, text, type, spiralData, activityData);
+                if (!string.IsNullOrWhiteSpace(text))
+                    CreateText(document.Database, startPoint, endPoint, text, type, spiralData, activityData);
                 editor.Regen();
             }
         }
@@ -66,7 +72,8 @@ public sealed class AnotacionesTool
         var firstOptions = new PromptPointOptions("\nPrimer punto de la línea (ESC o clic derecho para salir): ") { AllowNone = true };
         PromptPointResult first = editor.GetPoint(firstOptions);
         if (first.Status != PromptStatus.OK) return false;
-        var secondOptions = new PromptPointOptions("\nSegundo punto de la línea (ESC o clic derecho para salir): ") { BasePoint = first.Value, UseBasePoint = true, AllowNone = true };
+        var secondOptions = new PromptPointOptions("\nSegundo punto de la línea (ESC o clic derecho para salir): ")
+        { BasePoint = first.Value, UseBasePoint = true, AllowNone = true };
         PromptPointResult second = editor.GetPoint(secondOptions);
         if (second.Status != PromptStatus.OK) return false;
         if (first.Value.DistanceTo(second.Value) <= Tolerance.Global.EqualPoint)
@@ -89,12 +96,13 @@ public sealed class AnotacionesTool
         return result.StringResult switch
         {
             "AKESPIRAL" => "ESPIRAL", "AKCAMISA" => "CAMISA", "AKPANTALLA" => "PANTALLA",
-            "AKCRUCETOPO" => "CRUCE_TOPO", "AKEMPEDRADO" => "EMPEDRADO", "AKVIGACONCRETO" => "VIGA_CONCRETO",
-            "AKLIBRE" => "LIBRE", _ => null
+            "AKCRUCETOPO" => "CRUCE_TOPO", "AKEMPEDRADO" => "EMPEDRADO",
+            "AKVIGACONCRETO" => "VIGA_CONCRETO", "AKLIBRE" => "LIBRE", _ => null
         };
     }
 
-    private static string? BuildAnnotation(Editor editor, Database database, string type, out SpiralData? spiralData, out ActivityData? activityData)
+    private static string? BuildAnnotation(Editor editor, Database database, string type,
+        out SpiralData? spiralData, out ActivityData? activityData)
     {
         spiralData = null;
         activityData = null;
@@ -107,14 +115,16 @@ public sealed class AnotacionesTool
             "EMPEDRADO" => "EMPEDRADO", "VIGA_CONCRETO" => "VIGA EN CONCRETO", _ => type
         };
 
-        string? baseLengthText = ReadActivityLength(editor, label);
-        if (baseLengthText is null) return null;
-        double baseLength = ParseNumber(baseLengthText);
-
-        string layoutName = LayoutManager.Current.CurrentLayout;
-        if (!TryScanUcs(database, out Dictionary<UcKey, double> availableUcs))
+        string detailLayoutName = LayoutManager.Current.CurrentLayout;
+        if (!TryGetPairedUcLayout(database, detailLayoutName, out string ucLayoutName))
         {
-            editor.WriteMessage("\nNo se encontraron cotas UC válidas en el layout actual.\n");
+            editor.WriteMessage($"\nLa actividad debe ejecutarse en un layout DETALLE con pareja UC. Layout actual: '{detailLayoutName}'.\n");
+            return null;
+        }
+
+        if (!TryScanUcs(database, ucLayoutName, out Dictionary<UcKey, double> availableUcs))
+        {
+            editor.WriteMessage($"\nNo se encontraron cotas UC válidas en el layout '{ucLayoutName}'.\n");
             return null;
         }
 
@@ -124,7 +134,6 @@ public sealed class AnotacionesTool
             if (!TrySelectActivityUc(editor, availableUcs, out UcKey selectedUc)) return null;
             double? amount = ReadActivityAmount(editor, selectedUc);
             if (!amount.HasValue) return null;
-
             assignments.Add(new UcAssignment(selectedUc, amount.Value));
             editor.WriteMessage($"\nAsignado {FormatQuantity(amount.Value)} ML a {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)}.\n");
 
@@ -135,47 +144,39 @@ public sealed class AnotacionesTool
 
         double totalLength = assignments.Sum(x => x.Quantity);
         if (totalLength <= 0.0) return null;
-
-        activityData = new ActivityData(type, baseLength, layoutName, assignments);
+        activityData = new ActivityData(type, detailLayoutName, ucLayoutName, assignments);
         return $"{label}\\PLONG.: {FormatQuantity(totalLength)}ML";
     }
 
-    private static string? ReadActivityLength(Editor editor, string label)
+    private static bool TryGetPairedUcLayout(Database database, string detailLayoutName, out string ucLayoutName)
     {
-        var options = new PromptStringOptions($"\n{label} - ingrese el valor de LONG.: (ENTER para aceptar, ESC o clic derecho para cancelar): ") { AllowSpaces = false };
-        while (true)
+        ucLayoutName = string.Empty;
+        Match match = DetailLayoutPattern.Match(detailLayoutName.Trim());
+        if (!match.Success) return false;
+        string expectedName = $"ANILLO {match.Groups[1].Value} UC";
+
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        DBDictionary layoutDictionary = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
+        foreach (DBDictionaryEntry entry in layoutDictionary)
         {
-            PromptResult result = editor.GetString(options);
-            if (result.Status != PromptStatus.OK) return null;
-            string value = result.StringResult.Trim();
-            if (value.Length == 0) return null;
-            if (double.TryParse(value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double length) && length >= 0.0)
-                return value;
-            editor.WriteMessage("\nIngrese una cantidad numérica mayor o igual a cero.\n");
+            if (string.Equals(entry.Key, expectedName, StringComparison.OrdinalIgnoreCase))
+            {
+                ucLayoutName = entry.Key;
+                transaction.Commit();
+                return true;
+            }
         }
+        transaction.Commit();
+        return false;
     }
 
-    private static double? ReadActivityAmount(Editor editor, UcKey selectedUc)
-    {
-        var options = new PromptDoubleOptions($"\nCantidad para {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)} (ML): ")
-        {
-            AllowZero = false,
-            AllowNegative = false,
-            AllowNone = false
-        };
-        PromptDoubleResult result = editor.GetDouble(options);
-        return result.Status == PromptStatus.OK ? result.Value : null;
-    }
-
-    private static bool TryScanUcs(Database database, out Dictionary<UcKey, double> quantities)
+    private static bool TryScanUcs(Database database, string ucLayoutName, out Dictionary<UcKey, double> quantities)
     {
         quantities = new Dictionary<UcKey, double>();
-        string layoutName = LayoutManager.Current.CurrentLayout;
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        ObjectId layoutId = LayoutManager.Current.GetLayoutId(layoutName);
+        ObjectId layoutId = LayoutManager.Current.GetLayoutId(ucLayoutName);
         var layout = (Layout)transaction.GetObject(layoutId, OpenMode.ForRead);
         var layoutSpace = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-
         foreach (ObjectId objectId in layoutSpace)
         {
             if (transaction.GetObject(objectId, OpenMode.ForRead) is not Dimension dimension) continue;
@@ -195,28 +196,29 @@ public sealed class AnotacionesTool
     private static bool TrySelectActivityUc(Editor editor, IReadOnlyDictionary<UcKey, double> quantities, out UcKey selectedUc)
     {
         selectedUc = default;
-        List<UcKey> available = quantities.Keys
-            .OrderBy(x => GetSurfaceOrder(x.Surface))
-            .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<UcKey> available = quantities.Keys.OrderBy(x => GetSurfaceOrder(x.Surface))
+            .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase).ToList();
         if (available.Count == 0) return false;
-
         editor.WriteMessage("\nSeleccionar UC:\n");
         for (int i = 0; i < available.Count; i++)
         {
             UcKey uc = available[i];
             editor.WriteMessage($"  {i + 1}. {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)} - {FormatQuantity(quantities[uc])} ML\n");
         }
-
         var options = new PromptIntegerOptions("\nEscriba el numero de la UC: ")
-        {
-            AllowNone = false, AllowNegative = false, AllowZero = false,
-            LowerLimit = 1, UpperLimit = available.Count
-        };
+        { AllowNone = false, AllowNegative = false, AllowZero = false, LowerLimit = 1, UpperLimit = available.Count };
         PromptIntegerResult result = editor.GetInteger(options);
         if (result.Status != PromptStatus.OK) return false;
         selectedUc = available[result.Value - 1];
         return true;
+    }
+
+    private static double? ReadActivityAmount(Editor editor, UcKey selectedUc)
+    {
+        var options = new PromptDoubleOptions($"\nCantidad para {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)} (ML): ")
+        { AllowZero = false, AllowNegative = false, AllowNone = false };
+        PromptDoubleResult result = editor.GetDouble(options);
+        return result.Status == PromptStatus.OK ? result.Value : null;
     }
 
     private static string? ReadFreeText(Editor editor)
@@ -262,8 +264,6 @@ public sealed class AnotacionesTool
         return string.Join("\\P", lines);
     }
 
-    private static double ParseNumber(string value) => double.TryParse(value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double number) ? number : 0.0;
-
     private static string? ReadNumber(Editor editor, string prompt)
     {
         var options = new PromptStringOptions($"\n{prompt} (número): ") { AllowSpaces = false };
@@ -283,15 +283,18 @@ public sealed class AnotacionesTool
     }
 
     private static bool IsZero(string value) => double.TryParse(value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double number) && Math.Abs(number) <= 1e-12;
+    private static double ParseNumber(string value) => double.TryParse(value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double number) ? number : 0.0;
 
     private static ObjectId CreateReferenceLine(Database database, Point3d startPoint, Point3d endPoint)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
-        var line = new Line(startPoint, endPoint) { ColorIndex = 256 }; currentSpace.AppendEntity(line); transaction.AddNewlyCreatedDBObject(line, true); transaction.Commit(); return line.ObjectId;
+        var line = new Line(startPoint, endPoint) { ColorIndex = 256 };
+        currentSpace.AppendEntity(line); transaction.AddNewlyCreatedDBObject(line, true); transaction.Commit(); return line.ObjectId;
     }
 
-    private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text, string type, SpiralData? spiralData, ActivityData? activityData)
+    private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text, string type,
+        SpiralData? spiralData, ActivityData? activityData)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
@@ -300,7 +303,6 @@ public sealed class AnotacionesTool
         if (normal.Y < 0.0) normal = -normal;
         Point3d textPoint = endPoint + normal * TextOffset;
         AttachmentPoint attachment = direction.X < -Tolerance.Global.EqualPoint ? AttachmentPoint.TopRight : AttachmentPoint.TopLeft;
-
         var mtext = new MText
         {
             Location = textPoint, Contents = text, TextHeight = TextHeight, Attachment = attachment,
@@ -332,10 +334,9 @@ public sealed class AnotacionesTool
             new((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new((int)DxfCode.ExtendedDataAsciiString, ActivityType),
             new((int)DxfCode.ExtendedDataAsciiString, data.Type),
-            new((int)DxfCode.ExtendedDataReal, data.BaseLength),
-            new((int)DxfCode.ExtendedDataAsciiString, data.Layout)
+            new((int)DxfCode.ExtendedDataAsciiString, data.DetailLayout),
+            new((int)DxfCode.ExtendedDataAsciiString, data.UcLayout)
         };
-
         foreach (UcAssignment assignment in data.Assignments)
         {
             values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, assignment.Uc.Diameter));
@@ -349,14 +350,16 @@ public sealed class AnotacionesTool
     {
         RegAppTable table = (RegAppTable)transaction.GetObject(database.RegAppTableId, OpenMode.ForRead);
         if (table.Has(XDataAppName)) return;
-        table.UpgradeOpen(); var record = new RegAppTableRecord { Name = XDataAppName }; table.Add(record); transaction.AddNewlyCreatedDBObject(record, true);
+        table.UpgradeOpen(); var record = new RegAppTableRecord { Name = XDataAppName };
+        table.Add(record); transaction.AddNewlyCreatedDBObject(record, true);
     }
 
     private static string GetOrCreateLayer(Database database, Transaction transaction, string layerName)
     {
         LayerTable table = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
         if (table.Has(layerName)) return layerName;
-        table.UpgradeOpen(); var layer = new LayerTableRecord { Name = layerName }; table.Add(layer); transaction.AddNewlyCreatedDBObject(layer, true); return layerName;
+        table.UpgradeOpen(); var layer = new LayerTableRecord { Name = layerName };
+        table.Add(layer); transaction.AddNewlyCreatedDBObject(layer, true); return layerName;
     }
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
@@ -425,7 +428,7 @@ public sealed class AnotacionesTool
     }
 
     private sealed record SpiralData(double Pipe, double Unions, double Tees);
-    private sealed record ActivityData(string Type, double BaseLength, string Layout, List<UcAssignment> Assignments);
+    private sealed record ActivityData(string Type, string DetailLayout, string UcLayout, List<UcAssignment> Assignments);
     private sealed record UcAssignment(UcKey Uc, double Quantity);
     private readonly record struct UcKey(string Diameter, string Surface);
     private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
