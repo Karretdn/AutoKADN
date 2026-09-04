@@ -17,7 +17,6 @@
 
   <ItemGroup>
     <Compile Include="..\AutoKADN\**\*.cs" Exclude="..\AutoKADN\bin\**;..\AutoKADN\obj\**" />
-    <Reference Include="System.IO.Compression" />
     <Reference Include="AcCoreMgd">
       <HintPath>$(AutoCADInstallDir)\AcCoreMgd.dll</HintPath>
       <Private>false</Private>
