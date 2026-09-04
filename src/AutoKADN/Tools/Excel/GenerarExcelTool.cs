@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -15,6 +16,7 @@ namespace AutoKADN.Tools.Excel;
 
 public sealed class GenerarExcelTool
 {
+    private const string TemplateFileName = "FORMATO LEGALIZACION OBRA CIVIL_FT-09-PD-O-02 (V-2).xlsx";
     private const string TargetSheetName = "Formato de legalización.";
     private const string TargetCell = "D14";
     private const string ActivityDefinedName = "ACTIVIDAD";
@@ -56,30 +58,10 @@ public sealed class GenerarExcelTool
 
         try
         {
-            PromptOpenFileOptions openOptions = new PromptOpenFileOptions("\nSeleccione la plantilla Excel base: ")
+            string templatePath = SelectTemplatePath(editor);
+            if (string.IsNullOrWhiteSpace(templatePath))
             {
-                Filter = "Excel (*.xlsx)|*.xlsx",
-                DialogCaption = "Seleccionar plantilla Excel base"
-            };
-
-            PromptFileNameResult openResult = editor.GetFileNameForOpen(openOptions);
-            if (openResult.Status != PromptStatus.OK)
-            {
-                editor.WriteMessage("\nGeneración cancelada.\n");
-                return;
-            }
-
-            string templatePath = EnsureXlsxExtension(openResult.StringResult);
-            if (!File.Exists(templatePath))
-            {
-                editor.WriteMessage("\nLa plantilla seleccionada no existe.\n");
-                return;
-            }
-
-            string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath));
-            if (string.IsNullOrWhiteSpace(outputDirectory))
-            {
-                editor.WriteMessage("\nNo se pudo determinar la carpeta de la plantilla seleccionada.\n");
+                editor.WriteMessage("\nGeneración cancelada: no se seleccionó la plantilla base.\n");
                 return;
             }
 
@@ -90,18 +72,32 @@ public sealed class GenerarExcelTool
                 return;
             }
 
-            editor.WriteMessage("\nPlantilla base: " + templatePath + "\n");
-            editor.WriteMessage("Carpeta de salida: " + outputDirectory + "\n");
-            editor.WriteMessage("UC detectadas: " + detectedUcs.Count + "\n");
-
+            string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath));
             int generated = 0;
+
+            editor.WriteMessage("\nUC detectadas: " + detectedUcs.Count + ". Se procesarán una por una.\n");
+
             foreach (UcKey uc in detectedUcs)
             {
-                string outputPath = Path.Combine(outputDirectory, GetSuggestedFileName(uc));
+                string suggestedPath = Path.Combine(outputDirectory, GetSuggestedFileName(uc));
+                PromptSaveFileOptions saveOptions = new PromptSaveFileOptions("\nGuardar Excel para " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ": ")
+                {
+                    Filter = "Excel (*.xlsx)|*.xlsx",
+                    DialogCaption = "Guardar formato - " + uc.Diameter + " Pulg. " + ToDisplaySurface(uc.Surface),
+                    InitialFileName = suggestedPath
+                };
 
+                PromptFileNameResult saveResult = editor.GetFileNameForSave(saveOptions);
+                if (saveResult.Status != PromptStatus.OK)
+                {
+                    editor.WriteMessage("\nSe omitió " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ". Continuando con la siguiente UC.\n");
+                    continue;
+                }
+
+                string outputPath = EnsureXlsxExtension(saveResult.StringResult);
                 if (string.Equals(Path.GetFullPath(outputPath), Path.GetFullPath(templatePath), StringComparison.OrdinalIgnoreCase))
                 {
-                    editor.WriteMessage("\nNo se puede sobrescribir la plantilla base: " + outputPath + "\n");
+                    editor.WriteMessage("\nNo se puede sobrescribir la plantilla original. Se omitirá esta UC y se continuará con la siguiente.\n");
                     continue;
                 }
 
@@ -110,15 +106,30 @@ public sealed class GenerarExcelTool
                 SetActivitySelection(outputPath, uc);
 
                 generated++;
-                editor.WriteMessage("Generado: " + Path.GetFileName(outputPath) + "\n");
+                editor.WriteMessage("Excel generado: " + outputPath + "\n");
             }
 
-            editor.WriteMessage("\nProceso terminado. Se generaron " + generated + " formato(s) Excel en la carpeta de la plantilla.\n");
+            editor.WriteMessage("\nProceso terminado. Se generaron " + generated + " de " + detectedUcs.Count + " formato(s) Excel.\n");
         }
         catch (Exception ex)
         {
             editor.WriteMessage("\nError generando Excel: " + ex.Message + "\n");
         }
+    }
+
+    private static string SelectTemplatePath(Editor editor)
+    {
+        PromptOpenFileOptions options = new PromptOpenFileOptions("\nSeleccione la plantilla Excel base: ")
+        {
+            Filter = "Excel (*.xlsx)|*.xlsx",
+            DialogCaption = "Seleccionar plantilla Excel base",
+            PreferCommandLine = false
+        };
+
+        PromptFileNameResult result = editor.GetFileNameForOpen(options);
+        if (result.Status != PromptStatus.OK) return null;
+        string path = result.StringResult;
+        return File.Exists(path) ? Path.GetFullPath(path) : null;
     }
 
     private static List<UcKey> ScanUcs(Database database)
@@ -137,7 +148,8 @@ public sealed class GenerarExcelTool
                     Dimension dimension = transaction.GetObject(objectId, OpenMode.ForRead) as Dimension;
                     if (dimension == null) continue;
                     string diameter = GetUcDiameter(dimension.Layer);
-                    string surface = diameter == null ? null : GetSurface(transaction, dimension);
+                    if (diameter == null) continue;
+                    string surface = GetSurface(transaction, dimension);
                     double value;
                     if (surface == null || !TryGetDisplayedDimensionValue(dimension, out value)) continue;
                     detected.Add(new UcKey(diameter, surface));
@@ -185,6 +197,13 @@ public sealed class GenerarExcelTool
         return match.Success && double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
+    private static string FindTemplatePath(Database database)
+    {
+        string drawingDirectory = null;
+        try { drawingDirectory = Path.GetDirectoryName(database.Filename); } catch { }
+        return string.IsNullOrWhiteSpace(drawingDirectory) ? null : Path.Combine(drawingDirectory, TemplateFileName);
+    }
+
     private static void SetActivitySelection(string path, UcKey uc)
     {
         using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
@@ -218,19 +237,16 @@ public sealed class GenerarExcelTool
 
             XElement worksheet = LoadXml(worksheetEntry);
             XElement sheetData = worksheet.Element(mainNs + "sheetData");
-            if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
-            XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
-            if (row == null) { row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
+            XElement row = sheetData == null ? null : sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
+            if (row == null) { if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData."); row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
             XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.OrdinalIgnoreCase));
             if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell)); row.Add(cell); }
-
             XAttribute style = cell.Attribute("s");
             cell.RemoveNodes();
             cell.SetAttributeValue("t", "inlineStr");
             if (style != null) cell.SetAttributeValue("s", style.Value);
             cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", new XAttribute(xmlNs + "space", "preserve"), activity)));
             SaveXml(archive, worksheetPath, worksheetEntry, worksheet);
-
             SetWorkbookCalculationMode(archive, workbook, mainNs);
             RemoveCalculationChain(archive, workbookRels, packageRelNs);
         }
@@ -241,10 +257,8 @@ public sealed class GenerarExcelTool
         XElement definedNames = workbook.Element(mainNs + "definedNames");
         XElement definedName = definedNames == null ? null : definedNames.Elements(mainNs + "definedName").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), ActivityDefinedName, StringComparison.OrdinalIgnoreCase));
         if (definedName == null) throw new InvalidDataException("No se encontró el nombre definido 'ACTIVIDAD'.");
-
         Match match = Regex.Match(definedName.Value.Trim(), @"^'?((?:[^']|'')+)'?!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$", RegexOptions.IgnoreCase);
         if (!match.Success) throw new InvalidDataException("No se pudo interpretar el rango ACTIVIDAD.");
-
         string sourceSheetName = match.Groups[1].Value.Replace("''", "'");
         string column = match.Groups[2].Value;
         int startRow = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
@@ -252,21 +266,18 @@ public sealed class GenerarExcelTool
         XElement sheets = workbook.Element(mainNs + "sheets");
         XElement sourceSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), sourceSheetName, StringComparison.OrdinalIgnoreCase));
         if (sourceSheet == null) throw new InvalidDataException("No se encontró la hoja origen de ACTIVIDAD.");
-
         string sourceRelId = (string)sourceSheet.Attribute(relNs + "id");
         XElement sourceRel = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), sourceRelId, StringComparison.Ordinal));
         if (sourceRel == null) throw new InvalidDataException("No se encontró la relación de la hoja origen de ACTIVIDAD.");
         string sourcePath = ResolveZipPath("xl/workbook.xml", (string)sourceRel.Attribute("Target"));
         ZipArchiveEntry sourceEntry = archive.GetEntry(sourcePath);
         if (sourceEntry == null) throw new InvalidDataException("No se encontró la hoja origen de ACTIVIDAD.");
-
         XElement sourceXml = LoadXml(sourceEntry);
         XElement sheetData = sourceXml.Element(mainNs + "sheetData");
         if (sheetData == null) return null;
         Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
         string diameterToken = NormalizeActivityText(uc.Diameter + " PULG");
         string surfaceToken = NormalizeActivityText(GetDropdownSurfaceToken(uc.Surface));
-
         for (int r = startRow; r <= endRow; r++)
         {
             XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), r.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
@@ -280,11 +291,7 @@ public sealed class GenerarExcelTool
         return null;
     }
 
-    private static string GetDropdownSurfaceToken(string surface)
-    {
-        if (string.Equals(surface, "ASFALTO", StringComparison.OrdinalIgnoreCase)) return "CALZADA ASFALTO";
-        return surface;
-    }
+    private static string GetDropdownSurfaceToken(string surface) => string.Equals(surface, "ASFALTO", StringComparison.OrdinalIgnoreCase) ? "CALZADA ASFALTO" : surface;
 
     private static string NormalizeActivityText(string value)
     {
@@ -342,7 +349,6 @@ public sealed class GenerarExcelTool
         foreach (XElement rel in workbookRels.Elements(packageRelNs + "Relationship").Where(x => string.Equals((string)x.Attribute("Type"), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain", StringComparison.OrdinalIgnoreCase) || string.Equals((string)x.Attribute("Target"), "calcChain.xml", StringComparison.OrdinalIgnoreCase)).ToList()) rel.Remove();
         ZipArchiveEntry relEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
         SaveXml(archive, "xl/_rels/workbook.xml.rels", relEntry, workbookRels);
-
         ZipArchiveEntry contentEntry = archive.GetEntry("[Content_Types].xml");
         if (contentEntry != null)
         {
@@ -353,10 +359,7 @@ public sealed class GenerarExcelTool
         }
     }
 
-    private static XElement LoadXml(ZipArchiveEntry entry)
-    {
-        using (Stream stream = entry.Open()) return XElement.Load(stream, LoadOptions.PreserveWhitespace);
-    }
+    private static XElement LoadXml(ZipArchiveEntry entry) { using (Stream stream = entry.Open()) return XElement.Load(stream, LoadOptions.PreserveWhitespace); }
 
     private static void SaveXml(ZipArchive archive, string entryName, ZipArchiveEntry oldEntry, XElement document)
     {
@@ -377,13 +380,6 @@ public sealed class GenerarExcelTool
             parts.Add(part);
         }
         return string.Join("/", parts);
-    }
-
-    private static string GetSuggestedFileName(UcKey uc)
-    {
-        string code;
-        if (!SurfaceFileCode.TryGetValue(uc.Surface, out code)) code = "UC";
-        return code + " " + (uc.Diameter == "1/2" ? "1-2" : "3-4") + " PULG.xlsx";
     }
 
     private static string EnsureXlsxExtension(string path) => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
