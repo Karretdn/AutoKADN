@@ -7,7 +7,6 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -16,7 +15,6 @@ namespace AutoKADN.Tools.Excel;
 
 public sealed class GenerarExcelTool
 {
-    private const string TemplateFileName = "FORMATO LEGALIZACION OBRA CIVIL_FT-09-PD-O-02 (V-2).xlsx";
     private const string TargetSheetName = "Formato de legalización.";
     private const string TargetCell = "D14";
     private const string ActivityDefinedName = "ACTIVIDAD";
@@ -58,10 +56,30 @@ public sealed class GenerarExcelTool
 
         try
         {
-            string templatePath = FindTemplatePath(database);
-            if (templatePath == null)
+            PromptOpenFileOptions openOptions = new PromptOpenFileOptions("\nSeleccione la plantilla Excel base: ")
             {
-                editor.WriteMessage("\nNo se encontró la plantilla '" + TemplateFileName + "'.\n");
+                Filter = "Excel (*.xlsx)|*.xlsx",
+                DialogCaption = "Seleccionar plantilla Excel base"
+            };
+
+            PromptFileNameResult openResult = editor.GetFileNameForOpen(openOptions);
+            if (openResult.Status != PromptStatus.OK)
+            {
+                editor.WriteMessage("\nGeneración cancelada.\n");
+                return;
+            }
+
+            string templatePath = EnsureXlsxExtension(openResult.StringResult);
+            if (!File.Exists(templatePath))
+            {
+                editor.WriteMessage("\nLa plantilla seleccionada no existe.\n");
+                return;
+            }
+
+            string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath));
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                editor.WriteMessage("\nNo se pudo determinar la carpeta de la plantilla seleccionada.\n");
                 return;
             }
 
@@ -72,42 +90,30 @@ public sealed class GenerarExcelTool
                 return;
             }
 
-            string lastDirectory = null;
+            editor.WriteMessage("\nPlantilla base: " + templatePath + "\n");
+            editor.WriteMessage("Carpeta de salida: " + outputDirectory + "\n");
+            editor.WriteMessage("UC detectadas: " + detectedUcs.Count + "\n");
+
             int generated = 0;
             foreach (UcKey uc in detectedUcs)
             {
-                PromptSaveFileOptions saveOptions = new PromptSaveFileOptions("\nGuardar formato Excel: ")
-                {
-                    Filter = "Excel (*.xlsx)|*.xlsx",
-                    DialogCaption = "Guardar formato - " + uc.Diameter + " Pulg. " + ToDisplaySurface(uc.Surface),
-                    InitialFileName = BuildInitialFileName(lastDirectory, uc)
-                };
+                string outputPath = Path.Combine(outputDirectory, GetSuggestedFileName(uc));
 
-                PromptFileNameResult saveResult = editor.GetFileNameForSave(saveOptions);
-                if (saveResult.Status != PromptStatus.OK)
-                {
-                    editor.WriteMessage("\nGeneración cancelada.\n");
-                    return;
-                }
-
-                string outputPath = EnsureXlsxExtension(saveResult.StringResult);
                 if (string.Equals(Path.GetFullPath(outputPath), Path.GetFullPath(templatePath), StringComparison.OrdinalIgnoreCase))
                 {
-                    editor.WriteMessage("\nNo se puede sobrescribir la plantilla original. Seleccione otro archivo.\n");
-                    return;
+                    editor.WriteMessage("\nNo se puede sobrescribir la plantilla base: " + outputPath + "\n");
+                    continue;
                 }
 
-                string selectedDirectory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
-                if (!string.IsNullOrWhiteSpace(selectedDirectory)) lastDirectory = selectedDirectory;
                 if (File.Exists(outputPath)) File.Delete(outputPath);
                 File.Copy(templatePath, outputPath, true);
-
                 SetActivitySelection(outputPath, uc);
+
                 generated++;
-                editor.WriteMessage("Excel generado: " + outputPath + "\n");
+                editor.WriteMessage("Generado: " + Path.GetFileName(outputPath) + "\n");
             }
 
-            editor.WriteMessage("\nProceso terminado. Se generaron " + generated + " formato(s) Excel.\n");
+            editor.WriteMessage("\nProceso terminado. Se generaron " + generated + " formato(s) Excel en la carpeta de la plantilla.\n");
         }
         catch (Exception ex)
         {
@@ -179,30 +185,6 @@ public sealed class GenerarExcelTool
         return match.Success && double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
-    private static string FindTemplatePath(Database database)
-    {
-        var candidates = new List<string>();
-        string assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        if (!string.IsNullOrWhiteSpace(assemblyDirectory))
-        {
-            string current = assemblyDirectory;
-            for (int i = 0; i < 8 && !string.IsNullOrWhiteSpace(current); i++)
-            {
-                candidates.Add(Path.Combine(current, TemplateFileName));
-                DirectoryInfo parent = Directory.GetParent(current);
-                current = parent == null ? null : parent.FullName;
-            }
-        }
-        candidates.Add(Path.Combine(AppContext.BaseDirectory, TemplateFileName));
-        try
-        {
-            string drawingDirectory = Path.GetDirectoryName(database.Filename);
-            if (!string.IsNullOrWhiteSpace(drawingDirectory)) candidates.Add(Path.Combine(drawingDirectory, TemplateFileName));
-        }
-        catch { }
-        return candidates.Where(File.Exists).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
-    }
-
     private static void SetActivitySelection(string path, UcKey uc)
     {
         using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
@@ -236,10 +218,12 @@ public sealed class GenerarExcelTool
 
             XElement worksheet = LoadXml(worksheetEntry);
             XElement sheetData = worksheet.Element(mainNs + "sheetData");
-            XElement row = sheetData == null ? null : sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
-            if (row == null) { if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData."); row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
+            if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
+            XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
+            if (row == null) { row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
             XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.OrdinalIgnoreCase));
             if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell)); row.Add(cell); }
+
             XAttribute style = cell.Attribute("s");
             cell.RemoveNodes();
             cell.SetAttributeValue("t", "inlineStr");
@@ -393,12 +377,6 @@ public sealed class GenerarExcelTool
             parts.Add(part);
         }
         return string.Join("/", parts);
-    }
-
-    private static string BuildInitialFileName(string lastDirectory, UcKey uc)
-    {
-        string name = GetSuggestedFileName(uc);
-        return string.IsNullOrWhiteSpace(lastDirectory) ? name : Path.Combine(lastDirectory, name);
     }
 
     private static string GetSuggestedFileName(UcKey uc)
