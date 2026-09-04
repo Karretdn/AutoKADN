@@ -9,6 +9,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -21,6 +22,7 @@ public sealed class GenerarExcelTool
     private const string TargetCell = "D14";
     private const string UcLayerHalf = "UC_1-2";
     private const string UcLayerThreeQuarter = "UC_3-4";
+    private const string ActivityDefinedName = "ACTIVIDAD";
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -39,27 +41,6 @@ public sealed class GenerarExcelTool
         "ZONA VERDE", "ANDEN CONCRETO", "CALZADA CONCRETO", "ANDEN TABLETA",
         "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
     };
-
-    private static readonly Dictionary<string, string> ExcelActivityByKey =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["3/4|ANDEN CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ANDEN CONCRETO",
-            ["3/4|ANDEN TABLETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ANDÉN TABLETA, BALDOSÍN, GRAVILLA",
-            ["3/4|ASFALTO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN CALZADA ASFALTO",
-            ["3/4|CALZADA CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN CALZADA CONCRETO",
-            ["3/4|ZONA VERDE"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ZONA VERDE",
-            ["3/4|DESTAPADO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN DESTAPADO",
-            ["3/4|CUNETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN CUNETA",
-            ["3/4|ADOQUIN"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 3/4 PULG. EN ADOQUIN",
-            ["1/2|ANDEN CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ANDEN CONCRETO",
-            ["1/2|ANDEN TABLETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ANDÉN TABLETA, BALDOSÍN, GRAVILLA",
-            ["1/2|ASFALTO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN CALZADA ASFALTO",
-            ["1/2|CALZADA CONCRETO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN CALZADA CONCRETO",
-            ["1/2|ZONA VERDE"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ZONA VERDE",
-            ["1/2|DESTAPADO"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN DESTAPADO",
-            ["1/2|CUNETA"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN CUNETA",
-            ["1/2|ADOQUIN"] = "CANALIZACION TUBERÍA DE POLIETILENO DE 1/2 PULG. EN ADOQUIN"
-        };
 
     private static readonly Dictionary<string, string> SurfaceFileCode =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -103,13 +84,6 @@ public sealed class GenerarExcelTool
             int generated = 0;
             foreach (UcKey uc in detectedUcs)
             {
-                string activity = GetExcelActivity(uc);
-                if (activity.Length == 0)
-                {
-                    editor.WriteMessage("\nNo existe correspondencia en el formato para " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ".\n");
-                    return;
-                }
-
                 PromptSaveFileOptions saveOptions = new PromptSaveFileOptions("\nGuardar formato Excel: ")
                 {
                     Filter = "Excel (*.xlsx)|*.xlsx",
@@ -136,7 +110,7 @@ public sealed class GenerarExcelTool
 
                 if (File.Exists(outputPath)) File.Delete(outputPath);
                 File.Copy(templatePath, outputPath, true);
-                SetActivitySelection(outputPath, activity);
+                SetActivitySelection(outputPath, uc);
 
                 generated++;
                 editor.WriteMessage("Excel generado: " + outputPath + "\n");
@@ -227,14 +201,6 @@ public sealed class GenerarExcelTool
         return double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
-    private static string GetExcelActivity(UcKey uc)
-    {
-        string activity;
-        return ExcelActivityByKey.TryGetValue(BuildKey(uc), out activity) ? activity : string.Empty;
-    }
-
-    private static string BuildKey(UcKey uc) => uc.Diameter + "|" + uc.Surface;
-
     private static string GetSuggestedFileName(UcKey uc)
     {
         string surfaceCode;
@@ -267,7 +233,7 @@ public sealed class GenerarExcelTool
         return candidates.Where(File.Exists).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
     }
 
-    private static void SetActivitySelection(string path, string activity)
+    private static void SetActivitySelection(string path, UcKey uc)
     {
         using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Update, false))
@@ -275,23 +241,34 @@ public sealed class GenerarExcelTool
             XNamespace mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
             XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
             XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+
             ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml");
             if (workbookEntry == null) throw new InvalidDataException("La plantilla no contiene xl/workbook.xml.");
             ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
             if (workbookRelsEntry == null) throw new InvalidDataException("La plantilla no contiene las relaciones del workbook.");
+
             XElement workbook = LoadXml(workbookEntry);
             XElement workbookRels = LoadXml(workbookRelsEntry);
             XElement sheets = workbook.Element(mainNs + "sheets");
             XElement targetSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), TargetSheetName, StringComparison.OrdinalIgnoreCase));
             if (targetSheet == null) throw new InvalidDataException("No se encontró la hoja '" + TargetSheetName + "'.");
+
             string relationshipId = (string)targetSheet.Attribute(relNs + "id");
             if (string.IsNullOrWhiteSpace(relationshipId)) throw new InvalidDataException("La hoja no tiene relación XML.");
             XElement relationship = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relationshipId, StringComparison.Ordinal));
             if (relationship == null) throw new InvalidDataException("No se encontró la relación XML de la hoja.");
+
             string target = (string)relationship.Attribute("Target");
             string worksheetPath = ResolveZipPath("xl/workbook.xml", target);
             ZipArchiveEntry worksheetEntry = archive.GetEntry(worksheetPath);
             if (worksheetEntry == null) throw new InvalidDataException("No se encontró la hoja XML.");
+
+            string activity = FindDropdownActivity(archive, workbook, workbookRels, mainNs, relNs, packageRelNs, uc);
+            if (activity == null)
+            {
+                throw new InvalidDataException("No se encontró en la lista desplegable ACTIVIDAD una opción compatible con " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ".");
+            }
+
             XElement worksheet = LoadXml(worksheetEntry);
             XElement sheetData = worksheet.Element(mainNs + "sheetData");
             if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
@@ -299,6 +276,7 @@ public sealed class GenerarExcelTool
             if (row == null) { row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
             XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.Ordinal));
             if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell)); row.Add(cell); }
+
             XAttribute style = cell.Attribute("s");
             cell.RemoveNodes();
             cell.SetAttributeValue("t", "inlineStr");
@@ -307,8 +285,119 @@ public sealed class GenerarExcelTool
             SaveXml(worksheetEntry, worksheet);
 
             SetWorkbookCalculationMode(archive, workbook, mainNs);
-            RemoveCalculationChain(archive);
+            RemoveCalculationChain(archive, workbookRels, packageRelNs);
         }
+    }
+
+    private static string FindDropdownActivity(ZipArchive archive, XElement workbook, XElement workbookRels, XNamespace mainNs, XNamespace relNs, XNamespace packageRelNs, UcKey uc)
+    {
+        XElement definedNames = workbook.Element(mainNs + "definedNames");
+        XElement definedName = definedNames == null ? null : definedNames.Elements(mainNs + "definedName").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), ActivityDefinedName, StringComparison.OrdinalIgnoreCase));
+        if (definedName == null || string.IsNullOrWhiteSpace(definedName.Value))
+            throw new InvalidDataException("La plantilla no contiene el nombre definido '" + ActivityDefinedName + "'.");
+
+        Match rangeMatch = Regex.Match(definedName.Value.Trim(), @"^'?((?:[^']|'')+)'?!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$", RegexOptions.IgnoreCase);
+        if (!rangeMatch.Success)
+            throw new InvalidDataException("No se pudo interpretar el rango definido '" + definedName.Value + "'.");
+
+        string sheetName = rangeMatch.Groups[1].Value.Replace("''", "'");
+        string startColumn = rangeMatch.Groups[2].Value;
+        int startRow = int.Parse(rangeMatch.Groups[3].Value, CultureInfo.InvariantCulture);
+        string endColumn = rangeMatch.Groups[4].Value;
+        int endRow = int.Parse(rangeMatch.Groups[5].Value, CultureInfo.InvariantCulture);
+
+        if (!string.Equals(startColumn, endColumn, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("El rango ACTIVIDAD debe corresponder a una sola columna.");
+
+        XElement sheets = workbook.Element(mainNs + "sheets");
+        XElement sheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), sheetName, StringComparison.OrdinalIgnoreCase));
+        if (sheet == null) throw new InvalidDataException("No se encontró la hoja origen de la lista ACTIVIDAD: '" + sheetName + "'.");
+
+        string sheetRelId = (string)sheet.Attribute(relNs + "id");
+        XElement sheetRel = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), sheetRelId, StringComparison.Ordinal));
+        if (sheetRel == null) throw new InvalidDataException("No se encontró la relación de la hoja origen de ACTIVIDAD.");
+
+        string sheetTarget = (string)sheetRel.Attribute("Target");
+        string sourceSheetPath = ResolveZipPath("xl/workbook.xml", sheetTarget);
+        ZipArchiveEntry sourceEntry = archive.GetEntry(sourceSheetPath);
+        if (sourceEntry == null) throw new InvalidDataException("No se encontró la hoja XML origen de ACTIVIDAD.");
+
+        Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
+        XElement sourceSheet = LoadXml(sourceEntry);
+        XElement sheetData = sourceSheet.Element(mainNs + "sheetData");
+        if (sheetData == null) return null;
+
+        string diameterToken = NormalizeActivityText(uc.Diameter + " PULG");
+        string surfaceToken = NormalizeActivityText(GetDropdownSurfaceToken(uc.Surface));
+
+        for (int rowNumber = startRow; rowNumber <= endRow; rowNumber++)
+        {
+            XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
+            if (row == null) continue;
+            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), startColumn + rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
+            if (cell == null) continue;
+
+            string value = ReadCellText(cell, mainNs, sharedStrings);
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            string normalized = NormalizeActivityText(value);
+
+            if (normalized.Contains(diameterToken, StringComparison.Ordinal) && normalized.Contains(surfaceToken, StringComparison.Ordinal))
+                return value.Trim();
+        }
+
+        return null;
+    }
+
+    private static string GetDropdownSurfaceToken(string surface)
+    {
+        if (string.Equals(surface, "ASFALTO", StringComparison.OrdinalIgnoreCase)) return "CALZADA ASFALTO";
+        if (string.Equals(surface, "ANDEN TABLETA", StringComparison.OrdinalIgnoreCase)) return "ANDEN TABLETA";
+        return surface;
+    }
+
+    private static string NormalizeActivityText(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        string decomposed = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+        foreach (char character in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark) continue;
+            builder.Append(char.ToUpperInvariant(character));
+        }
+        return Regex.Replace(builder.ToString(), @"\s+", "").Trim();
+    }
+
+    private static Dictionary<int, string> LoadSharedStrings(ZipArchive archive, XNamespace mainNs)
+    {
+        var result = new Dictionary<int, string>();
+        ZipArchiveEntry entry = archive.GetEntry("xl/sharedStrings.xml");
+        if (entry == null) return result;
+        XElement root = LoadXml(entry);
+        int index = 0;
+        foreach (XElement si in root.Elements(mainNs + "si"))
+        {
+            string value = string.Concat(si.Descendants(mainNs + "t").Select(x => x.Value));
+            result[index++] = value;
+        }
+        return result;
+    }
+
+    private static string ReadCellText(XElement cell, XNamespace mainNs, Dictionary<int, string> sharedStrings)
+    {
+        string type = (string)cell.Attribute("t");
+        if (string.Equals(type, "inlineStr", StringComparison.OrdinalIgnoreCase))
+            return string.Concat(cell.Descendants(mainNs + "t").Select(x => x.Value));
+
+        XElement value = cell.Element(mainNs + "v");
+        if (value == null) return string.Empty;
+        if (string.Equals(type, "s", StringComparison.OrdinalIgnoreCase))
+        {
+            int index;
+            if (int.TryParse(value.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out index) && sharedStrings.TryGetValue(index, out string shared)) return shared;
+            return string.Empty;
+        }
+        return value.Value;
     }
 
     private static void SetWorkbookCalculationMode(ZipArchive archive, XElement workbook, XNamespace mainNs)
@@ -330,10 +419,30 @@ public sealed class GenerarExcelTool
         SaveXml(workbookEntry, workbook);
     }
 
-    private static void RemoveCalculationChain(ZipArchive archive)
+    private static void RemoveCalculationChain(ZipArchive archive, XElement workbookRels, XNamespace packageRelNs)
     {
         ZipArchiveEntry calculationChain = archive.GetEntry("xl/calcChain.xml");
         if (calculationChain != null) calculationChain.Delete();
+
+        var calcRelationships = workbookRels.Elements(packageRelNs + "Relationship")
+            .Where(x => string.Equals((string)x.Attribute("Type"), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals((string)x.Attribute("Target"), "calcChain.xml", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (XElement relationship in calcRelationships) relationship.Remove();
+
+        ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
+        if (workbookRelsEntry != null) SaveXml(workbookRelsEntry, workbookRels);
+
+        ZipArchiveEntry contentTypesEntry = archive.GetEntry("[Content_Types].xml");
+        if (contentTypesEntry != null)
+        {
+            XNamespace contentNs = "http://schemas.openxmlformats.org/package/2006/content-types";
+            XElement contentTypes = LoadXml(contentTypesEntry);
+            foreach (XElement overrideElement in contentTypes.Elements(contentNs + "Override")
+                         .Where(x => string.Equals((string)x.Attribute("PartName"), "/xl/calcChain.xml", StringComparison.OrdinalIgnoreCase)).ToList())
+                overrideElement.Remove();
+            SaveXml(contentTypesEntry, contentTypes);
+        }
     }
 
     private static XElement LoadXml(ZipArchiveEntry entry) { using (Stream stream = entry.Open()) return XElement.Load(stream, LoadOptions.PreserveWhitespace); }
