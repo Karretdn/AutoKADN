@@ -382,6 +382,14 @@ public sealed class GenerarExcelTool
         return string.Join("/", parts);
     }
 
+    private static string GetSuggestedFileName(UcKey uc)
+    {
+        string surfaceCode;
+        if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode)) surfaceCode = "UC";
+        string diameterCode = uc.Diameter == "1/2" ? "1-2" : "3-4";
+        return surfaceCode + " " + diameterCode + " PULG.xlsx";
+    }
+
     private static string EnsureXlsxExtension(string path) => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
     private static string ToDisplaySurface(string surface) => surface == "ANDEN TABLETA" ? "ANDÉN TABLETA, BALDOSÍN, GRAVILLA" : surface;
     private static int GetSurfaceOrder(string surface) { int i = Array.FindIndex(SurfaceOrder, x => string.Equals(x, surface, StringComparison.OrdinalIgnoreCase)); return i < 0 ? int.MaxValue : i; }
