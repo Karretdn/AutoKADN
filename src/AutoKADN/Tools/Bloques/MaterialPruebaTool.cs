@@ -16,6 +16,14 @@ public sealed class MaterialPruebaTool
     private const string UcLayerHalf = "UC_1-2";
     private const string UcLayerThreeQuarter = "UC_3-4";
 
+    private static readonly Regex DetailLayoutPattern = new(
+        @"^ANILLO\s+(\d+)\s+DETALLE$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex UcLayoutPattern = new(
+        @"^ANILLO\s+(\d+)\s+UC$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private static readonly TestMaterial[] Materials =
     {
         new("UNION", "3/4\"", "UND"),
@@ -47,9 +55,17 @@ public sealed class MaterialPruebaTool
         Database database = document.Database;
         string layoutName = LayoutManager.Current.CurrentLayout;
 
-        if (!TryScanUcs(database, out Dictionary<UcKey, double> availableUcs))
+        if (!TryGetPairedUcLayout(database, layoutName, out string ucLayoutName, out ObjectId ucLayoutId))
         {
-            editor.WriteMessage("\nNo se encontraron cotas UC válidas en el layout actual.\n");
+            editor.WriteMessage($"\nNo se encontró la pareja UC para el layout '{layoutName}'. Debe existir 'ANILLO X UC' con el mismo número.\n");
+            return;
+        }
+
+        editor.WriteMessage($"\nLeyendo UC desde '{ucLayoutName}' para '{layoutName}'.\n");
+
+        if (!TryScanUcs(database, ucLayoutId, out Dictionary<UcKey, double> availableUcs))
+        {
+            editor.WriteMessage($"\nNo se encontraron cotas UC válidas en el layout '{ucLayoutName}'.\n");
             return;
         }
 
@@ -79,13 +95,40 @@ public sealed class MaterialPruebaTool
         editor.WriteMessage($"\nMaterial de prueba generado en el layout '{layoutName}'.\n");
     }
 
-    private static bool TryScanUcs(Database database, out Dictionary<UcKey, double> quantities)
+    private static bool TryGetPairedUcLayout(Database database, string detailLayoutName, out string ucLayoutName, out ObjectId ucLayoutId)
+    {
+        ucLayoutName = string.Empty;
+        ucLayoutId = ObjectId.Null;
+
+        Match detailMatch = DetailLayoutPattern.Match(detailLayoutName.Trim());
+        if (!detailMatch.Success) return false;
+        string ringNumber = detailMatch.Groups[1].Value;
+
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        DBDictionary layoutDictionary = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
+
+        foreach (DBDictionaryEntry entry in layoutDictionary)
+        {
+            string candidateName = entry.Key.Trim();
+            Match ucMatch = UcLayoutPattern.Match(candidateName);
+            if (!ucMatch.Success) continue;
+            if (!string.Equals(ucMatch.Groups[1].Value, ringNumber, StringComparison.Ordinal)) continue;
+
+            ucLayoutName = candidateName;
+            ucLayoutId = entry.Value;
+            transaction.Commit();
+            return true;
+        }
+
+        transaction.Commit();
+        return false;
+    }
+
+    private static bool TryScanUcs(Database database, ObjectId ucLayoutId, out Dictionary<UcKey, double> quantities)
     {
         quantities = new Dictionary<UcKey, double>();
-        string layoutName = LayoutManager.Current.CurrentLayout;
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        ObjectId layoutId = LayoutManager.Current.GetLayoutId(layoutName);
-        var layout = (Layout)transaction.GetObject(layoutId, OpenMode.ForRead);
+        var layout = (Layout)transaction.GetObject(ucLayoutId, OpenMode.ForRead);
         var layoutSpace = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
 
         foreach (ObjectId objectId in layoutSpace)
@@ -277,7 +320,7 @@ public sealed class MaterialPruebaTool
 
     private static string? GetSurface(Transaction transaction, Dimension dimension)
     {
-        Autodesk.AutoCAD.Colors.Color color = dimension.Color;
+        Color color = dimension.Color;
         if (color.ColorIndex == 256 || color.IsByLayer)
         {
             ObjectId layerId = dimension.LayerId;
