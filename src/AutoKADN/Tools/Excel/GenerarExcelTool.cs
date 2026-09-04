@@ -36,14 +36,8 @@ public sealed class GenerarExcelTool
 
     private static readonly string[] SurfaceOrder =
     {
-        "ZONA VERDE",
-        "ANDEN CONCRETO",
-        "CALZADA CONCRETO",
-        "ANDEN TABLETA",
-        "ADOQUIN",
-        "ASFALTO",
-        "CUNETA",
-        "DESTAPADO"
+        "ZONA VERDE", "ANDEN CONCRETO", "CALZADA CONCRETO", "ANDEN TABLETA",
+        "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
     };
 
     private static readonly Dictionary<string, string> ExcelActivityByKey =
@@ -70,21 +64,15 @@ public sealed class GenerarExcelTool
     private static readonly Dictionary<string, string> SurfaceFileCode =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["ZONA VERDE"] = "ZV",
-            ["ANDEN CONCRETO"] = "AC",
-            ["CALZADA CONCRETO"] = "CC",
-            ["ADOQUIN"] = "ADO",
-            ["DESTAPADO"] = "DES",
-            ["ANDEN TABLETA"] = "AT",
-            ["CUNETA"] = "CUN",
-            ["ASFALTO"] = "ASF"
+            ["ZONA VERDE"] = "ZV", ["ANDEN CONCRETO"] = "AC", ["CALZADA CONCRETO"] = "CC",
+            ["ADOQUIN"] = "ADO", ["DESTAPADO"] = "DES", ["ANDEN TABLETA"] = "AT",
+            ["CUNETA"] = "CUN", ["ASFALTO"] = "ASF"
         };
 
     public void Run()
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
         if (document == null) return;
-
         Editor editor = document.Editor;
         Database database = document.Database;
 
@@ -93,7 +81,7 @@ public sealed class GenerarExcelTool
             string templatePath = FindTemplatePath(database);
             if (templatePath == null)
             {
-                editor.WriteMessage("\nNo se encontró la plantilla '" + TemplateFileName + "' en la raíz del proyecto ni junto al DLL.\n");
+                editor.WriteMessage("\nNo se encontró la plantilla '" + TemplateFileName + "'.\n");
                 return;
             }
 
@@ -111,6 +99,7 @@ public sealed class GenerarExcelTool
                 editor.WriteMessage("  " + (i + 1) + ". " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + "\n");
             }
 
+            string lastDirectory = null;
             int generated = 0;
             foreach (UcKey uc in detectedUcs)
             {
@@ -121,14 +110,11 @@ public sealed class GenerarExcelTool
                     return;
                 }
 
-                editor.WriteMessage("\nUC " + (generated + 1) + "/" + detectedUcs.Count + ": " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + "\n");
-                editor.WriteMessage("Actividad seleccionada: " + activity + "\n");
-
                 PromptSaveFileOptions saveOptions = new PromptSaveFileOptions("\nGuardar formato Excel: ")
                 {
                     Filter = "Excel (*.xlsx)|*.xlsx",
                     DialogCaption = "Guardar formato - " + uc.Diameter + " Pulg. " + ToDisplaySurface(uc.Surface),
-                    InitialFileName = GetSuggestedFileName(uc)
+                    InitialFileName = BuildInitialFileName(lastDirectory, uc)
                 };
 
                 PromptFileNameResult saveResult = editor.GetFileNameForSave(saveOptions);
@@ -144,6 +130,9 @@ public sealed class GenerarExcelTool
                     editor.WriteMessage("\nNo se puede sobrescribir la plantilla original. Seleccione otro archivo.\n");
                     return;
                 }
+
+                string selectedDirectory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
+                if (!string.IsNullOrWhiteSpace(selectedDirectory)) lastDirectory = selectedDirectory;
 
                 if (File.Exists(outputPath)) File.Delete(outputPath);
                 File.Copy(templatePath, outputPath, true);
@@ -161,54 +150,43 @@ public sealed class GenerarExcelTool
         }
     }
 
+    private static string BuildInitialFileName(string lastDirectory, UcKey uc)
+    {
+        string fileName = GetSuggestedFileName(uc);
+        return string.IsNullOrWhiteSpace(lastDirectory) ? fileName : Path.Combine(lastDirectory, fileName);
+    }
+
     private static List<UcKey> ScanUcs(Database database)
     {
         var detected = new HashSet<UcKey>();
-
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
             DBDictionary layoutDictionary = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
-
             foreach (DBDictionaryEntry entry in layoutDictionary)
             {
                 if (entry.Value.IsNull) continue;
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                if (layout == null) continue;
-
-                string layoutName = layout.LayoutName.Trim();
-                if (!IsUcLayout(layoutName)) continue;
-
+                if (layout == null || !IsUcLayout(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
                     Dimension dimension = transaction.GetObject(objectId, OpenMode.ForRead) as Dimension;
                     if (dimension == null) continue;
-
                     string diameter = GetUcDiameter(dimension.Layer);
                     if (diameter == null) continue;
-
                     string surface = GetSurface(transaction, dimension);
                     if (surface == null) continue;
-
                     double value;
                     if (!TryGetDisplayedDimensionValue(dimension, out value)) continue;
                     detected.Add(new UcKey(diameter, surface));
                 }
             }
-
             transaction.Commit();
         }
-
-        return detected
-            .OrderBy(x => GetSurfaceOrder(x.Surface))
-            .ThenBy(x => DiameterOrder(x.Diameter))
-            .ToList();
+        return detected.OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
     }
 
-    private static bool IsUcLayout(string layoutName)
-    {
-        return Regex.IsMatch(layoutName, @"^ANILLO\s+\d+\s+UC$", RegexOptions.IgnoreCase);
-    }
+    private static bool IsUcLayout(string layoutName) => Regex.IsMatch(layoutName, @"^ANILLO\s+\d+\s+UC$", RegexOptions.IgnoreCase);
 
     private static string GetUcDiameter(string layer)
     {
@@ -229,35 +207,24 @@ public sealed class GenerarExcelTool
                 if (layer != null) color = layer.Color;
             }
         }
-
         foreach (UcSurface surface in Surfaces)
         {
             if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
             if (surface.Red.HasValue && IsSameRgb(color, surface.Red.Value, surface.Green.Value, surface.Blue.Value)) return surface.Name;
         }
-
         return null;
     }
 
-    private static bool IsSameRgb(Color color, int red, int green, int blue)
-    {
-        return color.Red == red && color.Green == green && color.Blue == blue;
-    }
+    private static bool IsSameRgb(Color color, int red, int green, int blue) => color.Red == red && color.Green == green && color.Blue == blue;
 
     private static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
     {
         value = 0.0;
         string text = dimension.DimensionText == null ? string.Empty : dimension.DimensionText.Trim();
         if (string.IsNullOrWhiteSpace(text)) return false;
-
         Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
         if (!match.Success) return false;
-
-        return double.TryParse(
-            match.Value.Replace(',', '.'),
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out value);
+        return double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     private static string GetExcelActivity(UcKey uc)
@@ -266,17 +233,12 @@ public sealed class GenerarExcelTool
         return ExcelActivityByKey.TryGetValue(BuildKey(uc), out activity) ? activity : string.Empty;
     }
 
-    private static string BuildKey(UcKey uc)
-    {
-        return uc.Diameter + "|" + uc.Surface;
-    }
+    private static string BuildKey(UcKey uc) => uc.Diameter + "|" + uc.Surface;
 
     private static string GetSuggestedFileName(UcKey uc)
     {
         string surfaceCode;
-        if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode))
-            surfaceCode = "UC";
-
+        if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode)) surfaceCode = "UC";
         string diameterCode = uc.Diameter == "1/2" ? "1-2" : "3-4";
         return surfaceCode + " " + diameterCode + " PULG.xlsx";
     }
@@ -285,7 +247,6 @@ public sealed class GenerarExcelTool
     {
         var candidates = new List<string>();
         string assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-
         if (!string.IsNullOrWhiteSpace(assemblyDirectory))
         {
             string currentDirectory = assemblyDirectory;
@@ -296,25 +257,14 @@ public sealed class GenerarExcelTool
                 currentDirectory = parent == null ? null : parent.FullName;
             }
         }
-
         candidates.Add(Path.Combine(AppContext.BaseDirectory, TemplateFileName));
-
         try
         {
             string drawingDirectory = Path.GetDirectoryName(database.Filename);
-            if (!string.IsNullOrWhiteSpace(drawingDirectory))
-                candidates.Add(Path.Combine(drawingDirectory, TemplateFileName));
+            if (!string.IsNullOrWhiteSpace(drawingDirectory)) candidates.Add(Path.Combine(drawingDirectory, TemplateFileName));
         }
-        catch
-        {
-            // El dibujo puede no tener una ruta de archivo todavía.
-        }
-
-        return candidates
-            .Where(File.Exists)
-            .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+        catch { }
+        return candidates.Where(File.Exists).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
     }
 
     private static void SetActivitySelection(string path, string activity)
@@ -325,88 +275,41 @@ public sealed class GenerarExcelTool
             XNamespace mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
             XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
             XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
-
             ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml");
             if (workbookEntry == null) throw new InvalidDataException("La plantilla no contiene xl/workbook.xml.");
-
             ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
             if (workbookRelsEntry == null) throw new InvalidDataException("La plantilla no contiene las relaciones del workbook.");
-
             XElement workbook = LoadXml(workbookEntry);
             XElement workbookRels = LoadXml(workbookRelsEntry);
-
             XElement sheets = workbook.Element(mainNs + "sheets");
-            XElement targetSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet")
-                .FirstOrDefault(x => string.Equals((string)x.Attribute("name"), TargetSheetName, StringComparison.OrdinalIgnoreCase));
-
+            XElement targetSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), TargetSheetName, StringComparison.OrdinalIgnoreCase));
             if (targetSheet == null) throw new InvalidDataException("No se encontró la hoja '" + TargetSheetName + "'.");
-
             string relationshipId = (string)targetSheet.Attribute(relNs + "id");
-            if (string.IsNullOrWhiteSpace(relationshipId))
-                throw new InvalidDataException("La hoja '" + TargetSheetName + "' no tiene relación XML.");
-
-            XElement relationship = workbookRels.Elements(packageRelNs + "Relationship")
-                .FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relationshipId, StringComparison.Ordinal));
-
-            if (relationship == null)
-                throw new InvalidDataException("No se encontró la relación XML de la hoja '" + TargetSheetName + "'.");
-
+            if (string.IsNullOrWhiteSpace(relationshipId)) throw new InvalidDataException("La hoja no tiene relación XML.");
+            XElement relationship = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relationshipId, StringComparison.Ordinal));
+            if (relationship == null) throw new InvalidDataException("No se encontró la relación XML de la hoja.");
             string target = (string)relationship.Attribute("Target");
-            if (string.IsNullOrWhiteSpace(target))
-                throw new InvalidDataException("La relación de '" + TargetSheetName + "' no tiene destino.");
-
             string worksheetPath = ResolveZipPath("xl/workbook.xml", target);
             ZipArchiveEntry worksheetEntry = archive.GetEntry(worksheetPath);
-            if (worksheetEntry == null)
-                throw new InvalidDataException("No se encontró la hoja XML '" + worksheetPath + "'.");
-
+            if (worksheetEntry == null) throw new InvalidDataException("No se encontró la hoja XML.");
             XElement worksheet = LoadXml(worksheetEntry);
             XElement sheetData = worksheet.Element(mainNs + "sheetData");
-            if (sheetData == null) throw new InvalidDataException("La hoja objetivo no contiene sheetData.");
-
-            XElement row = sheetData.Elements(mainNs + "row")
-                .FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
-
-            if (row == null)
-            {
-                row = new XElement(mainNs + "row", new XAttribute("r", "14"));
-                sheetData.Add(row);
-            }
-
-            XElement cell = row.Elements(mainNs + "c")
-                .FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.Ordinal));
-
-            if (cell == null)
-            {
-                cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell));
-                row.Add(cell);
-            }
-
+            if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
+            XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
+            if (row == null) { row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
+            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.Ordinal));
+            if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell)); row.Add(cell); }
             XAttribute style = cell.Attribute("s");
             cell.RemoveNodes();
             cell.SetAttributeValue("t", "inlineStr");
             if (style != null) cell.SetAttributeValue("s", style.Value);
             cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", activity)));
-
             SaveXml(worksheetEntry, worksheet);
         }
     }
 
-    private static XElement LoadXml(ZipArchiveEntry entry)
-    {
-        using (Stream stream = entry.Open())
-        {
-            return XElement.Load(stream, LoadOptions.PreserveWhitespace);
-        }
-    }
-
-    private static void SaveXml(ZipArchiveEntry entry, XElement document)
-    {
-        using (Stream stream = entry.Open())
-        {
-            document.Save(stream, SaveOptions.DisableFormatting);
-        }
-    }
+    private static XElement LoadXml(ZipArchiveEntry entry) { using (Stream stream = entry.Open()) return XElement.Load(stream, LoadOptions.PreserveWhitespace); }
+    private static void SaveXml(ZipArchiveEntry entry, XElement document) { using (Stream stream = entry.Open()) document.Save(stream, SaveOptions.DisableFormatting); }
 
     private static string ResolveZipPath(string basePath, string target)
     {
@@ -414,85 +317,33 @@ public sealed class GenerarExcelTool
         baseDirectory = baseDirectory == null ? string.Empty : baseDirectory.Replace('\\', '/');
         string combined = string.IsNullOrWhiteSpace(baseDirectory) ? target : baseDirectory + "/" + target;
         var parts = new List<string>();
-
         foreach (string part in combined.Replace('\\', '/').Split('/'))
         {
             if (part.Length == 0 || part == ".") continue;
-            if (part == "..")
-            {
-                if (parts.Count > 0) parts.RemoveAt(parts.Count - 1);
-                continue;
-            }
+            if (part == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); continue; }
             parts.Add(part);
         }
-
         return string.Join("/", parts);
     }
 
-    private static string EnsureXlsxExtension(string path)
-    {
-        return path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
-    }
-
-    private static string ToDisplaySurface(string surface)
-    {
-        return surface == "ANDEN TABLETA" ? "ANDÉN TABLETA, BALDOSÍN, GRAVILLA" : surface;
-    }
-
-    private static int GetSurfaceOrder(string surface)
-    {
-        int index = Array.FindIndex(SurfaceOrder, value => string.Equals(value, surface, StringComparison.OrdinalIgnoreCase));
-        return index < 0 ? int.MaxValue : index;
-    }
-
-    private static int DiameterOrder(string diameter)
-    {
-        return diameter == "1/2" ? 0 : 1;
-    }
+    private static string EnsureXlsxExtension(string path) => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
+    private static string ToDisplaySurface(string surface) => surface == "ANDEN TABLETA" ? "ANDÉN TABLETA, BALDOSÍN, GRAVILLA" : surface;
+    private static int GetSurfaceOrder(string surface) { int index = Array.FindIndex(SurfaceOrder, value => string.Equals(value, surface, StringComparison.OrdinalIgnoreCase)); return index < 0 ? int.MaxValue : index; }
+    private static int DiameterOrder(string diameter) => diameter == "1/2" ? 0 : 1;
 
     private struct UcKey : IEquatable<UcKey>
     {
-        public UcKey(string diameter, string surface)
-        {
-            Diameter = diameter;
-            Surface = surface;
-        }
-
+        public UcKey(string diameter, string surface) { Diameter = diameter; Surface = surface; }
         public string Diameter { get; private set; }
         public string Surface { get; private set; }
-
-        public bool Equals(UcKey other)
-        {
-            return string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(Surface, other.Surface, StringComparison.OrdinalIgnoreCase);
-        }
-
-        public override bool Equals(object obj)
-        {
-            return obj is UcKey && Equals((UcKey)obj);
-        }
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                return (StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty) * 397)
-                    ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Surface ?? string.Empty);
-            }
-        }
+        public bool Equals(UcKey other) => string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase) && string.Equals(Surface, other.Surface, StringComparison.OrdinalIgnoreCase);
+        public override bool Equals(object obj) => obj is UcKey && Equals((UcKey)obj);
+        public override int GetHashCode() { unchecked { return (StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty) * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Surface ?? string.Empty); } }
     }
 
     private sealed class UcSurface
     {
-        public UcSurface(string name, int? colorIndex, int? red, int? green, int? blue)
-        {
-            Name = name;
-            ColorIndex = colorIndex;
-            Red = red;
-            Green = green;
-            Blue = blue;
-        }
-
+        public UcSurface(string name, int? colorIndex, int? red, int? green, int? blue) { Name = name; ColorIndex = colorIndex; Red = red; Green = green; Blue = blue; }
         public string Name { get; private set; }
         public int? ColorIndex { get; private set; }
         public int? Red { get; private set; }
