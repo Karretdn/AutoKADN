@@ -119,14 +119,14 @@ public sealed class AnotacionesTool
             "EMPEDRADO" => "EMPEDRADO", "VIGA_CONCRETO" => "VIGA EN CONCRETO", _ => type
         };
 
-        string detailLayoutName = LayoutManager.Current.CurrentLayout;
-        if (!TryGetPairedUcLayout(database, detailLayoutName, out string ucLayoutName))
+        string detailLayoutName = LayoutManager.Current.CurrentLayout.Trim();
+        if (!TryGetPairedUcLayout(database, detailLayoutName, out string ucLayoutName, out ObjectId ucLayoutId))
         {
             editor.WriteMessage($"\nNo se encontró la pareja UC para el layout '{detailLayoutName}'. Debe existir un layout 'ANILLO X UC' con el mismo número.\n");
             return null;
         }
 
-        if (!TryScanUcs(database, ucLayoutName, out Dictionary<UcKey, double> availableUcs))
+        if (!TryScanUcs(database, ucLayoutId, ucLayoutName, out Dictionary<UcKey, double> availableUcs))
         {
             editor.WriteMessage($"\nNo se encontraron cotas UC válidas en el layout '{ucLayoutName}'.\n");
             return null;
@@ -152,9 +152,10 @@ public sealed class AnotacionesTool
         return $"{label}\\PLONG.: {FormatQuantity(totalLength)}ML";
     }
 
-    private static bool TryGetPairedUcLayout(Database database, string detailLayoutName, out string ucLayoutName)
+    private static bool TryGetPairedUcLayout(Database database, string detailLayoutName, out string ucLayoutName, out ObjectId ucLayoutId)
     {
         ucLayoutName = string.Empty;
+        ucLayoutId = ObjectId.Null;
         Match match = DetailLayoutPattern.Match(detailLayoutName.Trim());
         if (!match.Success) return false;
         string ringNumber = match.Groups[1].Value;
@@ -165,23 +166,25 @@ public sealed class AnotacionesTool
         {
             string candidateName = entry.Key.Trim();
             Match ucMatch = UcLayoutPattern.Match(candidateName);
-            if (ucMatch.Success && string.Equals(ucMatch.Groups[1].Value, ringNumber, StringComparison.Ordinal))
-            {
-                ucLayoutName = candidateName;
-                transaction.Commit();
-                return true;
-            }
+            if (!ucMatch.Success || !string.Equals(ucMatch.Groups[1].Value, ringNumber, StringComparison.Ordinal)) continue;
+            ObjectId candidateLayoutId = entry.Value;
+            if (candidateLayoutId.IsNull || !candidateLayoutId.IsValid) continue;
+            ucLayoutName = candidateName;
+            ucLayoutId = candidateLayoutId;
+            transaction.Commit();
+            return true;
         }
         transaction.Commit();
         return false;
     }
 
-    private static bool TryScanUcs(Database database, string ucLayoutName, out Dictionary<UcKey, double> quantities)
+    private static bool TryScanUcs(Database database, ObjectId ucLayoutId, string ucLayoutName, out Dictionary<UcKey, double> quantities)
     {
         quantities = new Dictionary<UcKey, double>();
+        if (ucLayoutId.IsNull || !ucLayoutId.IsValid) return false;
+
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        ObjectId layoutId = LayoutManager.Current.GetLayoutId(ucLayoutName);
-        var layout = (Layout)transaction.GetObject(layoutId, OpenMode.ForRead);
+        var layout = (Layout)transaction.GetObject(ucLayoutId, OpenMode.ForRead);
         var layoutSpace = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
         foreach (ObjectId objectId in layoutSpace)
         {
