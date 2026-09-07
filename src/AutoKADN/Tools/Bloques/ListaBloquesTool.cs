@@ -62,9 +62,16 @@ public sealed class ListaBloquesTool
                     if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) continue;
                     string description = GetBlockName(transaction, blockReference);
                     if (string.IsNullOrWhiteSpace(description)) continue;
-                    string diameter = GetDiameter(blockReference);
-                    AttachMaterialXData(database, transaction, blockReference, description, diameter, layoutName);
-                    var key = new BlockKey(description, diameter, "UND");
+
+                    // Los parámetros dinámicos del bloque son la fuente oficial:
+                    // DESCRIPCION = nombre del bloque, DIAMETRO = parámetro DIAMETRO,
+                    // TERRENO = parámetro UC. La cantidad es el número físico de bloques.
+                    string diameter = GetDynamicProperty(blockReference, "DIAMETRO");
+                    string surface = GetDynamicProperty(blockReference, "UC");
+                    if (string.IsNullOrWhiteSpace(diameter) || string.IsNullOrWhiteSpace(surface)) continue;
+
+                    AttachMaterialXData(database, transaction, blockReference, description, diameter, surface, layoutName);
+                    var key = new BlockKey(description, NormalizeDiameter(diameter), "UND", NormalizeSurface(surface));
                     AddCount(counts, key, 1.0);
                 }
                 else if (entity is Dimension dimension)
@@ -72,7 +79,7 @@ public sealed class ListaBloquesTool
                     string? diameter = GetPipeDiameter(dimension.Layer);
                     if (diameter is null) continue;
                     if (!TryGetManualDimensionValue(dimension, out double value)) continue;
-                    AddCount(counts, new BlockKey("TUBERIA", diameter, "ML"), Math.Abs(value));
+                    AddCount(counts, new BlockKey("TUBERIA", diameter, "ML", string.Empty), Math.Abs(value));
                 }
                 else if (entity is MText mtext)
                 {
@@ -103,11 +110,11 @@ public sealed class ListaBloquesTool
         if (!TryReadSpiralXData(mtext, out double pipe, out double unions, out double tees)) return;
 
         if (pipe > 0.0)
-            AddCount(counts, new BlockKey("TUBERIA", "3/4\"", "ML"), pipe);
+            AddCount(counts, new BlockKey("TUBERIA", "3/4\"", "ML", string.Empty), pipe);
         if (unions > 0.0)
-            AddCount(counts, new BlockKey("UNION", "3/4\"", "UND"), unions);
+            AddCount(counts, new BlockKey("UNION", "3/4\"", "UND", string.Empty), unions);
         if (tees > 0.0)
-            AddCount(counts, new BlockKey("TEE", "3/4\"", "UND"), tees);
+            AddCount(counts, new BlockKey("TEE", "3/4\"", "UND", string.Empty), tees);
     }
 
     private static bool TryReadSpiralXData(MText mtext, out double pipe, out double unions, out double tees)
@@ -179,7 +186,8 @@ public sealed class ListaBloquesTool
             .OrderBy(x => GetPriority(x.Key.Description))
             .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.Key.Unit, StringComparer.OrdinalIgnoreCase);
+            .ThenBy(x => x.Key.Unit, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Key.Surface, StringComparer.OrdinalIgnoreCase);
 
         int index = 0;
         foreach (var item in orderedItems)
@@ -264,22 +272,43 @@ public sealed class ListaBloquesTool
     }
 
     private static void AttachMaterialXData(Database database, Transaction transaction,
-        BlockReference blockReference, string description, string diameter, string layoutName)
+        BlockReference blockReference, string description, string diameter, string surface, string layoutName)
     {
         EnsureXDataRegApp(database, transaction);
-        ResultBuffer? existing = blockReference.GetXDataForApplication(XDataAppName);
-        if (existing is not null) return;
 
         blockReference.UpgradeOpen();
         blockReference.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, MaterialType),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, description),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, diameter),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, NormalizeDiameter(diameter)),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, "UND"),
             new TypedValue((int)DxfCode.ExtendedDataReal, 1.0),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName));
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, layoutName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, NormalizeSurface(surface)));
     }
+
+    private static string GetDynamicProperty(BlockReference blockReference, string propertyName)
+    {
+        if (!blockReference.IsDynamicBlock) return string.Empty;
+        foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection)
+        {
+            if (!string.Equals(property.PropertyName, propertyName, StringComparison.OrdinalIgnoreCase)) continue;
+            return property.Value?.ToString()?.Trim() ?? string.Empty;
+        }
+        return string.Empty;
+    }
+
+    private static string NormalizeDiameter(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        string normalized = value.Trim().Replace("\"", string.Empty).Replace(" ", string.Empty);
+        normalized = normalized.Replace("PULGADAS", string.Empty, StringComparison.OrdinalIgnoreCase);
+        normalized = normalized.Replace("PULG", string.Empty, StringComparison.OrdinalIgnoreCase);
+        return normalized;
+    }
+
+    private static string NormalizeSurface(string value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
 
     private static void EnsureXDataRegApp(Database database, Transaction transaction)
     {
@@ -307,16 +336,5 @@ public sealed class ListaBloquesTool
         return string.Empty;
     }
 
-    private static string GetDiameter(BlockReference blockReference)
-    {
-        if (!blockReference.IsDynamicBlock) return string.Empty;
-        foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection)
-        {
-            if (string.Equals(property.PropertyName, "DIAMETRO", StringComparison.OrdinalIgnoreCase))
-                return property.Value?.ToString()?.Trim() ?? string.Empty;
-        }
-        return string.Empty;
-    }
-
-    private readonly record struct BlockKey(string Description, string Diameter, string Unit);
+    private readonly record struct BlockKey(string Description, string Diameter, string Unit, string Surface);
 }
