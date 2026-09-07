@@ -3,10 +3,7 @@ using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
-using Autodesk.AutoCAD.Windows;
 using System.Globalization;
-using System.Text.RegularExpressions;
-using AcadColorDialog = Autodesk.AutoCAD.Windows.ColorDialog;
 
 namespace AutoKADN.Tools.Anotaciones;
 
@@ -119,7 +116,7 @@ public sealed class AnotacionesTool
         string? diameter = ReadActivityDiameter(editor);
         if (diameter is null) return null;
 
-        Color? selectedColor = ReadActivityColor(editor, out string? surface);
+        Color? selectedColor = ReadTerrain(editor, out string? surface);
         if (selectedColor is null || surface is null) return null;
 
         activityData = new ActivityData(type, diameter, surface, quantity.Value, selectedColor);
@@ -148,23 +145,41 @@ public sealed class AnotacionesTool
         return result.StringResult == "MEDIO" ? "1/2" : result.StringResult == "TRESCUARTOS" ? "3/4" : null;
     }
 
-    private static Color? ReadActivityColor(Editor editor, out string? surface)
+    private static Color? ReadTerrain(Editor editor, out string? surface)
     {
         surface = null;
-        while (true)
+        var options = new PromptKeywordOptions("\nAsignar terreno: ") { AllowNone = false };
+        options.Keywords.Add("ZONAVERDE", "ZONA VERDE", "ZONA VERDE", true, true);
+        options.Keywords.Add("ANDENCONCRETO", "ANDEN CONCRETO", "ANDEN CONCRETO", true, true);
+        options.Keywords.Add("ANDENTABLETA", "ANDEN TABLETA", "ANDEN TABLETA", true, true);
+        options.Keywords.Add("CALZADACONCRETO", "CALZADA CONCRETO", "CALZADA CONCRETO", true, true);
+        options.Keywords.Add("ADOQUIN", "ADOQUIN", "ADOQUIN", true, true);
+        options.Keywords.Add("ASFALTO", "ASFALTO", "ASFALTO", true, true);
+        options.Keywords.Add("CUNETA", "CUNETA", "CUNETA", true, true);
+        options.Keywords.Add("DESTAPADO", "DESTAPADO", "DESTAPADO", true, true);
+
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK) return null;
+
+        foreach (UcSurface item in Surfaces)
         {
-            editor.WriteMessage("\nAsignar color de terreno. Seleccione un color de la paleta de AutoCAD.\n");
-            var dialog = new AcadColorDialog();
-            if (dialog.ShowDialog().ToString() != "OK") return null;
-            Color color = dialog.Color;
-            surface = GetSurface(color);
-            if (surface != null)
-            {
-                editor.WriteMessage($"\nColor asignado: {ToDisplaySurface(surface)}.\n");
-                return color;
-            }
-            editor.WriteMessage("\nEl color seleccionado no corresponde a un terreno configurado. Seleccione uno de los colores de terreno.\n");
+            string keyword = item.Name.Replace(" ", string.Empty, StringComparison.Ordinal);
+            if (!keyword.Equals(result.StringResult, StringComparison.OrdinalIgnoreCase)) continue;
+            surface = item.Name;
+            editor.WriteMessage($"\nTerreno asignado: {ToDisplaySurface(surface)}.\n");
+            return GetConfiguredTerrainColor(item);
         }
+
+        return null;
+    }
+
+    private static Color? GetConfiguredTerrainColor(UcSurface surface)
+    {
+        if (surface.ColorIndex.HasValue)
+            return Color.FromColorIndex(ColorMethod.ByAci, (short)surface.ColorIndex.Value);
+        if (surface.Red.HasValue && surface.Green.HasValue && surface.Blue.HasValue)
+            return Color.FromRgb((byte)surface.Red.Value, (byte)surface.Green.Value, (byte)surface.Blue.Value);
+        return null;
     }
 
     private static string? ReadFreeText(Editor editor)
@@ -200,8 +215,8 @@ public sealed class AnotacionesTool
         string? peExt = ReadYesNo(editor, "PE.EXT.? [Y/N]: "); if (peExt is null) return null;
 
         // Todos los componentes del ESPIRAL pertenecen al mismo terreno.
-        // Por eso se solicita el color una sola vez y se guarda en el ESPIRAL completo.
-        Color? selectedColor = ReadActivityColor(editor, out string? surface);
+        // El terreno se elige desde la lista cerrada; no se abre la paleta de colores.
+        Color? selectedColor = ReadTerrain(editor, out string? surface);
         if (selectedColor is null || surface is null) return null;
 
         var lines = new List<string>();
@@ -265,8 +280,6 @@ public sealed class AnotacionesTool
             Rotation = 0.0, ColorIndex = 256,
             Layer = spiralData is not null ? GetOrCreateLayer(database, transaction, MaterialsLayer) : GetCurrentLayerName(database, transaction)
         };
-        if (activityData is not null) mtext.Color = activityData.Color;
-        if (spiralData is not null) mtext.Color = spiralData.Color;
         currentSpace.AppendEntity(mtext); transaction.AddNewlyCreatedDBObject(mtext, true);
         if (spiralData is not null) SetSpiralXData(database, transaction, mtext, spiralData);
         if (activityData is not null) SetActivityXData(database, transaction, mtext, activityData);
