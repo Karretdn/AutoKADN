@@ -409,7 +409,7 @@ public sealed class GenerarExcelTool
         foreach (UcSurface surface in Surfaces)
         {
             if (surface.ColorIndex.HasValue && color.ColorMethod == ColorMethod.ByAci && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && color.ColorMethod == ColorMethod.TrueColor && color.Red == surface.Red.Value && color.Green == surface.Green.Value && color.Blue == surface.Blue.Value) return surface.Name;
+            if (surface.Red.HasValue && color.ColorMethod == ColorMethod.ByColor && color.Red == surface.Red.Value && color.Green == surface.Green.Value && color.Blue == surface.Blue.Value) return surface.Name;
         }
         return null;
     }
