@@ -21,9 +21,11 @@ public sealed class GenerarExcelTool
     private const string UcLayerHalf = "UC_1-2";
     private const string UcLayerThreeQuarter = "UC_3-4";
     private const string BlocksLayer = "Mat";
+    private const string MaterialQuantityColumn = "G";
     private const int MaterialStartRow = 46;
     private const int MaterialEndRow = 121;
-    private const string MaterialQuantityColumn = "G";
+    private const string MaterialTestXDataAppName = "AUTOKADN";
+    private const string MaterialTestXDataType = "MATERIAL_PRUEBA";
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -62,7 +64,11 @@ public sealed class GenerarExcelTool
             if (string.IsNullOrWhiteSpace(templatePath)) { editor.WriteMessage("\nGeneración cancelada: no se seleccionó la plantilla base.\n"); return; }
             List<UcKey> detectedUcs = ScanUcs(database);
             if (detectedUcs.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC'.\n"); return; }
-            Dictionary<UcKey, Dictionary<MaterialKey, double>> accessoryQuantities = ScanAccessories(database, new HashSet<UcKey>(detectedUcs));
+
+            HashSet<UcKey> validUcs = new HashSet<UcKey>(detectedUcs);
+            Dictionary<UcKey, Dictionary<MaterialKey, double>> accessoryQuantities = ScanAccessories(database, validUcs);
+            MergeMaterialQuantities(accessoryQuantities, ScanMaterialTest(database, validUcs));
+
             string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath)); int generated = 0;
             editor.WriteMessage("\nUC detectadas: " + detectedUcs.Count + ". Se procesarán una por una.\n");
             foreach (UcKey uc in detectedUcs)
@@ -149,6 +155,100 @@ public sealed class GenerarExcelTool
             transaction.Commit();
         }
         return result;
+    }
+
+    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanMaterialTest(Database database, ISet<UcKey> validUcs)
+    {
+        var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
+        using (Transaction transaction = database.TransactionManager.StartTransaction())
+        {
+            DBDictionary layouts = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
+            foreach (DBDictionaryEntry entry in layouts)
+            {
+                Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                if (layout == null) continue;
+                BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                foreach (ObjectId objectId in space)
+                {
+                    MText mtext = transaction.GetObject(objectId, OpenMode.ForRead) as MText;
+                    if (mtext == null) continue;
+                    ResultBuffer xdata = mtext.XData;
+                    if (xdata == null) continue;
+                    TypedValue[] values = xdata.AsArray();
+                    int typeIndex = -1;
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString &&
+                            string.Equals(values[i].Value as string, MaterialTestXDataType, StringComparison.OrdinalIgnoreCase))
+                        {
+                            typeIndex = i;
+                            break;
+                        }
+                    }
+                    if (typeIndex < 0) continue;
+
+                    int index = typeIndex + 3;
+                    while (index + 5 < values.Length)
+                    {
+                        string description = values[index].Value == null ? string.Empty : values[index].Value.ToString().Trim();
+                        string diameter = values[index + 1].Value == null ? string.Empty : values[index + 1].Value.ToString().Trim();
+                        string unit = values[index + 2].Value == null ? string.Empty : values[index + 2].Value.ToString().Trim();
+                        double quantity;
+                        if (!TryReadXDataDouble(values[index + 3].Value, out quantity)) break;
+                        string ucDiameter = values[index + 4].Value == null ? string.Empty : values[index + 4].Value.ToString().Trim();
+                        string surface = values[index + 5].Value == null ? string.Empty : values[index + 5].Value.ToString().Trim();
+
+                        MaterialSpec material;
+                        if (TryGetMaterialSpec(description, diameter, out material))
+                        {
+                            string normalizedUcDiameter = NormalizeDiameter(ucDiameter);
+                            if (normalizedUcDiameter == "1/2" || normalizedUcDiameter == "3/4")
+                            {
+                                UcKey uc = new UcKey(normalizedUcDiameter, surface);
+                                if (validUcs == null || validUcs.Count == 0 || validUcs.Contains(uc))
+                                {
+                                    Dictionary<MaterialKey, double> ucMaterials;
+                                    if (!result.TryGetValue(uc, out ucMaterials)) { ucMaterials = new Dictionary<MaterialKey, double>(); result.Add(uc, ucMaterials); }
+                                    string normalizedUnit = string.IsNullOrWhiteSpace(unit) ? "UND" : unit;
+                                    MaterialKey materialKey = new MaterialKey(material.Description, material.Diameter, normalizedUnit, material.Code);
+                                    double current; ucMaterials.TryGetValue(materialKey, out current); ucMaterials[materialKey] = current + Math.Abs(quantity);
+                                }
+                            }
+                        }
+                        index += 6;
+                    }
+                }
+            }
+            transaction.Commit();
+        }
+        return result;
+    }
+
+    private static bool TryReadXDataDouble(object value, out double result)
+    {
+        result = 0.0;
+        if (value == null) return false;
+        if (value is double) { result = (double)value; return true; }
+        return double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+    }
+
+    private static void MergeMaterialQuantities(Dictionary<UcKey, Dictionary<MaterialKey, double>> target, Dictionary<UcKey, Dictionary<MaterialKey, double>> source)
+    {
+        foreach (KeyValuePair<UcKey, Dictionary<MaterialKey, double>> ucEntry in source)
+        {
+            Dictionary<MaterialKey, double> targetMaterials;
+            if (!target.TryGetValue(ucEntry.Key, out targetMaterials))
+            {
+                targetMaterials = new Dictionary<MaterialKey, double>();
+                target.Add(ucEntry.Key, targetMaterials);
+            }
+            foreach (KeyValuePair<MaterialKey, double> materialEntry in ucEntry.Value)
+            {
+                double current;
+                targetMaterials.TryGetValue(materialEntry.Key, out current);
+                targetMaterials[materialEntry.Key] = current + materialEntry.Value;
+            }
+        }
     }
 
     private static bool TryGetMaterialSpec(string description, string diameter, out MaterialSpec material)
