@@ -43,7 +43,7 @@ public sealed class AnotacionesTool
                 if (type is null) { EraseEntity(document.Database, lineId); return; }
 
                 SpiralData? spiralData = null;
-                ActivityData? activityData = null;
+                List<ActivityComponent>? activityData = null;
                 string? text = BuildAnnotation(editor, document.Database, type, startPoint, endPoint, out spiralData, out activityData);
                 if (text is null) { EraseEntity(document.Database, lineId); return; }
                 if (!string.IsNullOrWhiteSpace(text))
@@ -96,7 +96,7 @@ public sealed class AnotacionesTool
     }
 
     private static string? BuildAnnotation(Editor editor, Database database, string type,
-        Point3d startPoint, Point3d endPoint, out SpiralData? spiralData, out ActivityData? activityData)
+        Point3d startPoint, Point3d endPoint, out SpiralData? spiralData, out List<ActivityComponent>? activityData)
     {
         spiralData = null;
         activityData = null;
@@ -109,28 +109,49 @@ public sealed class AnotacionesTool
             "EMPEDRADO" => "EMPEDRADO", "VIGA_CONCRETO" => "VIGA EN CONCRETO", _ => type
         };
 
-        double geometricLength = startPoint.DistanceTo(endPoint);
-        double? quantity = ReadActivityLength(editor, geometricLength);
-        if (!quantity.HasValue) return null;
+        activityData = ReadActivityComponents(editor, label, startPoint.DistanceTo(endPoint));
+        if (activityData is null || activityData.Count == 0) return null;
 
-        string? diameter = ReadActivityDiameter(editor);
-        if (diameter is null) return null;
-
-        Color? selectedColor = ReadTerrain(editor, out string? surface);
-        if (selectedColor is null || surface is null) return null;
-
-        activityData = new ActivityData(type, diameter, surface, quantity.Value, selectedColor);
-        editor.WriteMessage($"\nActividad registrada: {label} | {diameter}\" | {ToDisplaySurface(surface)} | {FormatQuantity(quantity.Value)} ML.\n");
-        return $"{label}\\PLONG.: {FormatQuantity(quantity.Value)}ML";
+        double totalLength = activityData.Sum(item => item.Quantity);
+        editor.WriteMessage($"\nActividad registrada: {label} | {activityData.Count} combinación(es) | LONG.: {FormatQuantity(totalLength)} ML.\n");
+        return $"{label}\\PLONG.: {FormatQuantity(totalLength)}ML";
     }
 
-    private static double? ReadActivityLength(Editor editor, double geometricLength)
+    private static List<ActivityComponent>? ReadActivityComponents(Editor editor, string label, double geometricLength)
     {
-        var options = new PromptDoubleOptions($"\nLongitud de la actividad [línea: {FormatQuantity(geometricLength)} ML]: ")
+        var components = new List<ActivityComponent>();
+        bool addMore = true;
+        while (addMore)
         {
-            AllowZero = false, AllowNegative = false, AllowNone = false,
-            DefaultValue = geometricLength, UseDefaultValue = true
+            string? diameter = ReadActivityDiameter(editor);
+            if (diameter is null) return null;
+
+            Color? selectedColor = ReadTerrain(editor, out string? surface);
+            if (selectedColor is null || surface is null) return null;
+
+            double? quantity = ReadActivityQuantity(editor, geometricLength, components.Count == 0);
+            if (!quantity.HasValue) return null;
+
+            components.Add(new ActivityComponent(label, diameter, surface, quantity.Value, selectedColor.Value));
+            editor.WriteMessage($"\nComponente registrado: {label} | {diameter}\" | {ToDisplaySurface(surface)} | {FormatQuantity(quantity.Value)} ML.\n");
+
+            addMore = ReadYesNo(editor, "¿Desea añadir otra combinación de diámetro/terreno/cantidad? [Y/N]: ") is string answer && answer.Equals("Y", StringComparison.OrdinalIgnoreCase);
+        }
+        return components;
+    }
+
+    private static double? ReadActivityQuantity(Editor editor, double geometricLength, bool firstComponent)
+    {
+        string defaultText = firstComponent ? $" [línea: {FormatQuantity(geometricLength)} ML]" : string.Empty;
+        var options = new PromptDoubleOptions($"\nValor de LONG. para este terreno{defaultText}: ")
+        {
+            AllowZero = false, AllowNegative = false, AllowNone = false
         };
+        if (firstComponent)
+        {
+            options.DefaultValue = geometricLength;
+            options.UseDefaultValue = true;
+        }
         PromptDoubleResult result = editor.GetDouble(options);
         return result.Status == PromptStatus.OK ? result.Value : null;
     }
@@ -157,10 +178,8 @@ public sealed class AnotacionesTool
         options.Keywords.Add("ASFALTO", "ASFALTO", "ASFALTO", true, true);
         options.Keywords.Add("CUNETA", "CUNETA", "CUNETA", true, true);
         options.Keywords.Add("DESTAPADO", "DESTAPADO", "DESTAPADO", true, true);
-
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return null;
-
         foreach (UcSurface item in Surfaces)
         {
             string keyword = item.Name.Replace(" ", string.Empty);
@@ -169,16 +188,13 @@ public sealed class AnotacionesTool
             editor.WriteMessage($"\nTerreno asignado: {ToDisplaySurface(surface)}.\n");
             return GetConfiguredTerrainColor(item);
         }
-
         return null;
     }
 
     private static Color? GetConfiguredTerrainColor(UcSurface surface)
     {
-        if (surface.ColorIndex.HasValue)
-            return Color.FromColorIndex(ColorMethod.ByAci, (short)surface.ColorIndex.Value);
-        if (surface.Red.HasValue && surface.Green.HasValue && surface.Blue.HasValue)
-            return Color.FromRgb((byte)surface.Red.Value, (byte)surface.Green.Value, (byte)surface.Blue.Value);
+        if (surface.ColorIndex.HasValue) return Color.FromColorIndex(ColorMethod.ByAci, (short)surface.ColorIndex.Value);
+        if (surface.Red.HasValue && surface.Green.HasValue && surface.Blue.HasValue) return Color.FromRgb((byte)surface.Red.Value, (byte)surface.Green.Value, (byte)surface.Blue.Value);
         return null;
     }
 
@@ -213,12 +229,8 @@ public sealed class AnotacionesTool
             saddleDiameter = diameterResult.StringResult.Trim(); if (saddleDiameter.Length == 0) return null;
         }
         string? peExt = ReadYesNo(editor, "PE.EXT.? [Y/N]: "); if (peExt is null) return null;
-
-        // Todos los componentes del ESPIRAL pertenecen al mismo terreno.
-        // El terreno se elige desde la lista cerrada; no se abre la paleta de colores.
         Color? selectedColor = ReadTerrain(editor, out string? surface);
         if (selectedColor is null || surface is null) return null;
-
         var lines = new List<string>();
         if (!IsZero(pipe)) lines.Add($"{pipe}ML TUBERIA 3/4\"");
         if (!IsZero(unions)) lines.Add($"{unions} UNIONES DE 3/4\"");
@@ -227,9 +239,7 @@ public sealed class AnotacionesTool
         if (!IsZero(saddles)) lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
         if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase)) lines.Add("PE.EXT.");
         if (lines.Count == 0) { editor.WriteMessage("\nESPIRAL: no se generó ninguna línea porque todas las cantidades fueron cero y PE.EXT. fue N.\n"); return string.Empty; }
-
-        spiralData = new SpiralData(ParseNumber(pipe), ParseNumber(unions), ParseNumber(tees),
-            ParseNumber(valves), ParseNumber(saddles), saddleDiameter, peExt, surface, selectedColor);
+        spiralData = new SpiralData(ParseNumber(pipe), ParseNumber(unions), ParseNumber(tees), ParseNumber(valves), ParseNumber(saddles), saddleDiameter, peExt, surface, selectedColor.Value);
         editor.WriteMessage($"\nESPIRAL registrado: {ToDisplaySurface(surface)}. Todos sus componentes usarán este terreno.\n");
         return string.Join("\\P", lines);
     }
@@ -264,7 +274,7 @@ public sealed class AnotacionesTool
     }
 
     private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text,
-        SpiralData? spiralData, ActivityData? activityData)
+        SpiralData? spiralData, List<ActivityComponent>? activityData)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
@@ -273,7 +283,6 @@ public sealed class AnotacionesTool
         if (normal.Y < 0.0) normal = -normal;
         Point3d textPoint = endPoint + normal * TextOffset;
         AttachmentPoint attachment = direction.X < -Tolerance.Global.EqualPoint ? AttachmentPoint.TopRight : AttachmentPoint.TopLeft;
-
         var mtext = new MText
         {
             Location = textPoint, Contents = text, TextHeight = TextHeight, Attachment = attachment,
@@ -292,30 +301,28 @@ public sealed class AnotacionesTool
         mtext.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ESPIRAL"),
-            new TypedValue((int)DxfCode.ExtendedDataReal, data.Pipe),
-            new TypedValue((int)DxfCode.ExtendedDataReal, data.Unions),
-            new TypedValue((int)DxfCode.ExtendedDataReal, data.Tees),
-            new TypedValue((int)DxfCode.ExtendedDataReal, data.Valves),
-            new TypedValue((int)DxfCode.ExtendedDataReal, data.Saddles),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.SaddleDiameter),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.PeExt),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.Surface),
+            new TypedValue((int)DxfCode.ExtendedDataReal, data.Pipe), new TypedValue((int)DxfCode.ExtendedDataReal, data.Unions),
+            new TypedValue((int)DxfCode.ExtendedDataReal, data.Tees), new TypedValue((int)DxfCode.ExtendedDataReal, data.Valves),
+            new TypedValue((int)DxfCode.ExtendedDataReal, data.Saddles), new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.SaddleDiameter),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.PeExt), new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.Surface),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, GetColorToken(data.Color)));
     }
 
-    private static void SetActivityXData(Database database, Transaction transaction, MText mtext, ActivityData data)
+    private static void SetActivityXData(Database database, Transaction transaction, MText mtext, List<ActivityComponent> data)
     {
         EnsureRegApp(database, transaction);
         var values = new List<TypedValue>
         {
             new((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new((int)DxfCode.ExtendedDataAsciiString, ActivityType),
-            new((int)DxfCode.ExtendedDataAsciiString, data.Type),
-            new((int)DxfCode.ExtendedDataAsciiString, data.Diameter),
-            new((int)DxfCode.ExtendedDataAsciiString, data.Surface),
-            new((int)DxfCode.ExtendedDataReal, data.Quantity)
+            new((int)DxfCode.ExtendedDataAsciiString, data[0].Description)
         };
-        values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, GetColorToken(data.Color)));
+        foreach (ActivityComponent item in data)
+        {
+            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, item.Diameter));
+            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, item.Surface));
+            values.Add(new TypedValue((int)DxfCode.ExtendedDataReal, item.Quantity));
+        }
         mtext.XData = new ResultBuffer(values.ToArray());
     }
 
@@ -378,6 +385,6 @@ public sealed class AnotacionesTool
     }
 
     private sealed record SpiralData(double Pipe, double Unions, double Tees, double Valves, double Saddles, string SaddleDiameter, string PeExt, string Surface, Color Color);
-    private sealed record ActivityData(string Type, string Diameter, string Surface, double Quantity, Color Color);
+    private sealed record ActivityComponent(string Description, string Diameter, string Surface, double Quantity, Color Color);
     private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
 }
