@@ -132,7 +132,7 @@ public sealed class AnotacionesTool
             double? quantity = ReadActivityQuantity(editor, geometricLength, components.Count == 0);
             if (!quantity.HasValue) return null;
 
-            components.Add(new ActivityComponent(label, diameter, surface, quantity.Value, selectedColor.Value));
+            components.Add(new ActivityComponent(label, diameter, surface, quantity.Value, selectedColor));
             editor.WriteMessage($"\nComponente registrado: {label} | {diameter}\" | {ToDisplaySurface(surface)} | {FormatQuantity(quantity.Value)} ML.\n");
 
             addMore = ReadYesNo(editor, "¿Desea añadir otra combinación de diámetro/terreno/cantidad? [Y/N]: ") is string answer && answer.Equals("Y", StringComparison.OrdinalIgnoreCase);
@@ -239,7 +239,7 @@ public sealed class AnotacionesTool
         if (!IsZero(saddles)) lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
         if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase)) lines.Add("PE.EXT.");
         if (lines.Count == 0) { editor.WriteMessage("\nESPIRAL: no se generó ninguna línea porque todas las cantidades fueron cero y PE.EXT. fue N.\n"); return string.Empty; }
-        spiralData = new SpiralData(ParseNumber(pipe), ParseNumber(unions), ParseNumber(tees), ParseNumber(valves), ParseNumber(saddles), saddleDiameter, peExt, surface, selectedColor.Value);
+        spiralData = new SpiralData(ParseNumber(pipe), ParseNumber(unions), ParseNumber(tees), ParseNumber(valves), ParseNumber(saddles), saddleDiameter, peExt, surface, selectedColor);
         editor.WriteMessage($"\nESPIRAL registrado: {ToDisplaySurface(surface)}. Todos sus componentes usarán este terreno.\n");
         return string.Join("\\P", lines);
     }
