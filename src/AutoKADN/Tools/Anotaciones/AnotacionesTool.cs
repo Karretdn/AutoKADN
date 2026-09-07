@@ -64,18 +64,15 @@ public sealed class AnotacionesTool
         var firstOptions = new PromptPointOptions("\nPrimer punto de la línea (ESC o clic derecho para salir): ") { AllowNone = true };
         PromptPointResult first = editor.GetPoint(firstOptions);
         if (first.Status != PromptStatus.OK) return false;
-
         var secondOptions = new PromptPointOptions("\nSegundo punto de la línea (ESC o clic derecho para salir): ")
         { BasePoint = first.Value, UseBasePoint = true, AllowNone = true };
         PromptPointResult second = editor.GetPoint(secondOptions);
         if (second.Status != PromptStatus.OK) return false;
-
         if (first.Value.DistanceTo(second.Value) <= Tolerance.Global.EqualPoint)
         {
             editor.WriteMessage("\nLa línea debe tener una longitud mayor que cero.\n");
             return false;
         }
-
         startPoint = first.Value;
         endPoint = second.Value;
         return true;
@@ -134,11 +131,8 @@ public sealed class AnotacionesTool
     {
         var options = new PromptDoubleOptions($"\nLongitud de la actividad [línea: {FormatQuantity(geometricLength)} ML]: ")
         {
-            AllowZero = false,
-            AllowNegative = false,
-            AllowNone = false,
-            DefaultValue = geometricLength,
-            UseDefaultValue = true
+            AllowZero = false, AllowNegative = false, AllowNone = false,
+            DefaultValue = geometricLength, UseDefaultValue = true
         };
         PromptDoubleResult result = editor.GetDouble(options);
         return result.Status == PromptStatus.OK ? result.Value : null;
@@ -161,8 +155,7 @@ public sealed class AnotacionesTool
         {
             editor.WriteMessage("\nAsignar color de terreno. Seleccione un color de la paleta de AutoCAD.\n");
             var dialog = new AcadColorDialog();
-            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return null;
-
+            if (dialog.ShowDialog().ToString() != "OK") return null;
             Color color = dialog.Color;
             surface = GetSurface(color);
             if (surface != null)
@@ -170,7 +163,6 @@ public sealed class AnotacionesTool
                 editor.WriteMessage($"\nColor asignado: {ToDisplaySurface(surface)}.\n");
                 return color;
             }
-
             editor.WriteMessage("\nEl color seleccionado no corresponde a un terreno configurado. Seleccione uno de los colores de terreno.\n");
         }
     }
@@ -260,15 +252,10 @@ public sealed class AnotacionesTool
 
         var mtext = new MText
         {
-            Location = textPoint,
-            Contents = text,
-            TextHeight = TextHeight,
-            Attachment = attachment,
-            Rotation = 0.0,
-            ColorIndex = 256,
+            Location = textPoint, Contents = text, TextHeight = TextHeight, Attachment = attachment,
+            Rotation = 0.0, ColorIndex = 256,
             Layer = spiralData is not null ? GetOrCreateLayer(database, transaction, MaterialsLayer) : GetCurrentLayerName(database, transaction)
         };
-
         if (activityData is not null) mtext.Color = activityData.Color;
         currentSpace.AppendEntity(mtext); transaction.AddNewlyCreatedDBObject(mtext, true);
         if (spiralData is not null) SetSpiralXData(database, transaction, mtext, spiralData);
@@ -299,18 +286,14 @@ public sealed class AnotacionesTool
             new((int)DxfCode.ExtendedDataAsciiString, data.Surface),
             new((int)DxfCode.ExtendedDataReal, data.Quantity)
         };
-
-        if (data.Color.IsByAci)
-        {
-            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ACI:" + data.Color.ColorIndex.ToString(CultureInfo.InvariantCulture)));
-        }
-        else
-        {
-            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString,
-                $"RGB:{data.Color.Red},{data.Color.Green},{data.Color.Blue}"));
-        }
-
+        values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, GetColorToken(data.Color)));
         mtext.XData = new ResultBuffer(values.ToArray());
+    }
+
+    private static string GetColorToken(Color color)
+    {
+        if (color.IsByAci) return "ACI:" + color.ColorIndex.ToString(CultureInfo.InvariantCulture);
+        return $"RGB:{color.Red},{color.Green},{color.Blue}";
     }
 
     private static void EnsureRegApp(Database database, Transaction transaction)
@@ -341,14 +324,12 @@ public sealed class AnotacionesTool
         foreach (UcSurface surface in Surfaces)
         {
             if (surface.ColorIndex.HasValue && color.IsByAci && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && !color.IsByAci && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
-            if (surface.Red.HasValue && color.IsByAci && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
+            if (surface.Red.HasValue && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
         }
         return null;
     }
 
-    private static bool IsSameRgb(Color color, int red, int green, int blue) =>
-        color.Red == red && color.Green == green && color.Blue == blue;
+    private static bool IsSameRgb(Color color, int red, int green, int blue) => color.Red == red && color.Green == green && color.Blue == blue;
 
     private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
     {
@@ -357,8 +338,7 @@ public sealed class AnotacionesTool
         "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
     };
 
-    private static double FormatQuantityValue(double value) => Math.Abs(value);
-    private static string FormatQuantity(double value) => FormatQuantityValue(value).ToString("0.0##", CultureInfo.InvariantCulture);
+    private static string FormatQuantity(double value) => Math.Abs(value).ToString("0.0##", CultureInfo.InvariantCulture);
 
     private static void EraseEntity(Database database, ObjectId objectId)
     {
