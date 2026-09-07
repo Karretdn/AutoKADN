@@ -3,8 +3,10 @@ using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Windows;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using AcadColorDialog = Autodesk.AutoCAD.Windows.ColorDialog;
 
 namespace AutoKADN.Tools.Anotaciones;
 
@@ -15,8 +17,6 @@ public sealed class AnotacionesTool
     private const string MaterialsLayer = "Mat";
     private const string XDataAppName = "AUTOKADN";
     private const string ActivityType = "ACTIVIDAD";
-    private const string UcLayerHalf = "UC_1-2";
-    private const string UcLayerThreeQuarter = "UC_3-4";
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -25,20 +25,6 @@ public sealed class AnotacionesTool
         new("CUNETA", null, 100, 33, 101), new("ANDEN CONCRETO", 5, null, null, null),
         new("ASFALTO", 30, null, null, null), new("ADOQUIN", 4, null, null, null)
     };
-
-    private static readonly string[] SurfaceOrder =
-    {
-        "ZONA VERDE", "ANDEN CONCRETO", "CALZADA CONCRETO", "ANDEN TABLETA",
-        "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
-    };
-
-    private static readonly Regex DetailLayoutPattern = new(
-        @"^ANILLO\s+(\d+)\s+DETALLE$",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    private static readonly Regex UcLayoutPattern = new(
-        @"^ANILLO\s+(\d+)\s+UC$",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     public void Run()
     {
@@ -55,15 +41,16 @@ public sealed class AnotacionesTool
                 if (!GetReferenceLine(editor, out Point3d startPoint, out Point3d endPoint)) return;
                 ObjectId lineId = CreateReferenceLine(document.Database, startPoint, endPoint);
                 if (lineId == ObjectId.Null) return;
+
                 string? type = SelectAnnotationType(editor);
                 if (type is null) { EraseEntity(document.Database, lineId); return; }
 
                 SpiralData? spiralData = null;
                 ActivityData? activityData = null;
-                string? text = BuildAnnotation(editor, document.Database, type, out spiralData, out activityData);
+                string? text = BuildAnnotation(editor, document.Database, type, startPoint, endPoint, out spiralData, out activityData);
                 if (text is null) { EraseEntity(document.Database, lineId); return; }
                 if (!string.IsNullOrWhiteSpace(text))
-                    CreateText(document.Database, startPoint, endPoint, text, type, spiralData, activityData);
+                    CreateText(document.Database, startPoint, endPoint, text, spiralData, activityData);
                 editor.Regen();
             }
         }
@@ -72,17 +59,26 @@ public sealed class AnotacionesTool
 
     private static bool GetReferenceLine(Editor editor, out Point3d startPoint, out Point3d endPoint)
     {
-        startPoint = Point3d.Origin; endPoint = Point3d.Origin;
+        startPoint = Point3d.Origin;
+        endPoint = Point3d.Origin;
         var firstOptions = new PromptPointOptions("\nPrimer punto de la línea (ESC o clic derecho para salir): ") { AllowNone = true };
         PromptPointResult first = editor.GetPoint(firstOptions);
         if (first.Status != PromptStatus.OK) return false;
+
         var secondOptions = new PromptPointOptions("\nSegundo punto de la línea (ESC o clic derecho para salir): ")
         { BasePoint = first.Value, UseBasePoint = true, AllowNone = true };
         PromptPointResult second = editor.GetPoint(secondOptions);
         if (second.Status != PromptStatus.OK) return false;
+
         if (first.Value.DistanceTo(second.Value) <= Tolerance.Global.EqualPoint)
-        { editor.WriteMessage("\nLa línea debe tener una longitud mayor que cero.\n"); return true; }
-        startPoint = first.Value; endPoint = second.Value; return true;
+        {
+            editor.WriteMessage("\nLa línea debe tener una longitud mayor que cero.\n");
+            return false;
+        }
+
+        startPoint = first.Value;
+        endPoint = second.Value;
+        return true;
     }
 
     private static string? SelectAnnotationType(Editor editor)
@@ -106,7 +102,7 @@ public sealed class AnotacionesTool
     }
 
     private static string? BuildAnnotation(Editor editor, Database database, string type,
-        out SpiralData? spiralData, out ActivityData? activityData)
+        Point3d startPoint, Point3d endPoint, out SpiralData? spiralData, out ActivityData? activityData)
     {
         spiralData = null;
         activityData = null;
@@ -119,115 +115,64 @@ public sealed class AnotacionesTool
             "EMPEDRADO" => "EMPEDRADO", "VIGA_CONCRETO" => "VIGA EN CONCRETO", _ => type
         };
 
-        string detailLayoutName = LayoutManager.Current.CurrentLayout.Trim();
-        if (!TryGetPairedUcLayout(database, detailLayoutName, out string ucLayoutName, out ObjectId ucLayoutId))
-        {
-            editor.WriteMessage($"\nNo se encontró la pareja UC para el layout '{detailLayoutName}'. Debe existir un layout 'ANILLO X UC' con el mismo número.\n");
-            return null;
-        }
+        double geometricLength = startPoint.DistanceTo(endPoint);
+        double? quantity = ReadActivityLength(editor, geometricLength);
+        if (!quantity.HasValue) return null;
 
-        if (!TryScanUcs(database, ucLayoutId, ucLayoutName, out Dictionary<UcKey, double> availableUcs))
-        {
-            editor.WriteMessage($"\nNo se encontraron cotas UC válidas en el layout '{ucLayoutName}'.\n");
-            return null;
-        }
+        string? diameter = ReadActivityDiameter(editor);
+        if (diameter is null) return null;
 
-        var assignments = new List<UcAssignment>();
-        while (true)
-        {
-            if (!TrySelectActivityUc(editor, availableUcs, out UcKey selectedUc)) return null;
-            double? amount = ReadActivityAmount(editor, selectedUc);
-            if (!amount.HasValue) return null;
-            assignments.Add(new UcAssignment(selectedUc, amount.Value));
-            editor.WriteMessage($"\nAsignado {FormatQuantity(amount.Value)} ML a {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)}.\n");
+        Color? selectedColor = ReadActivityColor(editor, out string? surface);
+        if (selectedColor is null || surface is null) return null;
 
-            string? more = ReadYesNo(editor, "¿Ingresar más cantidad? [Y/N]: ");
-            if (more is null) return null;
-            if (more.Equals("N", StringComparison.OrdinalIgnoreCase)) break;
-        }
-
-        double totalLength = assignments.Sum(x => x.Quantity);
-        if (totalLength <= 0.0) return null;
-        activityData = new ActivityData(type, detailLayoutName, ucLayoutName, assignments);
-        return $"{label}\\PLONG.: {FormatQuantity(totalLength)}ML";
+        activityData = new ActivityData(type, diameter, surface, quantity.Value, selectedColor);
+        editor.WriteMessage($"\nActividad registrada: {label} | {diameter}\" | {ToDisplaySurface(surface)} | {FormatQuantity(quantity.Value)} ML.\n");
+        return $"{label}\\PLONG.: {FormatQuantity(quantity.Value)}ML";
     }
 
-    private static bool TryGetPairedUcLayout(Database database, string detailLayoutName, out string ucLayoutName, out ObjectId ucLayoutId)
+    private static double? ReadActivityLength(Editor editor, double geometricLength)
     {
-        ucLayoutName = string.Empty;
-        ucLayoutId = ObjectId.Null;
-        Match match = DetailLayoutPattern.Match(detailLayoutName.Trim());
-        if (!match.Success) return false;
-        string ringNumber = match.Groups[1].Value;
-
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-        DBDictionary layoutDictionary = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
-        foreach (DBDictionaryEntry entry in layoutDictionary)
+        var options = new PromptDoubleOptions($"\nLongitud de la actividad [línea: {FormatQuantity(geometricLength)} ML]: ")
         {
-            string candidateName = entry.Key.Trim();
-            Match ucMatch = UcLayoutPattern.Match(candidateName);
-            if (!ucMatch.Success || !string.Equals(ucMatch.Groups[1].Value, ringNumber, StringComparison.Ordinal)) continue;
-            ObjectId candidateLayoutId = entry.Value;
-            if (candidateLayoutId.IsNull || !candidateLayoutId.IsValid) continue;
-            ucLayoutName = candidateName;
-            ucLayoutId = candidateLayoutId;
-            transaction.Commit();
-            return true;
-        }
-        transaction.Commit();
-        return false;
-    }
-
-    private static bool TryScanUcs(Database database, ObjectId ucLayoutId, string ucLayoutName, out Dictionary<UcKey, double> quantities)
-    {
-        quantities = new Dictionary<UcKey, double>();
-        if (ucLayoutId.IsNull || !ucLayoutId.IsValid) return false;
-
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-        var layout = (Layout)transaction.GetObject(ucLayoutId, OpenMode.ForRead);
-        var layoutSpace = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-        foreach (ObjectId objectId in layoutSpace)
-        {
-            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Dimension dimension) continue;
-            string? diameter = GetUcDiameter(dimension.Layer);
-            if (diameter is null) continue;
-            string? surface = GetSurface(transaction, dimension);
-            if (surface is null) continue;
-            if (!TryGetDisplayedDimensionValue(dimension, out double value)) continue;
-            var key = new UcKey(diameter, surface);
-            quantities.TryGetValue(key, out double current);
-            quantities[key] = current + Math.Abs(value);
-        }
-        transaction.Commit();
-        return quantities.Count > 0;
-    }
-
-    private static bool TrySelectActivityUc(Editor editor, IReadOnlyDictionary<UcKey, double> quantities, out UcKey selectedUc)
-    {
-        selectedUc = default;
-        List<UcKey> available = quantities.Keys.OrderBy(x => GetSurfaceOrder(x.Surface))
-            .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase).ToList();
-        if (available.Count == 0) return false;
-        editor.WriteMessage("\nSeleccionar UC:\n");
-        for (int i = 0; i < available.Count; i++)
-        {
-            UcKey uc = available[i];
-            editor.WriteMessage($"  {i + 1}. {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)} - {FormatQuantity(quantities[uc])} ML\n");
-        }
-        var options = new PromptIntegerOptions("\nEscriba el numero de la UC: ")
-        { AllowNone = false, AllowNegative = false, AllowZero = false, LowerLimit = 1, UpperLimit = available.Count };
-        PromptIntegerResult result = editor.GetInteger(options);
-        if (result.Status != PromptStatus.OK) return false;
-        selectedUc = available[result.Value - 1];
-        return true;
-    }
-
-    private static double? ReadActivityAmount(Editor editor, UcKey selectedUc)
-    {
-        var options = new PromptDoubleOptions($"\nCantidad para {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)} (ML): ")
-        { AllowZero = false, AllowNegative = false, AllowNone = false };
+            AllowZero = false,
+            AllowNegative = false,
+            AllowNone = false,
+            DefaultValue = geometricLength,
+            UseDefaultValue = true
+        };
         PromptDoubleResult result = editor.GetDouble(options);
         return result.Status == PromptStatus.OK ? result.Value : null;
+    }
+
+    private static string? ReadActivityDiameter(Editor editor)
+    {
+        var options = new PromptKeywordOptions("\nAsignar diámetro [1/2\"/3/4\"]: ") { AllowNone = false };
+        options.Keywords.Add("MEDIO", "1/2\"", "1/2\"", true, true);
+        options.Keywords.Add("TRESCUARTOS", "3/4\"", "3/4\"", true, true);
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK) return null;
+        return result.StringResult == "MEDIO" ? "1/2" : result.StringResult == "TRESCUARTOS" ? "3/4" : null;
+    }
+
+    private static Color? ReadActivityColor(Editor editor, out string? surface)
+    {
+        surface = null;
+        while (true)
+        {
+            editor.WriteMessage("\nAsignar color de terreno. Seleccione un color de la paleta de AutoCAD.\n");
+            var dialog = new AcadColorDialog();
+            if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return null;
+
+            Color color = dialog.Color;
+            surface = GetSurface(color);
+            if (surface != null)
+            {
+                editor.WriteMessage($"\nColor asignado: {ToDisplaySurface(surface)}.\n");
+                return color;
+            }
+
+            editor.WriteMessage("\nEl color seleccionado no corresponde a un terreno configurado. Seleccione uno de los colores de terreno.\n");
+        }
     }
 
     private static string? ReadFreeText(Editor editor)
@@ -302,7 +247,7 @@ public sealed class AnotacionesTool
         currentSpace.AppendEntity(line); transaction.AddNewlyCreatedDBObject(line, true); transaction.Commit(); return line.ObjectId;
     }
 
-    private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text, string type,
+    private static void CreateText(Database database, Point3d startPoint, Point3d endPoint, string text,
         SpiralData? spiralData, ActivityData? activityData)
     {
         using Transaction transaction = database.TransactionManager.StartTransaction();
@@ -312,12 +257,19 @@ public sealed class AnotacionesTool
         if (normal.Y < 0.0) normal = -normal;
         Point3d textPoint = endPoint + normal * TextOffset;
         AttachmentPoint attachment = direction.X < -Tolerance.Global.EqualPoint ? AttachmentPoint.TopRight : AttachmentPoint.TopLeft;
+
         var mtext = new MText
         {
-            Location = textPoint, Contents = text, TextHeight = TextHeight, Attachment = attachment,
-            Rotation = 0.0, ColorIndex = 256,
+            Location = textPoint,
+            Contents = text,
+            TextHeight = TextHeight,
+            Attachment = attachment,
+            Rotation = 0.0,
+            ColorIndex = 256,
             Layer = spiralData is not null ? GetOrCreateLayer(database, transaction, MaterialsLayer) : GetCurrentLayerName(database, transaction)
         };
+
+        if (activityData is not null) mtext.Color = activityData.Color;
         currentSpace.AppendEntity(mtext); transaction.AddNewlyCreatedDBObject(mtext, true);
         if (spiralData is not null) SetSpiralXData(database, transaction, mtext, spiralData);
         if (activityData is not null) SetActivityXData(database, transaction, mtext, activityData);
@@ -343,15 +295,21 @@ public sealed class AnotacionesTool
             new((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new((int)DxfCode.ExtendedDataAsciiString, ActivityType),
             new((int)DxfCode.ExtendedDataAsciiString, data.Type),
-            new((int)DxfCode.ExtendedDataAsciiString, data.DetailLayout),
-            new((int)DxfCode.ExtendedDataAsciiString, data.UcLayout)
+            new((int)DxfCode.ExtendedDataAsciiString, data.Diameter),
+            new((int)DxfCode.ExtendedDataAsciiString, data.Surface),
+            new((int)DxfCode.ExtendedDataReal, data.Quantity)
         };
-        foreach (UcAssignment assignment in data.Assignments)
+
+        if (data.Color.IsByAci)
         {
-            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, assignment.Uc.Diameter));
-            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, assignment.Uc.Surface));
-            values.Add(new TypedValue((int)DxfCode.ExtendedDataReal, assignment.Quantity));
+            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ACI:" + data.Color.ColorIndex.ToString(CultureInfo.InvariantCulture)));
         }
+        else
+        {
+            values.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString,
+                $"RGB:{data.Color.Red},{data.Color.Green},{data.Color.Blue}"));
+        }
+
         mtext.XData = new ResultBuffer(values.ToArray());
     }
 
@@ -377,47 +335,20 @@ public sealed class AnotacionesTool
         return string.Empty;
     }
 
-    private static string? GetUcDiameter(string layer)
+    private static string? GetSurface(Color color)
     {
-        if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2";
-        if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4";
-        return null;
-    }
-
-    private static string? GetSurface(Transaction transaction, Dimension dimension)
-    {
-        Color color = dimension.Color;
-        if (color.ColorIndex == 256 || color.IsByLayer)
-        {
-            ObjectId layerId = dimension.LayerId;
-            if (!layerId.IsNull && transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer) color = layer.Color;
-        }
+        if (color.IsByLayer || color.IsByBlock || color.IsNone) return null;
         foreach (UcSurface surface in Surfaces)
         {
-            if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
+            if (surface.ColorIndex.HasValue && color.IsByAci && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
+            if (surface.Red.HasValue && !color.IsByAci && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
+            if (surface.Red.HasValue && color.IsByAci && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
         }
         return null;
     }
 
-    private static bool IsSameRgb(Color color, int red, int green, int blue) => color.Red == red && color.Green == green && color.Blue == blue;
-
-    private static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
-    {
-        value = 0.0;
-        string text = dimension.DimensionText?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
-        if (!match.Success) return false;
-        return double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
-    }
-
-    private static int GetSurfaceOrder(string surface)
-    {
-        for (int i = 0; i < SurfaceOrder.Length; i++)
-            if (string.Equals(surface, SurfaceOrder[i], StringComparison.OrdinalIgnoreCase)) return i;
-        return SurfaceOrder.Length;
-    }
+    private static bool IsSameRgb(Color color, int red, int green, int blue) =>
+        color.Red == red && color.Green == green && color.Blue == blue;
 
     private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
     {
@@ -426,7 +357,8 @@ public sealed class AnotacionesTool
         "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
     };
 
-    private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
+    private static double FormatQuantityValue(double value) => Math.Abs(value);
+    private static string FormatQuantity(double value) => FormatQuantityValue(value).ToString("0.0##", CultureInfo.InvariantCulture);
 
     private static void EraseEntity(Database database, ObjectId objectId)
     {
@@ -437,8 +369,6 @@ public sealed class AnotacionesTool
     }
 
     private sealed record SpiralData(double Pipe, double Unions, double Tees);
-    private sealed record ActivityData(string Type, string DetailLayout, string UcLayout, List<UcAssignment> Assignments);
-    private sealed record UcAssignment(UcKey Uc, double Quantity);
-    private readonly record struct UcKey(string Diameter, string Surface);
+    private sealed record ActivityData(string Type, string Diameter, string Surface, double Quantity, Color Color);
     private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
 }
