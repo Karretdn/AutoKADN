@@ -674,6 +674,17 @@ public sealed class GenerarExcelTool
         return definition == null ? string.Empty : definition.Name;
     }
 
+    private static string GetDiameter(BlockReference blockReference)
+    {
+        if (!blockReference.IsDynamicBlock) return string.Empty;
+        foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection)
+        {
+            if (string.Equals(property.PropertyName, "DIAMETRO", StringComparison.OrdinalIgnoreCase))
+                return property.Value == null ? string.Empty : property.Value.ToString().Trim();
+        }
+        return string.Empty;
+    }
+
     private static int GetSurfaceOrder(string surface) { int index = Array.FindIndex(SurfaceOrder, x => string.Equals(x, surface, StringComparison.OrdinalIgnoreCase)); return index < 0 ? int.MaxValue : index; }
     private static int DiameterOrder(string diameter) { if (diameter == "1/2") return 0; if (diameter == "3/4") return 1; return int.MaxValue; }
     private static string ToDisplaySurface(string surface) => string.Equals(surface, "ASFALTO", StringComparison.OrdinalIgnoreCase) ? "CALZADA ASFALTO" : surface;
