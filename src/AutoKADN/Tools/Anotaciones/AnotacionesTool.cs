@@ -198,6 +198,12 @@ public sealed class AnotacionesTool
             saddleDiameter = diameterResult.StringResult.Trim(); if (saddleDiameter.Length == 0) return null;
         }
         string? peExt = ReadYesNo(editor, "PE.EXT.? [Y/N]: "); if (peExt is null) return null;
+
+        // Todos los componentes del ESPIRAL pertenecen al mismo terreno.
+        // Por eso se solicita el color una sola vez y se guarda en el ESPIRAL completo.
+        Color? selectedColor = ReadActivityColor(editor, out string? surface);
+        if (selectedColor is null || surface is null) return null;
+
         var lines = new List<string>();
         if (!IsZero(pipe)) lines.Add($"{pipe}ML TUBERIA 3/4\"");
         if (!IsZero(unions)) lines.Add($"{unions} UNIONES DE 3/4\"");
@@ -206,7 +212,10 @@ public sealed class AnotacionesTool
         if (!IsZero(saddles)) lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
         if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase)) lines.Add("PE.EXT.");
         if (lines.Count == 0) { editor.WriteMessage("\nESPIRAL: no se generó ninguna línea porque todas las cantidades fueron cero y PE.EXT. fue N.\n"); return string.Empty; }
-        spiralData = new SpiralData(ParseNumber(pipe), ParseNumber(unions), ParseNumber(tees));
+
+        spiralData = new SpiralData(ParseNumber(pipe), ParseNumber(unions), ParseNumber(tees),
+            ParseNumber(valves), ParseNumber(saddles), saddleDiameter, peExt, surface, selectedColor);
+        editor.WriteMessage($"\nESPIRAL registrado: {ToDisplaySurface(surface)}. Todos sus componentes usarán este terreno.\n");
         return string.Join("\\P", lines);
     }
 
@@ -257,6 +266,7 @@ public sealed class AnotacionesTool
             Layer = spiralData is not null ? GetOrCreateLayer(database, transaction, MaterialsLayer) : GetCurrentLayerName(database, transaction)
         };
         if (activityData is not null) mtext.Color = activityData.Color;
+        if (spiralData is not null) mtext.Color = spiralData.Color;
         currentSpace.AppendEntity(mtext); transaction.AddNewlyCreatedDBObject(mtext, true);
         if (spiralData is not null) SetSpiralXData(database, transaction, mtext, spiralData);
         if (activityData is not null) SetActivityXData(database, transaction, mtext, activityData);
@@ -271,7 +281,13 @@ public sealed class AnotacionesTool
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ESPIRAL"),
             new TypedValue((int)DxfCode.ExtendedDataReal, data.Pipe),
             new TypedValue((int)DxfCode.ExtendedDataReal, data.Unions),
-            new TypedValue((int)DxfCode.ExtendedDataReal, data.Tees));
+            new TypedValue((int)DxfCode.ExtendedDataReal, data.Tees),
+            new TypedValue((int)DxfCode.ExtendedDataReal, data.Valves),
+            new TypedValue((int)DxfCode.ExtendedDataReal, data.Saddles),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.SaddleDiameter),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.PeExt),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, data.Surface),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, GetColorToken(data.Color)));
     }
 
     private static void SetActivityXData(Database database, Transaction transaction, MText mtext, ActivityData data)
@@ -348,7 +364,7 @@ public sealed class AnotacionesTool
         transaction.Commit();
     }
 
-    private sealed record SpiralData(double Pipe, double Unions, double Tees);
+    private sealed record SpiralData(double Pipe, double Unions, double Tees, double Valves, double Saddles, string SaddleDiameter, string PeExt, string Surface, Color Color);
     private sealed record ActivityData(string Type, string Diameter, string Surface, double Quantity, Color Color);
     private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
 }
