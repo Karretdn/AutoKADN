@@ -8,6 +8,8 @@ public sealed class CotaTool
 {
     private const double OffsetFromLine = 5.50;
     private const double OverallDimensionScale = 0.05;
+    private const string XDataAppName = "AUTOKADN";
+    private const string UcSurfaceXDataType = "UC_SURFACE";
 
     private static readonly (string Label, string Layer)[] LongitudLayers =
     {
@@ -21,23 +23,18 @@ public sealed class CotaTool
         ("CANALIZACION 3-4\"", "UC_3-4")
     };
 
-    private sealed record UCAttribute(
-        string Keyword,
-        short? Aci,
-        byte R,
-        byte G,
-        byte B);
+    private sealed record UCAttribute(string Keyword);
 
     private static readonly UCAttribute[] UCAttributes =
     {
-        new("ZONA_VERDE", 3, 0, 0, 0),
-        new("ANDEN_TABLETA", 1, 0, 0, 0),
-        new("CALZADA_CONCRETO", 8, 0, 0, 0),
-        new("DESTAPADO", 2, 0, 0, 0),
-        new("CUNETA", null, 100, 33, 101),
-        new("ANDEN_CONCRETO", 5, 0, 0, 0),
-        new("ASFALTO", 30, 0, 0, 0),
-        new("ADOQUIN", 4, 0, 0, 0)
+        new("ZONA_VERDE"),
+        new("ANDEN_TABLETA"),
+        new("CALZADA_CONCRETO"),
+        new("DESTAPADO"),
+        new("CUNETA"),
+        new("ANDEN_CONCRETO"),
+        new("ASFALTO"),
+        new("ADOQUIN")
     };
 
     public void Run()
@@ -48,41 +45,41 @@ public sealed class CotaTool
         Editor editor = document.Editor;
         editor.WriteMessage("\n[COTAK] Acotado rápido.\n");
 
-        string? type = SelectType(editor);
-        if (type is null) return;
-
-        if (type.Equals("UBICACION", StringComparison.OrdinalIgnoreCase))
-        {
-            new UbicacionTool().Run();
-            return;
-        }
-
-        while (CreateDimensionFromLine(document, editor, type)) { }
-    }
-
-    private static string? SelectType(Editor editor)
-    {
         object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
         try
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
 
-            var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC/Ubicacion]: ")
+            string? type = SelectType(editor);
+            if (type is null) return;
+
+            if (type.Equals("UBICACION", StringComparison.OrdinalIgnoreCase))
             {
-                AllowNone = true
-            };
+                new UbicacionTool().Run();
+                return;
+            }
 
-            options.Keywords.Add("Longitud");
-            options.Keywords.Add("UC");
-            options.Keywords.Add("Ubicacion");
-
-            PromptResult result = editor.GetKeywords(options);
-            return result.Status == PromptStatus.OK ? result.StringResult : null;
+            while (CreateDimensionFromLine(document, editor, type)) { }
         }
         finally
         {
             Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
         }
+    }
+
+    private static string? SelectType(Editor editor)
+    {
+        var options = new PromptKeywordOptions("\nSeleccione tipo de cota [Longitud/UC/Ubicacion]: ")
+        {
+            AllowNone = true
+        };
+
+        options.Keywords.Add("Longitud");
+        options.Keywords.Add("UC");
+        options.Keywords.Add("Ubicacion");
+
+        PromptResult result = editor.GetKeywords(options);
+        return result.Status == PromptStatus.OK ? result.StringResult : null;
     }
 
     private static bool CreateDimensionFromLine(
@@ -90,28 +87,16 @@ public sealed class CotaTool
         Editor editor,
         string type)
     {
-        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-        PromptEntityResult entityResult;
-
-        try
+        var entityOptions = new PromptEntityOptions("\nSeleccione la línea: ")
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
+            AllowNone = true
+        };
 
-            var entityOptions = new PromptEntityOptions("\nSeleccione la línea: ")
-            {
-                AllowNone = true
-            };
+        entityOptions.SetRejectMessage("\nDebe seleccionar una línea o polilínea.\n");
+        entityOptions.AddAllowedClass(typeof(Line), false);
+        entityOptions.AddAllowedClass(typeof(Polyline), false);
 
-            entityOptions.SetRejectMessage("\nDebe seleccionar una línea o polilínea.\n");
-            entityOptions.AddAllowedClass(typeof(Line), false);
-            entityOptions.AddAllowedClass(typeof(Polyline), false);
-
-            entityResult = editor.GetEntity(entityOptions);
-        }
-        finally
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
-        }
+        PromptEntityResult entityResult = editor.GetEntity(entityOptions);
 
         if (entityResult.Status != PromptStatus.OK) return false;
 
@@ -248,18 +233,7 @@ public sealed class CotaTool
         var jig = new DimensionSideJig(dimension, midpoint, normal, OffsetFromLine);
         editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar: ");
 
-        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-        PromptResult result;
-
-        try
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
-            result = editor.Drag(jig);
-        }
-        finally
-        {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
-        }
+        PromptResult result = editor.Drag(jig);
 
         if (result.Status == PromptStatus.OK)
         {
@@ -277,50 +251,39 @@ public sealed class CotaTool
             ? UCLayers
             : LongitudLayers;
 
-        object originalShortcutMenu = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("SHORTCUTMENU");
-
-        try
+        var options = new PromptKeywordOptions(
+            $"\nSeleccione capa [{string.Join("/", preferred.Select(x => x.Label))}]: ")
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", 0);
+            AllowNone = true
+        };
 
-            var options = new PromptKeywordOptions(
-                $"\nSeleccione capa [{string.Join("/", preferred.Select(x => x.Label))}]: ")
-            {
-                AllowNone = true
-            };
+        string[] keywords = { "OPCION1", "OPCION2" };
 
-            string[] keywords = { "OPCION1", "OPCION2" };
-
-            for (int i = 0; i < preferred.Length; i++)
-            {
-                options.Keywords.Add(
-                    keywords[i],
-                    preferred[i].Label,
-                    preferred[i].Label,
-                    true,
-                    true);
-            }
-
-            PromptResult result = editor.GetKeywords(options);
-            if (result.Status != PromptStatus.OK) return null;
-
-            int index = Array.IndexOf(keywords, result.StringResult);
-            if (index < 0 || index >= preferred.Length) return null;
-
-            string exactLayerName = preferred[index].Layer;
-
-            if (!LayerExists(database, exactLayerName))
-            {
-                editor.WriteMessage($"\nNo existe la capa requerida: {exactLayerName}\n");
-                return null;
-            }
-
-            return exactLayerName;
-        }
-        finally
+        for (int i = 0; i < preferred.Length; i++)
         {
-            Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
+            options.Keywords.Add(
+                keywords[i],
+                preferred[i].Label,
+                preferred[i].Label,
+                true,
+                true);
         }
+
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK) return null;
+
+        int index = Array.IndexOf(keywords, result.StringResult);
+        if (index < 0 || index >= preferred.Length) return null;
+
+        string exactLayerName = preferred[index].Layer;
+
+        if (!LayerExists(database, exactLayerName))
+        {
+            editor.WriteMessage($"\nNo existe la capa requerida: {exactLayerName}\n");
+            return null;
+        }
+
+        return exactLayerName;
     }
 
     private static bool LayerExists(Database database, string layerName)
@@ -336,31 +299,29 @@ public sealed class CotaTool
 
     private static bool SelectUCAttribute(Database database, Editor editor, ObjectId dimensionId)
     {
-        editor.WriteMessage("\nSeleccione atributo UC:");
-        for (int i = 0; i < UCAttributes.Length; i++)
-        {
-            editor.WriteMessage($"\n  {i + 1}. {UCAttributes[i].Keyword}");
-        }
+        var options = new PromptKeywordOptions("\nAsignar terreno: ") { AllowNone = false };
+        options.Keywords.Add("ZONAVERDE", "ZONA VERDE", "ZONA VERDE", true, true);
+        options.Keywords.Add("ANDENCONCRETO", "ANDEN CONCRETO", "ANDEN CONCRETO", true, true);
+        options.Keywords.Add("ANDENTABLETA", "ANDEN TABLETA", "ANDEN TABLETA", true, true);
+        options.Keywords.Add("CALZADACONCRETO", "CALZADA CONCRETO", "CALZADA CONCRETO", true, true);
+        options.Keywords.Add("ADOQUIN", "ADOQUIN", "ADOQUIN", true, true);
+        options.Keywords.Add("ASFALTO", "ASFALTO", "ASFALTO", true, true);
+        options.Keywords.Add("CUNETA", "CUNETA", "CUNETA", true, true);
+        options.Keywords.Add("DESTAPADO", "DESTAPADO", "DESTAPADO", true, true);
 
-        var options = new PromptIntegerOptions("\nNúmero de atributo: ")
-        {
-            AllowNegative = false,
-            AllowZero = false,
-            AllowNone = true,
-            LowerLimit = 1,
-            UpperLimit = UCAttributes.Length
-        };
-
-        PromptIntegerResult result = editor.GetInteger(options);
+        PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return false;
 
-        int index = result.Value - 1;
-        if (index < 0 || index >= UCAttributes.Length) return false;
+        UCAttribute? selected = UCAttributes.FirstOrDefault(
+            attribute => attribute.Keyword.Replace("_", string.Empty)
+                .Equals(result.StringResult, StringComparison.OrdinalIgnoreCase));
 
-        return SetDimensionColor(database, dimensionId, UCAttributes[index]);
+        if (selected is null) return false;
+
+        return SetDimensionSurface(database, dimensionId, selected);
     }
 
-    private static bool SetDimensionColor(
+    private static bool SetDimensionSurface(
         Database database,
         ObjectId dimensionId,
         UCAttribute attribute)
@@ -373,28 +334,25 @@ public sealed class CotaTool
             return false;
         }
 
-        if (attribute.Aci.HasValue)
-        {
-            if (attribute.Aci.Value < 1 || attribute.Aci.Value > 255)
-            {
-                transaction.Abort();
-                return false;
-            }
-
-            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
-                Autodesk.AutoCAD.Colors.ColorMethod.ByAci,
-                attribute.Aci.Value);
-        }
-        else
-        {
-            dimension.Color = Autodesk.AutoCAD.Colors.Color.FromRgb(
-                attribute.R,
-                attribute.G,
-                attribute.B);
-        }
+        EnsureRegApp(database, transaction);
+        dimension.XData = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, UcSurfaceXDataType),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, attribute.Keyword.Replace('_', ' ')));
 
         transaction.Commit();
         return true;
+    }
+
+    private static void EnsureRegApp(Database database, Transaction transaction)
+    {
+        RegAppTable table = (RegAppTable)transaction.GetObject(database.RegAppTableId, OpenMode.ForRead);
+        if (table.Has(XDataAppName)) return;
+
+        table.UpgradeOpen();
+        var record = new RegAppTableRecord { Name = XDataAppName };
+        table.Add(record);
+        transaction.AddNewlyCreatedDBObject(record, true);
     }
 
     private static bool FindLineAtEntityPoint(
