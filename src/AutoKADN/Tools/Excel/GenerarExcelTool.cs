@@ -42,7 +42,7 @@ public sealed class GenerarExcelTool
 
     private static readonly MaterialSpec[] MaterialCatalog =
     {
-        new MaterialSpec("UNION", "1/2", "100003135"), new MaterialSpec("TUBERIA", "1/2", "100003135"),
+        new MaterialSpec("UNION", "1/2", "100003150"), new MaterialSpec("TUBERIA", "1/2", "100003135"),
         new MaterialSpec("TEE", "1/2", "100003119"), new MaterialSpec("TAPON", "1/2", "100003108"),
         new MaterialSpec("SILLETA", "2x3/4", "100003085"), new MaterialSpec("VALVULA", "3/4", "100003160"),
         new MaterialSpec("UNION", "3/4", "100003142"), new MaterialSpec("TUBERIA", "3/4", "100003130"),
@@ -241,7 +241,7 @@ public sealed class GenerarExcelTool
             XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.OrdinalIgnoreCase));
             if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell)); row.Add(cell); }
             XAttribute style = cell.Attribute("s"); cell.RemoveNodes(); cell.SetAttributeValue("t", "inlineStr"); if (style != null) cell.SetAttributeValue("s", style.Value);
-            cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", new XAttribute(xmlNs + "space", "preserve"), activity)));
+            cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", new XAttribute("{http://www.w3.org/XML/1998/namespace}space", "preserve"), activity)));
             SaveXml(archive, worksheetPath, worksheetEntry, worksheet); SetWorkbookCalculationMode(archive, workbook, mainNs); RemoveCalculationChain(archive, workbookRels, packageRelNs); return activity;
         }
     }
