@@ -145,7 +145,6 @@ public sealed class GenerarExcelTool
                     string surface = GetBlockSurface(transaction, blockReference); if (surface == null) continue;
                     string ucDiameter = GetUcDiameterFromMaterial(material.Diameter); if (ucDiameter == null) continue;
                     UcKey uc = new UcKey(ucDiameter, surface);
-                    if (validUcs != null && validUcs.Count > 0 && !validUcs.Contains(uc)) continue;
                     Dictionary<MaterialKey, double> ucMaterials;
                     if (!result.TryGetValue(uc, out ucMaterials)) { ucMaterials = new Dictionary<MaterialKey, double>(); result.Add(uc, ucMaterials); }
                     MaterialKey materialKey = new MaterialKey(material.Description, material.Diameter, "UND", material.Code);
@@ -205,14 +204,11 @@ public sealed class GenerarExcelTool
                             if (normalizedUcDiameter == "1/2" || normalizedUcDiameter == "3/4")
                             {
                                 UcKey uc = new UcKey(normalizedUcDiameter, surface);
-                                if (validUcs == null || validUcs.Count == 0 || validUcs.Contains(uc))
-                                {
-                                    Dictionary<MaterialKey, double> ucMaterials;
-                                    if (!result.TryGetValue(uc, out ucMaterials)) { ucMaterials = new Dictionary<MaterialKey, double>(); result.Add(uc, ucMaterials); }
-                                    string normalizedUnit = string.IsNullOrWhiteSpace(unit) ? "UND" : unit;
-                                    MaterialKey materialKey = new MaterialKey(material.Description, material.Diameter, normalizedUnit, material.Code);
-                                    double current; ucMaterials.TryGetValue(materialKey, out current); ucMaterials[materialKey] = current + Math.Abs(quantity);
-                                }
+                                Dictionary<MaterialKey, double> ucMaterials;
+                                if (!result.TryGetValue(uc, out ucMaterials)) { ucMaterials = new Dictionary<MaterialKey, double>(); result.Add(uc, ucMaterials); }
+                                string normalizedUnit = string.IsNullOrWhiteSpace(unit) ? "UND" : unit;
+                                MaterialKey materialKey = new MaterialKey(material.Description, material.Diameter, normalizedUnit, material.Code);
+                                double current; ucMaterials.TryGetValue(materialKey, out current); ucMaterials[materialKey] = current + Math.Abs(quantity);
                             }
                         }
                         index += 6;
