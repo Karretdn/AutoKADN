@@ -290,13 +290,30 @@ public sealed class GenerarExcelTool
         XElement sourceSheet = sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), "materiales leg", StringComparison.OrdinalIgnoreCase)); if (sourceSheet == null) return result;
         string sourceRelId = (string)sourceSheet.Attribute(relNs + "id"); XElement sourceRel = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), sourceRelId, StringComparison.Ordinal)); if (sourceRel == null) return result;
         string sourcePath = ResolveZipPath("xl/workbook.xml", (string)sourceRel.Attribute("Target")); ZipArchiveEntry sourceEntry = archive.GetEntry(sourcePath); if (sourceEntry == null) return result;
-        XElement sourceXml = LoadXml(sourceEntry); XElement sheetData = sourceXml.Element(mainNs + "sheetData"); if (sheetData == null) return result; Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs); string normalizedActivity = NormalizeActivityText(activity);
+        XElement sourceXml = LoadXml(sourceEntry); XElement sheetData = sourceXml.Element(mainNs + "sheetData"); if (sheetData == null) return result; Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
+        string normalizedActivity = NormalizeActivityText(activity);
+        int activityCode = 0;
         foreach (XElement row in sheetData.Elements(mainNs + "row").OrderBy(x => (int?)x.Attribute("r") ?? 0))
         {
             int rowNumber = (int?)row.Attribute("r") ?? 0; if (rowNumber <= 0) continue;
-            string activityValue = ReadColumnText(row, "G", rowNumber, mainNs, sharedStrings); if (NormalizeActivityText(activityValue) != normalizedActivity) continue;
-            string code = ReadColumnText(row, "J", rowNumber, mainNs, sharedStrings); string description = ReadColumnText(row, "K", rowNumber, mainNs, sharedStrings);
-            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(description)) continue; result.Add(new SourceMaterialRow(code, description));
+            string description = ReadColumnText(row, "A", rowNumber, mainNs, sharedStrings);
+            if (NormalizeActivityText(description) != normalizedActivity) continue;
+            string codeText = ReadColumnText(row, "B", rowNumber, mainNs, sharedStrings);
+            if (int.TryParse(codeText.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out activityCode)) break;
+            double numericCode;
+            if (double.TryParse(codeText.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out numericCode)) { activityCode = Convert.ToInt32(numericCode, CultureInfo.InvariantCulture); break; }
+        }
+        if (activityCode == 0) return result;
+        string activityCodeText = activityCode.ToString(CultureInfo.InvariantCulture);
+        foreach (XElement row in sheetData.Elements(mainNs + "row").OrderBy(x => (int?)x.Attribute("r") ?? 0))
+        {
+            int rowNumber = (int?)row.Attribute("r") ?? 0; if (rowNumber <= 0) continue;
+            string sourceActivityCode = ReadColumnText(row, "G", rowNumber, mainNs, sharedStrings).Trim();
+            if (!string.Equals(sourceActivityCode, activityCodeText, StringComparison.Ordinal)) continue;
+            string materialCode = ReadColumnText(row, "J", rowNumber, mainNs, sharedStrings).Trim();
+            string materialDescription = ReadColumnText(row, "K", rowNumber, mainNs, sharedStrings);
+            if (string.IsNullOrWhiteSpace(materialCode) && string.IsNullOrWhiteSpace(materialDescription)) continue;
+            result.Add(new SourceMaterialRow(materialCode, materialDescription));
         }
         return result;
     }
@@ -304,30 +321,10 @@ public sealed class GenerarExcelTool
     private static bool TryMatchSourceMaterial(SourceMaterialRow source, Dictionary<MaterialKey, double> quantities, out MaterialKey matchedKey, out double quantity)
     {
         matchedKey = default(MaterialKey); quantity = 0.0; if (quantities == null || quantities.Count == 0) return false;
-        string sourceDescription = NormalizeToken(source.Description);
         foreach (MaterialKey key in quantities.Keys)
         {
-            if (!DescriptionMatches(sourceDescription, key.Description) || !DiameterMatches(sourceDescription, key.Diameter)) continue;
             if (!string.IsNullOrWhiteSpace(source.Code) && string.Equals(source.Code.Trim(), key.Code.Trim(), StringComparison.OrdinalIgnoreCase)) { matchedKey = key; quantity = quantities[key]; return true; }
         }
-        foreach (MaterialKey key in quantities.Keys)
-        {
-            if (!DescriptionMatches(sourceDescription, key.Description) || !DiameterMatches(sourceDescription, key.Diameter)) continue;
-            matchedKey = key; quantity = quantities[key]; return true;
-        }
-        return false;
-    }
-
-    private static bool DescriptionMatches(string sourceDescription, string description)
-    {
-        string token = NormalizeToken(description); return !string.IsNullOrWhiteSpace(token) && sourceDescription.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    private static bool DiameterMatches(string sourceDescription, string diameter)
-    {
-        string source = NormalizeDiameter(sourceDescription); string target = NormalizeDiameter(diameter);
-        if (source.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-        if (target == "3/4X1/2") return source.IndexOf("3/4X1/2", StringComparison.OrdinalIgnoreCase) >= 0;
         return false;
     }
 
