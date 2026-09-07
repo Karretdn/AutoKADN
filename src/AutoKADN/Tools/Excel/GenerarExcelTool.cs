@@ -26,6 +26,8 @@ public sealed class GenerarExcelTool
     private const int MaterialEndRow = 121;
     private const string MaterialTestXDataType = "MATERIAL_PRUEBA";
     private const string SpiralXDataType = "ESPIRAL";
+    private const string XDataAppName = "AUTOKADN";
+    private const string UcSurfaceXDataType = "UC_SURFACE";
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -355,7 +357,7 @@ public sealed class GenerarExcelTool
     private static Color GetEffectiveColor(Transaction transaction, Entity entity)
     {
         Color color = entity.Color;
-        if (color.ColorIndex == 256 || color.IsByLayer)
+        if (color.ColorMethod == ColorMethod.ByLayer)
         {
             ObjectId layerId = entity.LayerId;
             if (!layerId.IsNull)
@@ -370,12 +372,7 @@ public sealed class GenerarExcelTool
     private static string GetBlockSurface(Transaction transaction, BlockReference blockReference)
     {
         Color color = GetEffectiveColor(transaction, blockReference);
-        foreach (UcSurface surface in Surfaces)
-        {
-            if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && color.Red == surface.Red.Value && color.Green == surface.Green.Value && color.Blue == surface.Blue.Value) return surface.Name;
-        }
-        return null;
+        return GetSurfaceFromColor(color);
     }
 
     private static bool IsUcLayout(string name) => Regex.IsMatch(name, @"^ANILLO\s+\d+\s+UC$", RegexOptions.IgnoreCase);
@@ -384,11 +381,35 @@ public sealed class GenerarExcelTool
 
     private static string GetSurface(Transaction transaction, Dimension dimension)
     {
+        string surfaceFromXData = GetSurfaceFromXData(dimension);
+        if (surfaceFromXData != null) return surfaceFromXData;
+
         Color color = GetEffectiveColor(transaction, dimension);
+        return GetSurfaceFromColor(color);
+    }
+
+    private static string GetSurfaceFromXData(DBObject entity)
+    {
+        ResultBuffer xdata = entity.GetXDataForApplication(XDataAppName);
+        if (xdata == null) return null;
+        TypedValue[] values = xdata.AsArray();
+        for (int i = 0; i < values.Length - 1; i++)
+        {
+            if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString &&
+                string.Equals(values[i].Value as string, UcSurfaceXDataType, StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeSurface(values[i + 1].Value as string);
+            }
+        }
+        return null;
+    }
+
+    private static string GetSurfaceFromColor(Color color)
+    {
         foreach (UcSurface surface in Surfaces)
         {
-            if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && color.Red == surface.Red.Value && color.Green == surface.Green.Value && color.Blue == surface.Blue.Value) return surface.Name;
+            if (surface.ColorIndex.HasValue && color.ColorMethod == ColorMethod.ByAci && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
+            if (surface.Red.HasValue && color.ColorMethod == ColorMethod.TrueColor && color.Red == surface.Red.Value && color.Green == surface.Green.Value && color.Blue == surface.Blue.Value) return surface.Name;
         }
         return null;
     }
@@ -645,70 +666,23 @@ public sealed class GenerarExcelTool
         foreach (string part in combined.Replace('\\', '/').Split('/')) { if (part.Length == 0 || part == ".") continue; if (part == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); continue; } parts.Add(part); }
         return string.Join("/", parts);
     }
+
     private static string GetBlockName(Transaction transaction, BlockReference blockReference)
     {
         ObjectId definitionId = blockReference.BlockTableRecord; if (blockReference.IsDynamicBlock && !blockReference.DynamicBlockTableRecord.IsNull) definitionId = blockReference.DynamicBlockTableRecord;
-        BlockTableRecord definition = transaction.GetObject(definitionId, OpenMode.ForRead) as BlockTableRecord; return definition == null ? string.Empty : definition.Name;
+        BlockTableRecord definition = transaction.GetObject(definitionId, OpenMode.ForRead) as BlockTableRecord;
+        return definition == null ? string.Empty : definition.Name;
     }
-    private static string GetDiameter(BlockReference blockReference)
-    {
-        if (!blockReference.IsDynamicBlock) return string.Empty;
-        foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection) if (string.Equals(property.PropertyName, "DIAMETRO", StringComparison.OrdinalIgnoreCase)) return property.Value == null ? string.Empty : property.Value.ToString().Trim();
-        return string.Empty;
-    }
-    private static string GetSuggestedFileName(UcKey uc)
-    {
-        string surfaceCode; if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode)) surfaceCode = "UC"; string diameterCode = uc.Diameter == "1/2" ? "1-2" : "3-4"; return surfaceCode + " " + diameterCode + " PULG.xlsx";
-    }
+
+    private static int GetSurfaceOrder(string surface) { int index = Array.FindIndex(SurfaceOrder, x => string.Equals(x, surface, StringComparison.OrdinalIgnoreCase)); return index < 0 ? int.MaxValue : index; }
+    private static int DiameterOrder(string diameter) { if (diameter == "1/2") return 0; if (diameter == "3/4") return 1; return int.MaxValue; }
+    private static string ToDisplaySurface(string surface) => string.Equals(surface, "ASFALTO", StringComparison.OrdinalIgnoreCase) ? "CALZADA ASFALTO" : surface;
+    private static string GetSuggestedFileName(UcKey uc) { string diameter = uc.Diameter.Replace('/', '-'); string code = SurfaceFileCode.TryGetValue(uc.Surface, out string value) ? value : NormalizeToken(uc.Surface); return "Formato_" + diameter + "_" + code + ".xlsx"; }
     private static string EnsureXlsxExtension(string path) => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
-    private static string ToDisplaySurface(string surface) => surface == "ANDEN TABLETA" ? "ANDÉN TABLETA, BALDOSÍN, GRAVILLA" : surface;
-    private static int GetSurfaceOrder(string surface) { int i = Array.FindIndex(SurfaceOrder, x => string.Equals(x, surface, StringComparison.OrdinalIgnoreCase)); return i < 0 ? int.MaxValue : i; }
-    private static int DiameterOrder(string diameter) => diameter == "1/2" ? 0 : 1;
 
-    private struct UcKey : IEquatable<UcKey>
-    {
-        public UcKey(string diameter, string surface) { Diameter = NormalizeDiameter(diameter); Surface = NormalizeSurface(surface); }
-        public string Diameter { get; private set; }
-        public string Surface { get; private set; }
-        public bool Equals(UcKey other) => string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase) && string.Equals(Surface, other.Surface, StringComparison.OrdinalIgnoreCase);
-        public override bool Equals(object obj) => obj is UcKey && Equals((UcKey)obj);
-        public override int GetHashCode() { unchecked { return (StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty) * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Surface ?? string.Empty); } }
-    }
-
-    private struct MaterialKey : IEquatable<MaterialKey>
-    {
-        public MaterialKey(string description, string diameter, string unit, string code) { Description = NormalizeToken(description); Diameter = NormalizeDiameter(diameter); Unit = string.IsNullOrWhiteSpace(unit) ? "UND" : unit.Trim(); Code = code == null ? string.Empty : code.Trim(); }
-        public string Description { get; private set; }
-        public string Diameter { get; private set; }
-        public string Unit { get; private set; }
-        public string Code { get; private set; }
-        public bool Equals(MaterialKey other) => string.Equals(Description, other.Description, StringComparison.OrdinalIgnoreCase) && string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase) && string.Equals(Unit, other.Unit, StringComparison.OrdinalIgnoreCase) && string.Equals(Code, other.Code, StringComparison.OrdinalIgnoreCase);
-        public override bool Equals(object obj) => obj is MaterialKey && Equals((MaterialKey)obj);
-        public override int GetHashCode() { unchecked { int hash = StringComparer.OrdinalIgnoreCase.GetHashCode(Description ?? string.Empty); hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty); hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Unit ?? string.Empty); return (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Code ?? string.Empty); } }
-    }
-
-    private sealed class MaterialSpec
-    {
-        public MaterialSpec(string description, string diameter, string code) { Description = description; Diameter = diameter; Code = code; }
-        public string Description { get; private set; }
-        public string Diameter { get; private set; }
-        public string Code { get; private set; }
-    }
-
-    private sealed class SourceMaterialRow
-    {
-        public SourceMaterialRow(string code, string description) { Code = code; Description = description; }
-        public string Code { get; private set; }
-        public string Description { get; private set; }
-    }
-
-    private sealed class UcSurface
-    {
-        public UcSurface(string name, int? colorIndex, int? red, int? green, int? blue) { Name = name; ColorIndex = colorIndex; Red = red; Green = green; Blue = blue; }
-        public string Name { get; private set; }
-        public int? ColorIndex { get; private set; }
-        public int? Red { get; private set; }
-        public int? Green { get; private set; }
-        public int? Blue { get; private set; }
-    }
+    private sealed record UcSurface(string Name, short? ColorIndex, byte? Red, byte? Green, byte? Blue);
+    private sealed record MaterialSpec(string Description, string Diameter, string Code);
+    private readonly record struct UcKey(string Diameter, string Surface);
+    private readonly record struct MaterialKey(string Description, string Diameter, string Unit, string Code);
+    private sealed record SourceMaterialRow(string Code, string Description);
 }
