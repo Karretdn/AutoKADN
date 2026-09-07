@@ -62,7 +62,7 @@ public sealed class GenerarExcelTool
             if (string.IsNullOrWhiteSpace(templatePath)) { editor.WriteMessage("\nGeneración cancelada: no se seleccionó la plantilla base.\n"); return; }
             List<UcKey> detectedUcs = ScanUcs(database);
             if (detectedUcs.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC'.\n"); return; }
-            Dictionary<UcKey, Dictionary<MaterialKey, double>> accessoryQuantities = ScanAccessories(database);
+            Dictionary<UcKey, Dictionary<MaterialKey, double>> accessoryQuantities = ScanAccessories(database, new HashSet<UcKey>(detectedUcs));
             string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath)); int generated = 0;
             editor.WriteMessage("\nUC detectadas: " + detectedUcs.Count + ". Se procesarán una por una.\n");
             foreach (UcKey uc in detectedUcs)
@@ -119,7 +119,7 @@ public sealed class GenerarExcelTool
         return detected.OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
     }
 
-    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanAccessories(Database database)
+    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanAccessories(Database database, ISet<UcKey> validUcs)
     {
         var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -138,7 +138,9 @@ public sealed class GenerarExcelTool
                     MaterialSpec material; if (!TryGetMaterialSpec(description, blockDiameter, out material)) continue;
                     string surface = GetBlockSurface(transaction, blockReference); if (surface == null) continue;
                     string ucDiameter = GetUcDiameterFromMaterial(material.Diameter); if (ucDiameter == null) continue;
-                    UcKey uc = new UcKey(ucDiameter, surface); Dictionary<MaterialKey, double> ucMaterials;
+                    UcKey uc = new UcKey(ucDiameter, surface);
+                    if (validUcs != null && validUcs.Count > 0 && !validUcs.Contains(uc)) continue;
+                    Dictionary<MaterialKey, double> ucMaterials;
                     if (!result.TryGetValue(uc, out ucMaterials)) { ucMaterials = new Dictionary<MaterialKey, double>(); result.Add(uc, ucMaterials); }
                     MaterialKey materialKey = new MaterialKey(material.Description, material.Diameter, "UND", material.Code);
                     double current; ucMaterials.TryGetValue(materialKey, out current); ucMaterials[materialKey] = current + 1.0;
@@ -171,18 +173,24 @@ public sealed class GenerarExcelTool
         return null;
     }
 
-    private static string GetBlockSurface(Transaction transaction, BlockReference blockReference)
+    private static Color GetEffectiveColor(Transaction transaction, Entity entity)
     {
-        Color color = blockReference.Color;
+        Color color = entity.Color;
         if (color.ColorIndex == 256 || color.IsByLayer)
         {
-            ObjectId layerId = blockReference.LayerId;
+            ObjectId layerId = entity.LayerId;
             if (!layerId.IsNull)
             {
                 LayerTableRecord layer = transaction.GetObject(layerId, OpenMode.ForRead) as LayerTableRecord;
                 if (layer != null) color = layer.Color;
             }
         }
+        return color;
+    }
+
+    private static string GetBlockSurface(Transaction transaction, BlockReference blockReference)
+    {
+        Color color = GetEffectiveColor(transaction, blockReference);
         foreach (UcSurface surface in Surfaces)
         {
             if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
@@ -197,12 +205,7 @@ public sealed class GenerarExcelTool
 
     private static string GetSurface(Transaction transaction, Dimension dimension)
     {
-        Color color = dimension.Color;
-        if (color.ColorIndex == 256 || color.IsByLayer)
-        {
-            ObjectId layerId = dimension.LayerId;
-            if (!layerId.IsNull) { LayerTableRecord layer = transaction.GetObject(layerId, OpenMode.ForRead) as LayerTableRecord; if (layer != null) color = layer.Color; }
-        }
+        Color color = GetEffectiveColor(transaction, dimension);
         foreach (UcSurface surface in Surfaces)
         {
             if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
@@ -291,8 +294,7 @@ public sealed class GenerarExcelTool
         string sourceRelId = (string)sourceSheet.Attribute(relNs + "id"); XElement sourceRel = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), sourceRelId, StringComparison.Ordinal)); if (sourceRel == null) return result;
         string sourcePath = ResolveZipPath("xl/workbook.xml", (string)sourceRel.Attribute("Target")); ZipArchiveEntry sourceEntry = archive.GetEntry(sourcePath); if (sourceEntry == null) return result;
         XElement sourceXml = LoadXml(sourceEntry); XElement sheetData = sourceXml.Element(mainNs + "sheetData"); if (sheetData == null) return result; Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
-        string normalizedActivity = NormalizeActivityText(activity);
-        int activityCode = 0;
+        string normalizedActivity = NormalizeActivityText(activity); int activityCode = 0;
         foreach (XElement row in sheetData.Elements(mainNs + "row").OrderBy(x => (int?)x.Attribute("r") ?? 0))
         {
             int rowNumber = (int?)row.Attribute("r") ?? 0; if (rowNumber <= 0) continue;
