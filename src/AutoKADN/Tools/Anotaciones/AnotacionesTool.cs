@@ -163,7 +163,7 @@ public sealed class AnotacionesTool
 
         foreach (UcSurface item in Surfaces)
         {
-            string keyword = item.Name.Replace(" ", string.Empty, StringComparison.Ordinal);
+            string keyword = item.Name.Replace(" ", string.Empty);
             if (!keyword.Equals(result.StringResult, StringComparison.OrdinalIgnoreCase)) continue;
             surface = item.Name;
             editor.WriteMessage($"\nTerreno asignado: {ToDisplaySurface(surface)}.\n");
