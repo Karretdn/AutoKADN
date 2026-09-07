@@ -11,19 +11,16 @@ public sealed class ListaBloquesTool
     private const double RowHeight = 5.0;
     private const double TextHeight = 2.5;
     private const int SlotsPerColumn = 5;
-
     private const double DescriptionWidth = 30.0;
     private const double DiameterWidth = 27.0;
     private const double UnitWidth = 25.5;
     private const double QuantityWidth = 25.5;
     private const double ColumnWidth = DescriptionWidth + DiameterWidth + UnitWidth + QuantityWidth;
     private const double RightColumnShift = -5.0;
-
     private const double DescriptionLeftMargin = 1.5;
     private const double DiameterCenterCorrection = -2.0;
     private const double UnitCenterCorrection = -1.5;
     private const double QuantityCenterCorrection = -4.5;
-
     private const string BlocksLayer = "Mat";
     private const string PipeLayerHalf = "COTA_1-2";
     private const string PipeLayerThreeQuarter = "COTA_3-4";
@@ -41,7 +38,6 @@ public sealed class ListaBloquesTool
     {
         var document = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
         if (document is null) return;
-
         Editor editor = document.Editor;
         Database database = document.Database;
         string layoutName = LayoutManager.Current.CurrentLayout;
@@ -52,27 +48,19 @@ public sealed class ListaBloquesTool
             ObjectId layoutId = LayoutManager.Current.GetLayoutId(layoutName);
             var layout = (Layout)transaction.GetObject(layoutId, OpenMode.ForRead);
             var layoutSpace = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-
             foreach (ObjectId objectId in layoutSpace)
             {
                 DBObject entity = transaction.GetObject(objectId, OpenMode.ForRead);
-
                 if (entity is BlockReference blockReference)
                 {
                     if (!string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) continue;
                     string description = GetBlockName(transaction, blockReference);
                     if (string.IsNullOrWhiteSpace(description)) continue;
-
-                    // Los parámetros dinámicos del bloque son la fuente oficial:
-                    // DESCRIPCION = nombre del bloque, DIAMETRO = parámetro DIAMETRO,
-                    // TERRENO = parámetro UC. La cantidad es el número físico de bloques.
                     string diameter = GetDynamicProperty(blockReference, "DIAMETRO");
                     string surface = GetDynamicProperty(blockReference, "UC");
                     if (string.IsNullOrWhiteSpace(diameter) || string.IsNullOrWhiteSpace(surface)) continue;
-
                     AttachMaterialXData(database, transaction, blockReference, description, diameter, surface, layoutName);
-                    var key = new BlockKey(description, NormalizeDiameter(diameter), "UND", NormalizeSurface(surface));
-                    AddCount(counts, key, 1.0);
+                    AddCount(counts, new BlockKey(description, NormalizeDiameter(diameter), "UND", NormalizeSurface(surface)), 1.0);
                 }
                 else if (entity is Dimension dimension)
                 {
@@ -95,10 +83,8 @@ public sealed class ListaBloquesTool
             return;
         }
 
-        PromptPointResult pointResult = editor.GetPoint(
-            new PromptPointOptions("\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista: "));
+        PromptPointResult pointResult = editor.GetPoint(new PromptPointOptions("\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista: "));
         if (pointResult.Status != PromptStatus.OK) return;
-
         CreateTexts(database, pointResult.Value, counts, layoutName);
         editor.Regen();
         editor.WriteMessage($"\nLista generada en el layout '{layoutName}'.\n");
@@ -108,36 +94,21 @@ public sealed class ListaBloquesTool
     {
         if (!string.Equals(mtext.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) return;
         if (!TryReadSpiralXData(mtext, out double pipe, out double unions, out double tees)) return;
-
-        if (pipe > 0.0)
-            AddCount(counts, new BlockKey("TUBERIA", "3/4\"", "ML", string.Empty), pipe);
-        if (unions > 0.0)
-            AddCount(counts, new BlockKey("UNION", "3/4\"", "UND", string.Empty), unions);
-        if (tees > 0.0)
-            AddCount(counts, new BlockKey("TEE", "3/4\"", "UND", string.Empty), tees);
+        if (pipe > 0.0) AddCount(counts, new BlockKey("TUBERIA", "3/4\"", "ML", string.Empty), pipe);
+        if (unions > 0.0) AddCount(counts, new BlockKey("UNION", "3/4\"", "UND", string.Empty), unions);
+        if (tees > 0.0) AddCount(counts, new BlockKey("TEE", "3/4\"", "UND", string.Empty), tees);
     }
 
     private static bool TryReadSpiralXData(MText mtext, out double pipe, out double unions, out double tees)
     {
-        pipe = 0.0;
-        unions = 0.0;
-        tees = 0.0;
-
+        pipe = 0.0; unions = 0.0; tees = 0.0;
         ResultBuffer? xdata = mtext.GetXDataForApplication(XDataAppName);
         if (xdata is null) return false;
-
         TypedValue[] values = xdata.AsArray();
         if (values.Length < 5) return false;
-        if (values[0].TypeCode != (int)DxfCode.ExtendedDataRegAppName ||
-            !string.Equals(values[0].Value?.ToString(), XDataAppName, StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (values[1].TypeCode != (int)DxfCode.ExtendedDataAsciiString ||
-            !string.Equals(values[1].Value?.ToString(), SpiralType, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return TryGetReal(values[2], out pipe) &&
-               TryGetReal(values[3], out unions) &&
-               TryGetReal(values[4], out tees);
+        if (values[0].TypeCode != (int)DxfCode.ExtendedDataRegAppName || !string.Equals(values[0].Value?.ToString(), XDataAppName, StringComparison.OrdinalIgnoreCase)) return false;
+        if (values[1].TypeCode != (int)DxfCode.ExtendedDataAsciiString || !string.Equals(values[1].Value?.ToString(), SpiralType, StringComparison.OrdinalIgnoreCase)) return false;
+        return TryGetReal(values[2], out pipe) && TryGetReal(values[3], out unions) && TryGetReal(values[4], out tees);
     }
 
     private static bool TryGetReal(TypedValue value, out double number)
@@ -168,8 +139,7 @@ public sealed class ListaBloquesTool
         if (string.IsNullOrWhiteSpace(text)) return false;
         Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
         if (!match.Success) return false;
-        string numericText = match.Value.Replace(',', '.');
-        return double.TryParse(numericText, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        return double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     private static void CreateTexts(Database database, Point3d topLeftPoint, IReadOnlyDictionary<BlockKey, double> counts, string layoutName)
@@ -181,7 +151,6 @@ public sealed class ListaBloquesTool
         double firstRowY = topLeftPoint.Y - (RowHeight / 2.0);
         string summaryId = Guid.NewGuid().ToString("D");
         EnsureXDataRegApp(database, transaction);
-
         IEnumerable<KeyValuePair<BlockKey, double>> orderedItems = counts
             .OrderBy(x => GetPriority(x.Key.Description))
             .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase)
@@ -198,20 +167,14 @@ public sealed class ListaBloquesTool
             if (column > 0) columnX += RightColumnShift;
             double y = firstRowY - (slot * RowHeight);
             string rowId = Guid.NewGuid().ToString("D");
-
             double descriptionX = columnX + DescriptionLeftMargin;
             double diameterX = columnX + DescriptionWidth + (DiameterWidth / 2.0) + DiameterCenterCorrection;
             double unitX = columnX + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0) + UnitCenterCorrection;
             double quantityX = columnX + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0) + QuantityCenterCorrection;
-
-            AddLeftAlignedText(transaction, currentSpace, item.Key.Description,
-                new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DESCRIPCION");
-            AddCenteredText(transaction, currentSpace, item.Key.Diameter,
-                new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DIAMETRO");
-            AddCenteredText(transaction, currentSpace, item.Key.Unit,
-                new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "UNIDAD");
-            AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit),
-                new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "CANTIDAD");
+            AddLeftAlignedText(transaction, currentSpace, item.Key.Description, new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DESCRIPCION");
+            AddCenteredText(transaction, currentSpace, item.Key.Diameter, new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DIAMETRO");
+            AddCenteredText(transaction, currentSpace, item.Key.Unit, new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "UNIDAD");
+            AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit), new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "CANTIDAD");
             index++;
         }
         transaction.Commit();
@@ -219,48 +182,25 @@ public sealed class ListaBloquesTool
 
     private static int GetPriority(string description)
     {
-        int index = Array.FindIndex(ItemPriority,
-            item => string.Equals(item, description, StringComparison.OrdinalIgnoreCase));
+        int index = Array.FindIndex(ItemPriority, item => string.Equals(item, description, StringComparison.OrdinalIgnoreCase));
         return index >= 0 ? index : ItemPriority.Length;
     }
 
-    private static string FormatQuantity(double value, string unit)
+    private static string FormatQuantity(double value, string unit) => unit == "ML" ? value.ToString("0.0##", CultureInfo.InvariantCulture) : value.ToString("0", CultureInfo.InvariantCulture);
+
+    private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId, string rowId, string field)
     {
-        return unit == "ML"
-            ? value.ToString("0.0##", CultureInfo.InvariantCulture)
-            : value.ToString("0", CultureInfo.InvariantCulture);
+        var text = new DBText { TextString = value, Position = position, Height = height, TextStyleId = textStyleId, Layer = layerName, HorizontalMode = TextHorizontalMode.TextLeft, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position };
+        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
     }
 
-    private static void AddLeftAlignedText(Transaction transaction, BlockTableRecord currentSpace,
-        string value, Point3d position, double height, string layerName, ObjectId textStyleId,
-        string layoutName, string summaryId, string rowId, string field)
+    private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace, string value, Point3d position, double height, string layerName, ObjectId textStyleId, string layoutName, string summaryId, string rowId, string field)
     {
-        var text = new DBText
-        {
-            TextString = value, Position = position, Height = height, TextStyleId = textStyleId,
-            Layer = layerName, HorizontalMode = TextHorizontalMode.TextLeft,
-            VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
-        };
-        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
-        AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
+        var text = new DBText { TextString = value, Position = position, Height = height, TextStyleId = textStyleId, Layer = layerName, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position };
+        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
     }
 
-    private static void AddCenteredText(Transaction transaction, BlockTableRecord currentSpace,
-        string value, Point3d position, double height, string layerName, ObjectId textStyleId,
-        string layoutName, string summaryId, string rowId, string field)
-    {
-        var text = new DBText
-        {
-            TextString = value, Position = position, Height = height, TextStyleId = textStyleId,
-            Layer = layerName, HorizontalMode = TextHorizontalMode.TextCenter,
-            VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = position
-        };
-        currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
-        AttachSummaryXData(text, SummaryType, layoutName, summaryId, rowId, field);
-    }
-
-    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName,
-        string summaryId, string rowId, string field)
+    private static void AttachSummaryXData(DBObject entity, string summaryType, string layoutName, string summaryId, string rowId, string field)
     {
         entity.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
@@ -271,11 +211,9 @@ public sealed class ListaBloquesTool
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, field));
     }
 
-    private static void AttachMaterialXData(Database database, Transaction transaction,
-        BlockReference blockReference, string description, string diameter, string surface, string layoutName)
+    private static void AttachMaterialXData(Database database, Transaction transaction, BlockReference blockReference, string description, string diameter, string surface, string layoutName)
     {
         EnsureXDataRegApp(database, transaction);
-
         blockReference.UpgradeOpen();
         blockReference.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
@@ -303,8 +241,7 @@ public sealed class ListaBloquesTool
     {
         if (string.IsNullOrWhiteSpace(value)) return string.Empty;
         string normalized = value.Trim().Replace("\"", string.Empty).Replace(" ", string.Empty);
-        normalized = normalized.Replace("PULGADAS", string.Empty, StringComparison.OrdinalIgnoreCase);
-        normalized = normalized.Replace("PULG", string.Empty, StringComparison.OrdinalIgnoreCase);
+        normalized = normalized.Replace("PULGADAS", string.Empty).Replace("PULG", string.Empty);
         return normalized;
     }
 
@@ -314,7 +251,6 @@ public sealed class ListaBloquesTool
     {
         RegAppTable table = (RegAppTable)transaction.GetObject(database.RegAppTableId, OpenMode.ForRead);
         if (table.Has(XDataAppName)) return;
-
         table.UpgradeOpen();
         var record = new RegAppTableRecord { Name = XDataAppName };
         table.Add(record);
@@ -330,8 +266,7 @@ public sealed class ListaBloquesTool
     private static string GetBlockName(Transaction transaction, BlockReference blockReference)
     {
         ObjectId definitionId = blockReference.BlockTableRecord;
-        if (blockReference.IsDynamicBlock && !blockReference.DynamicBlockTableRecord.IsNull)
-            definitionId = blockReference.DynamicBlockTableRecord;
+        if (blockReference.IsDynamicBlock && !blockReference.DynamicBlockTableRecord.IsNull) definitionId = blockReference.DynamicBlockTableRecord;
         if (transaction.GetObject(definitionId, OpenMode.ForRead) is BlockTableRecord definition) return definition.Name;
         return string.Empty;
     }
