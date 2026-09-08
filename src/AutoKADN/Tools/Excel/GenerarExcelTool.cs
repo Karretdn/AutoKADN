@@ -78,9 +78,9 @@ public sealed class GenerarExcelTool
             if (ucPipeTotals.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC'.\n"); return; }
             List<UcKey> detectedUcs = ucPipeTotals.Keys.OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
             Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities = ScanAccessories(database);
-            MergeMaterialQuantities(materialQuantities, ConvertUcTotalsToPipeMaterials(ucPipeTotals));
             MergeMaterialQuantities(materialQuantities, ScanSpiral(database));
             MergeMaterialQuantities(materialQuantities, ScanMaterialTest(database));
+            MergeMaterialQuantities(materialQuantities, ConvertUcTotalsToPipeMaterials(ucPipeTotals));
             string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath));
             int generated = 0;
             editor.WriteMessage("\nUC detectadas: " + detectedUcs.Count + ". Se procesarán una por una.\n");
@@ -175,19 +175,11 @@ public sealed class GenerarExcelTool
                 {
                     BlockReference blockReference = transaction.GetObject(objectId, OpenMode.ForRead) as BlockReference;
                     if (blockReference == null || !string.Equals(blockReference.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) continue;
-
+                    string surface = GetBlockSurface(transaction, blockReference);
+                    if (surface == null) continue;
                     string description = GetBlockName(transaction, blockReference);
                     string blockDiameter = GetDiameter(blockReference);
-                    string surface = GetBlockSurface(transaction, blockReference);
-
-                    // XData MATERIAL es una fuente válida para bloques existentes creados por versiones anteriores.
                     GetMaterialXData(blockReference, ref description, ref blockDiameter, ref surface);
-
-                    description = description == null ? string.Empty : description.Trim();
-                    blockDiameter = blockDiameter == null ? string.Empty : blockDiameter.Trim();
-                    surface = NormalizeSurface(surface);
-                    if (string.IsNullOrWhiteSpace(surface)) continue;
-
                     MaterialSpec material;
                     if (!TryGetMaterialSpec(description, blockDiameter, out material)) continue;
                     string ucDiameter = GetUcDiameterFromMaterial(material.Diameter);
@@ -215,29 +207,31 @@ public sealed class GenerarExcelTool
                 {
                     MText mtext = transaction.GetObject(objectId, OpenMode.ForRead) as MText;
                     if (mtext == null) continue;
-                    ResultBuffer xdata = mtext.GetXDataForApplication(XDataAppName);
+                    ResultBuffer xdata = mtext.XData;
                     if (xdata == null) continue;
                     TypedValue[] values = xdata.AsArray();
                     int typeIndex = -1;
                     for (int i = 0; i < values.Length; i++)
                     {
-                        if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString && string.Equals(values[i].Value as string, SpiralXDataType, StringComparison.OrdinalIgnoreCase)) { typeIndex = i; break; }
+                        if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString && string.Equals(values[i].Value as string, SpiralXDataType, StringComparison.OrdinalIgnoreCase))
+                        {
+                            typeIndex = i;
+                            break;
+                        }
                     }
                     if (typeIndex < 0) continue;
                     int index = typeIndex + 1;
                     if (index + 7 >= values.Length) continue;
-
-                    double pipe, unions, tees, valves, saddles;
-                    if (!TryReadXDataDouble(values[index].Value, out pipe) ||
-                        !TryReadXDataDouble(values[index + 1].Value, out unions) ||
-                        !TryReadXDataDouble(values[index + 2].Value, out tees) ||
-                        !TryReadXDataDouble(values[index + 3].Value, out valves) ||
-                        !TryReadXDataDouble(values[index + 4].Value, out saddles)) continue;
-
+                    double pipe;
+                    double unions;
+                    double tees;
+                    double valves;
+                    double saddles;
+                    if (!TryReadXDataDouble(values[index].Value, out pipe) || !TryReadXDataDouble(values[index + 1].Value, out unions) || !TryReadXDataDouble(values[index + 2].Value, out tees) || !TryReadXDataDouble(values[index + 3].Value, out valves) || !TryReadXDataDouble(values[index + 4].Value, out saddles)) continue;
                     string saddleDiameter = values[index + 5].Value == null ? string.Empty : values[index + 5].Value.ToString().Trim();
-                    string surface = NormalizeSurface(values[index + 7].Value == null ? string.Empty : values[index + 7].Value.ToString());
+                    string surface = values[index + 7].Value == null ? string.Empty : values[index + 7].Value.ToString().Trim();
+                    surface = NormalizeSurface(surface);
                     if (string.IsNullOrWhiteSpace(surface)) continue;
-
                     UcKey uc = new UcKey("3/4", surface);
                     MaterialSpec material;
                     if (pipe > 0.0 && TryGetMaterialSpec("TUBERIA", "3/4", out material)) AddMaterialQuantity(result, uc, material, "ML", Math.Abs(pipe));
@@ -267,18 +261,12 @@ public sealed class GenerarExcelTool
                 {
                     MText mtext = transaction.GetObject(objectId, OpenMode.ForRead) as MText;
                     if (mtext == null) continue;
-                    ResultBuffer xdata = mtext.GetXDataForApplication(XDataAppName);
+                    ResultBuffer xdata = mtext.XData;
                     if (xdata == null) continue;
                     TypedValue[] values = xdata.AsArray();
                     int typeIndex = -1;
-                    for (int i = 0; i < values.Length; i++)
-                    {
-                        if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString && string.Equals(values[i].Value as string, MaterialTestXDataType, StringComparison.OrdinalIgnoreCase)) { typeIndex = i; break; }
-                    }
+                    for (int i = 0; i < values.Length; i++) if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString && string.Equals(values[i].Value as string, MaterialTestXDataType, StringComparison.OrdinalIgnoreCase)) { typeIndex = i; break; }
                     if (typeIndex < 0) continue;
-
-                    // MATERIAL_PRUEBA:
-                    // [MATERIAL_PRUEBA, layout, guid, nombre, diametro, unidad, cantidad, ucDiametro, terreno] x N
                     int index = typeIndex + 3;
                     while (index + 5 < values.Length)
                     {
@@ -287,13 +275,14 @@ public sealed class GenerarExcelTool
                         string unit = values[index + 2].Value == null ? string.Empty : values[index + 2].Value.ToString().Trim();
                         double quantity;
                         if (!TryReadXDataDouble(values[index + 3].Value, out quantity)) break;
-                        string ucDiameter = NormalizeDiameter(values[index + 4].Value == null ? string.Empty : values[index + 4].Value.ToString());
-                        string surface = NormalizeSurface(values[index + 5].Value == null ? string.Empty : values[index + 5].Value.ToString());
-
+                        string ucDiameter = values[index + 4].Value == null ? string.Empty : values[index + 4].Value.ToString().Trim();
+                        string surface = values[index + 5].Value == null ? string.Empty : values[index + 5].Value.ToString().Trim();
                         MaterialSpec material;
-                        if (TryGetMaterialSpec(description, diameter, out material) && (ucDiameter == "1/2" || ucDiameter == "3/4") && !string.IsNullOrWhiteSpace(surface))
-                            AddMaterialQuantity(result, new UcKey(ucDiameter, surface), material, unit, Math.Abs(quantity));
-
+                        if (TryGetMaterialSpec(description, diameter, out material))
+                        {
+                            string normalizedUcDiameter = NormalizeDiameter(ucDiameter);
+                            if (normalizedUcDiameter == "1/2" || normalizedUcDiameter == "3/4") AddMaterialQuantity(result, new UcKey(normalizedUcDiameter, NormalizeSurface(surface)), material, unit, Math.Abs(quantity));
+                        }
                         index += 6;
                     }
                 }
@@ -384,23 +373,21 @@ public sealed class GenerarExcelTool
 
     private static string GetBlockSurface(Transaction transaction, BlockReference blockReference)
     {
-        // Fuente principal: propiedad dinámica UC del bloque.
-        string surface = NormalizeSurface(GetDynamicProperty(blockReference, "UC"));
+        string surface = GetDynamicProperty(blockReference, "UC");
+        surface = NormalizeSurface(surface);
         if (!string.IsNullOrWhiteSpace(surface)) return surface;
-
-        // Compatibilidad: XData MATERIAL de bloques creados por versiones anteriores.
         ResultBuffer xdata = blockReference.GetXDataForApplication(XDataAppName);
         if (xdata != null)
         {
             TypedValue[] values = xdata.AsArray();
-            for (int i = 0; i < values.Length; i++)
+            for (int i = 0; i < values.Length - 1; i++)
             {
                 if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString && string.Equals(values[i].Value as string, "MATERIAL", StringComparison.OrdinalIgnoreCase) && i + 6 < values.Length)
                     return NormalizeSurface(values[i + 6].Value == null ? string.Empty : values[i + 6].Value.ToString());
             }
         }
-
-        return null;
+        Color color = GetEffectiveColor(transaction, blockReference);
+        return GetSurfaceFromColor(color);
     }
 
     private static void GetMaterialXData(BlockReference blockReference, ref string description, ref string diameter, ref string surface)
@@ -422,30 +409,10 @@ public sealed class GenerarExcelTool
     {
         if (!blockReference.IsDynamicBlock) return string.Empty;
         foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection)
+        {
             if (string.Equals(property.PropertyName, propertyName, StringComparison.OrdinalIgnoreCase)) return property.Value == null ? string.Empty : property.Value.ToString().Trim();
+        }
         return string.Empty;
-    }
-
-    private static bool IsUcLayout(string name) => Regex.IsMatch(name, @"^ANILLO\s+\d+\s+UC$", RegexOptions.IgnoreCase);
-    private static bool IsDetailLayout(string name) => Regex.IsMatch(name, @"^ANILLO\s+\d+\s+DETALLE$", RegexOptions.IgnoreCase);
-    private static string GetUcDiameter(string layer) { if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2"; if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4"; return null; }
-
-    private static string GetSurface(Transaction transaction, Dimension dimension)
-    {
-        string surfaceFromXData = GetSurfaceFromXData(dimension);
-        if (surfaceFromXData != null) return surfaceFromXData;
-        Color color = GetEffectiveColor(transaction, dimension);
-        return GetSurfaceFromColor(color);
-    }
-
-    private static string GetSurfaceFromXData(DBObject entity)
-    {
-        ResultBuffer xdata = entity.GetXDataForApplication(XDataAppName);
-        if (xdata == null) return null;
-        TypedValue[] values = xdata.AsArray();
-        for (int i = 0; i < values.Length - 1; i++)
-            if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString && string.Equals(values[i].Value as string, UcSurfaceXDataType, StringComparison.OrdinalIgnoreCase)) return NormalizeSurface(values[i + 1].Value as string);
-        return null;
     }
 
     private static string GetSurfaceFromColor(Color color)
@@ -453,92 +420,139 @@ public sealed class GenerarExcelTool
         foreach (UcSurface surface in Surfaces)
         {
             if (surface.ColorIndex.HasValue && color.ColorMethod == ColorMethod.ByAci && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && color.ColorMethod == ColorMethod.TrueColor && color.Red == surface.Red.Value && color.Green == surface.Green.Value && color.Blue == surface.Blue.Value) return surface.Name;
+            if (surface.Red.HasValue && color.ColorMethod == ColorMethod.ByColor && color.Red == surface.Red.Value && color.Green == surface.Green.Value && color.Blue == surface.Blue.Value) return surface.Name;
         }
         return null;
     }
 
-    private static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
-    {
-        value = 0.0;
-        string text = dimension.DimensionText == null ? string.Empty : dimension.DimensionText.Trim();
-        Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
-        return match.Success && double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
-    }
-
     private static string SetActivitySelection(string path, UcKey uc)
     {
-        string activity = FindDropdownActivity(path, uc);
-        if (string.IsNullOrWhiteSpace(activity)) return string.Empty;
-        UpdateCellValue(path, TargetSheetName, TargetCell, activity);
-        return activity;
+        using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Update, false))
+        {
+            XNamespace mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+            ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml");
+            ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
+            if (workbookEntry == null || workbookRelsEntry == null) throw new InvalidDataException("La plantilla no contiene los archivos XML requeridos.");
+            XElement workbook = LoadXml(workbookEntry);
+            XElement workbookRels = LoadXml(workbookRelsEntry);
+            XElement sheets = workbook.Element(mainNs + "sheets");
+            XElement targetSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), TargetSheetName, StringComparison.OrdinalIgnoreCase));
+            if (targetSheet == null) throw new InvalidDataException("No se encontró la hoja '" + TargetSheetName + "'.");
+            string relationshipId = (string)targetSheet.Attribute(relNs + "id");
+            XElement relationship = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relationshipId, StringComparison.Ordinal));
+            if (relationship == null) throw new InvalidDataException("No se encontró la relación XML de la hoja.");
+            string worksheetPath = ResolveZipPath("xl/workbook.xml", (string)relationship.Attribute("Target"));
+            ZipArchiveEntry worksheetEntry = archive.GetEntry(worksheetPath);
+            if (worksheetEntry == null) throw new InvalidDataException("No se encontró la hoja XML.");
+            string activity = FindDropdownActivity(archive, workbook, workbookRels, mainNs, relNs, packageRelNs, uc);
+            if (activity == null) throw new InvalidDataException("No existe una opción ACTIVIDAD compatible con " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ".");
+            XElement worksheet = LoadXml(worksheetEntry);
+            XElement sheetData = worksheet.Element(mainNs + "sheetData");
+            if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
+            XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), "14", StringComparison.Ordinal));
+            if (row == null) { row = new XElement(mainNs + "row", new XAttribute("r", "14")); sheetData.Add(row); }
+            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), TargetCell, StringComparison.OrdinalIgnoreCase));
+            if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", TargetCell)); row.Add(cell); }
+            XAttribute style = cell.Attribute("s");
+            cell.RemoveNodes();
+            cell.SetAttributeValue("t", "inlineStr");
+            if (style != null) cell.SetAttributeValue("s", style.Value);
+            cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", new XAttribute("{http://www.w3.org/XML/1998/namespace}space", "preserve"), activity)));
+            SaveXml(archive, worksheetPath, worksheetEntry, worksheet);
+            SetWorkbookCalculationMode(archive, workbook, mainNs);
+            RemoveCalculationChain(archive, workbookRels, packageRelNs);
+            return activity;
+        }
     }
 
     private static void SetMaterialQuantities(string path, string activity, Dictionary<MaterialKey, double> quantities)
     {
-        if (string.IsNullOrWhiteSpace(activity) || quantities == null || quantities.Count == 0) return;
-        using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite))
-        using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Update))
+        using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Update, false))
         {
-            string workbookXml = ReadZipEntry(archive, "xl/workbook.xml");
-            string relsXml = ReadZipEntry(archive, "xl/_rels/workbook.xml.rels");
-            if (string.IsNullOrWhiteSpace(workbookXml) || string.IsNullOrWhiteSpace(relsXml)) return;
             XNamespace mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
             XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
             XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
-            XDocument workbook = XDocument.Parse(workbookXml);
-            XDocument workbookRels = XDocument.Parse(relsXml);
+            ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml");
+            ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
+            if (workbookEntry == null || workbookRelsEntry == null) throw new InvalidDataException("La plantilla no contiene los archivos XML requeridos.");
+            XElement workbook = LoadXml(workbookEntry);
+            XElement workbookRels = LoadXml(workbookRelsEntry);
+            XElement sheets = workbook.Element(mainNs + "sheets");
+            XElement targetSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), TargetSheetName, StringComparison.OrdinalIgnoreCase));
+            if (targetSheet == null) throw new InvalidDataException("No se encontró la hoja '" + TargetSheetName + "'.");
+            string relationshipId = (string)targetSheet.Attribute(relNs + "id");
+            XElement relationship = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relationshipId, StringComparison.Ordinal));
+            if (relationship == null) throw new InvalidDataException("No se encontró la relación XML de la hoja.");
+            string worksheetPath = ResolveZipPath("xl/workbook.xml", (string)relationship.Attribute("Target"));
+            ZipArchiveEntry worksheetEntry = archive.GetEntry(worksheetPath);
+            if (worksheetEntry == null) throw new InvalidDataException("No se encontró la hoja XML.");
             List<SourceMaterialRow> sourceRows = FindSourceMaterialsForActivity(archive, workbook, workbookRels, mainNs, relNs, packageRelNs, activity);
-            if (sourceRows.Count == 0) return;
-            foreach (SourceMaterialRow row in sourceRows)
+            if (sourceRows.Count == 0) throw new InvalidDataException("No se encontraron materiales base para la actividad seleccionada.");
+            XElement worksheet = LoadXml(worksheetEntry);
+            XElement sheetData = worksheet.Element(mainNs + "sheetData");
+            if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
+            for (int index = 0; index < sourceRows.Count && MaterialStartRow + index <= MaterialEndRow; index++)
             {
-                double total;
+                int rowNumber = MaterialStartRow + index;
+                XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
+                if (row == null) continue;
+                XElement quantityCell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), MaterialQuantityColumn + rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
+                if (quantityCell == null) { quantityCell = new XElement(mainNs + "c", new XAttribute("r", MaterialQuantityColumn + rowNumber.ToString(CultureInfo.InvariantCulture))); row.Add(quantityCell); }
+                SourceMaterialRow source = sourceRows[index];
                 MaterialKey matchedKey;
-                if (!TryMatchSourceMaterial(row, quantities, out matchedKey, out total)) continue;
-                XElement cell = LoadSheetCellForWrite(archive, workbook, workbookRels, mainNs, relNs, packageRelNs, TargetSheetName, MaterialQuantityColumn + row.Row.ToString(CultureInfo.InvariantCulture));
-                if (cell == null) continue;
-                SetNumericCell(cell, total, mainNs);
+                double quantity;
+                if (TryMatchSourceMaterial(source, quantities, out matchedKey, out quantity)) SetNumericCell(quantityCell, quantity, mainNs);
+                else SetBlankCell(quantityCell, mainNs);
             }
+            for (int rowNumber = MaterialStartRow + sourceRows.Count; rowNumber <= MaterialEndRow; rowNumber++)
+            {
+                XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
+                if (row == null) continue;
+                XElement quantityCell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), MaterialQuantityColumn + rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
+                if (quantityCell != null) SetBlankCell(quantityCell, mainNs);
+            }
+            SaveXml(archive, worksheetPath, worksheetEntry, worksheet);
             SetWorkbookCalculationMode(archive, workbook, mainNs);
-            UpdateWorkbookXml(archive, "xl/workbook.xml", workbook);
+            RemoveCalculationChain(archive, workbookRels, packageRelNs);
         }
     }
 
     private static List<SourceMaterialRow> FindSourceMaterialsForActivity(ZipArchive archive, XElement workbook, XElement workbookRels, XNamespace mainNs, XNamespace relNs, XNamespace packageRelNs, string activity)
     {
-        var rows = new List<SourceMaterialRow>();
-        XElement sheet = workbook.Root?.Element(mainNs + "sheets")?.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), "materiales leg", StringComparison.OrdinalIgnoreCase));
-        if (sheet == null) return rows;
-        string relId = (string)sheet.Attribute(relNs + "id");
-        string target = workbookRels.Root?.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relId, StringComparison.OrdinalIgnoreCase))?.Attribute("Target")?.Value;
-        if (string.IsNullOrWhiteSpace(target)) return rows;
-        string sheetPath = ResolveZipPath("xl/workbook.xml", target);
-        string sheetXml = ReadZipEntry(archive, sheetPath);
-        if (string.IsNullOrWhiteSpace(sheetXml)) return rows;
-        XDocument sheetDoc = XDocument.Parse(sheetXml);
+        var result = new List<SourceMaterialRow>();
+        XElement sheets = workbook.Element(mainNs + "sheets"); if (sheets == null) return result;
+        XElement sourceSheet = sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), "materiales leg", StringComparison.OrdinalIgnoreCase)); if (sourceSheet == null) return result;
+        string sourceRelId = (string)sourceSheet.Attribute(relNs + "id");
+        XElement sourceRel = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), sourceRelId, StringComparison.Ordinal)); if (sourceRel == null) return result;
+        string sourcePath = ResolveZipPath("xl/workbook.xml", (string)sourceRel.Attribute("Target"));
+        ZipArchiveEntry sourceEntry = archive.GetEntry(sourcePath); if (sourceEntry == null) return result;
+        XElement sourceXml = LoadXml(sourceEntry); XElement sheetData = sourceXml.Element(mainNs + "sheetData"); if (sheetData == null) return result;
         Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
         string activityCode = string.Empty;
-        foreach (XElement row in sheetDoc.Descendants(mainNs + "row"))
+        foreach (XElement row in sheetData.Elements(mainNs + "row"))
         {
-            string a = ReadColumnText(row, "A", mainNs, sharedStrings);
-            if (NormalizeActivityText(a) != NormalizeActivityText(activity)) continue;
-            activityCode = ReadColumnText(row, "B", mainNs, sharedStrings);
-            break;
+            string value = ReadColumnText(row, "A", mainNs, sharedStrings);
+            if (NormalizeActivityText(value) == NormalizeActivityText(activity)) { activityCode = ReadColumnText(row, "B", mainNs, sharedStrings); break; }
         }
-        if (string.IsNullOrWhiteSpace(activityCode)) return rows;
-        foreach (XElement row in sheetDoc.Descendants(mainNs + "row"))
+        if (string.IsNullOrWhiteSpace(activityCode)) return result;
+        foreach (XElement row in sheetData.Elements(mainNs + "row"))
         {
-            if (!int.TryParse((string)row.Attribute("r"), out int rowNumber) || rowNumber < MaterialStartRow || rowNumber > MaterialEndRow) continue;
+            int rowNumber; if (!int.TryParse((string)row.Attribute("r"), NumberStyles.Integer, CultureInfo.InvariantCulture, out rowNumber)) continue;
+            if (rowNumber < MaterialStartRow || rowNumber > MaterialEndRow) continue;
             string code = ReadColumnText(row, "G", mainNs, sharedStrings);
             if (!string.Equals(code.Trim(), activityCode.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
-            rows.Add(new SourceMaterialRow(rowNumber, ReadColumnText(row, "J", mainNs, sharedStrings), ReadColumnText(row, "K", mainNs, sharedStrings), ReadColumnText(row, "L", mainNs, sharedStrings)));
+            result.Add(new SourceMaterialRow(rowNumber, code, ReadColumnText(row, "J", mainNs, sharedStrings), ReadColumnText(row, "K", mainNs, sharedStrings)));
         }
-        return rows;
+        return result;
     }
 
     private static bool TryMatchSourceMaterial(SourceMaterialRow source, Dictionary<MaterialKey, double> quantities, out MaterialKey matchedKey, out double quantity)
     {
-        matchedKey = default; quantity = 0.0;
+        matchedKey = default(MaterialKey); quantity = 0.0;
         foreach (KeyValuePair<MaterialKey, double> item in quantities)
         {
             if (!string.IsNullOrWhiteSpace(source.Code) && !string.IsNullOrWhiteSpace(item.Key.Code) && string.Equals(source.Code.Trim(), item.Key.Code.Trim(), StringComparison.OrdinalIgnoreCase)) { matchedKey = item.Key; quantity = item.Value; return true; }
@@ -552,10 +566,20 @@ public sealed class GenerarExcelTool
 
     private static void SetNumericCell(XElement cell, double value, XNamespace mainNs)
     {
+        XAttribute style = cell.Attribute("s");
+        cell.RemoveNodes();
         cell.SetAttributeValue("t", null);
-        XElement valueElement = cell.Element(mainNs + "v");
-        if (valueElement == null) { valueElement = new XElement(mainNs + "v"); cell.Add(valueElement); }
-        valueElement.Value = value.ToString("0.###", CultureInfo.InvariantCulture);
+        if (style != null) cell.SetAttributeValue("s", style.Value);
+        XElement valueElement = new XElement(mainNs + "v", value.ToString("0.###", CultureInfo.InvariantCulture));
+        cell.Add(valueElement);
+    }
+
+    private static void SetBlankCell(XElement cell, XNamespace mainNs)
+    {
+        XAttribute style = cell.Attribute("s");
+        cell.RemoveNodes();
+        cell.SetAttributeValue("t", null);
+        if (style != null) cell.SetAttributeValue("s", style.Value);
     }
 
     private static string GetDropdownSurfaceToken(string surface) => string.Equals(surface, "ASFALTO", StringComparison.OrdinalIgnoreCase) ? "CALZADA ASFALTO" : surface;
@@ -568,33 +592,142 @@ public sealed class GenerarExcelTool
     {
         var result = new Dictionary<int, string>(); string xml = ReadZipEntry(archive, "xl/sharedStrings.xml"); if (string.IsNullOrWhiteSpace(xml)) return result; XDocument doc = XDocument.Parse(xml); int i = 0; foreach (XElement si in doc.Descendants(mainNs + "si")) { result[i++] = string.Concat(si.Descendants(mainNs + "t").Select(x => x.Value)); } return result;
     }
+
     private static string ReadColumnText(XElement row, string column, XNamespace mainNs, Dictionary<int, string> sharedStrings)
     {
-        XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals(((string)x.Attribute("r"))?.TrimStart('0').TrimEnd('0'), column, StringComparison.OrdinalIgnoreCase) || Regex.IsMatch((string)x.Attribute("r") ?? string.Empty, "^" + Regex.Escape(column) + "\\d+$", RegexOptions.IgnoreCase)); return cell == null ? string.Empty : ReadCellText(cell, mainNs, sharedStrings);
+        XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => Regex.IsMatch((string)x.Attribute("r") ?? string.Empty, "^" + Regex.Escape(column) + "\\d+$", RegexOptions.IgnoreCase));
+        return cell == null ? string.Empty : ReadCellText(cell, mainNs, sharedStrings);
     }
-    private static string ReadCellText(XElement cell, XNamespace mainNs, Dictionary<int, string> sharedStrings) { string type = (string)cell.Attribute("t") ?? string.Empty; string value = cell.Element(mainNs + "v")?.Value ?? string.Empty; if (type == "s" && int.TryParse(value, out int index) && sharedStrings.TryGetValue(index, out string text)) return text; if (type == "inlineStr") return string.Concat(cell.Descendants(mainNs + "t").Select(x => x.Value)); return value; }
+
+    private static string ReadCellText(XElement cell, XNamespace mainNs, Dictionary<int, string> sharedStrings)
+    {
+        string type = (string)cell.Attribute("t") ?? string.Empty;
+        if (string.Equals(type, "inlineStr", StringComparison.OrdinalIgnoreCase)) return string.Concat(cell.Descendants(mainNs + "t").Select(x => x.Value));
+        XElement value = cell.Element(mainNs + "v"); if (value == null) return string.Empty;
+        if (string.Equals(type, "s", StringComparison.OrdinalIgnoreCase)) { int index; return int.TryParse(value.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out index) && sharedStrings.TryGetValue(index, out string text) ? text : string.Empty; }
+        return value.Value;
+    }
 
     private static string FindDropdownActivity(ZipArchive archive, XElement workbook, XElement workbookRels, XNamespace mainNs, XNamespace relNs, XNamespace packageRelNs, UcKey uc)
     {
-        XElement definedNames = workbook.Root?.Element(mainNs + "definedNames"); XElement definedName = definedNames?.Elements(mainNs + "definedName").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), ActivityDefinedName, StringComparison.OrdinalIgnoreCase)); if (definedName == null) return string.Empty; string formula = definedName.Value.Trim(); Match match = Regex.Match(formula, @"'([^']+)'!\$([A-Z]+)\$([0-9]+):\$([A-Z]+)\$([0-9]+)"); if (!match.Success) return string.Empty; string sheetName = match.Groups[1].Value; string startColumn = match.Groups[2].Value; int startRow = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture); string endColumn = match.Groups[4].Value; int endRow = int.Parse(match.Groups[5].Value, CultureInfo.InvariantCulture); XElement sheet = workbook.Root?.Element(mainNs + "sheets")?.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), sheetName, StringComparison.OrdinalIgnoreCase)); if (sheet == null) return string.Empty; string relId = (string)sheet.Attribute(relNs + "id"); string target = workbookRels.Root?.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relId, StringComparison.OrdinalIgnoreCase))?.Attribute("Target")?.Value; if (string.IsNullOrWhiteSpace(target)) return string.Empty; string sheetPath = ResolveZipPath("xl/workbook.xml", target); string sheetXml = ReadZipEntry(archive, sheetPath); if (string.IsNullOrWhiteSpace(sheetXml)) return string.Empty; XDocument sheetDoc = XDocument.Parse(sheetXml); Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs); foreach (XElement row in sheetDoc.Descendants(mainNs + "row")) { if (!int.TryParse((string)row.Attribute("r"), out int rowNumber) || rowNumber < startRow || rowNumber > endRow) continue; string surface = ReadColumnText(row, "A", mainNs, sharedStrings); string diameter = ReadColumnText(row, "B", mainNs, sharedStrings); if (NormalizeToken(surface) == NormalizeToken(GetDropdownSurfaceToken(uc.Surface)) && NormalizeDiameter(diameter) == NormalizeDiameter(uc.Diameter)) return ReadColumnText(row, startColumn, mainNs, sharedStrings); } return string.Empty;
+        XElement definedNames = workbook.Element(mainNs + "definedNames"); XElement definedName = definedNames == null ? null : definedNames.Elements(mainNs + "definedName").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), ActivityDefinedName, StringComparison.OrdinalIgnoreCase)); if (definedName == null) throw new InvalidDataException("No se encontró el nombre definido 'ACTIVIDAD'.");
+        Match match = Regex.Match(definedName.Value.Trim(), @"^'?((?:[^']|'')+)'?!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$", RegexOptions.IgnoreCase); if (!match.Success) throw new InvalidDataException("No se pudo interpretar el rango ACTIVIDAD.");
+        string sourceSheetName = match.Groups[1].Value.Replace("''", "'"); string column = match.Groups[2].Value; int startRow = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture); int endRow = int.Parse(match.Groups[5].Value, CultureInfo.InvariantCulture);
+        XElement sheets = workbook.Element(mainNs + "sheets"); XElement sourceSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), sourceSheetName, StringComparison.OrdinalIgnoreCase)); if (sourceSheet == null) throw new InvalidDataException("No se encontró la hoja origen de ACTIVIDAD.");
+        string sourceRelId = (string)sourceSheet.Attribute(relNs + "id"); XElement sourceRel = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), sourceRelId, StringComparison.Ordinal)); if (sourceRel == null) throw new InvalidDataException("No se encontró la relación de la hoja origen de ACTIVIDAD.");
+        string sourcePath = ResolveZipPath("xl/workbook.xml", (string)sourceRel.Attribute("Target")); ZipArchiveEntry sourceEntry = archive.GetEntry(sourcePath); if (sourceEntry == null) throw new InvalidDataException("No se encontró la hoja origen de ACTIVIDAD.");
+        XElement sourceXml = LoadXml(sourceEntry); XElement sheetData = sourceXml.Element(mainNs + "sheetData"); if (sheetData == null) return null; Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
+        string diameterToken = NormalizeActivityText(uc.Diameter + " PULG"); string surfaceToken = NormalizeActivityText(GetDropdownSurfaceToken(uc.Surface));
+        for (int r = startRow; r <= endRow; r++)
+        {
+            XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), r.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)); if (row == null) continue;
+            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), column + r.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase)); if (cell == null) continue;
+            string value = ReadCellText(cell, mainNs, sharedStrings); string normalized = NormalizeActivityText(value);
+            if (normalized.IndexOf(diameterToken, StringComparison.Ordinal) >= 0 && normalized.IndexOf(surfaceToken, StringComparison.Ordinal) >= 0) return value;
+        }
+        return null;
     }
 
-    private static void SetWorkbookCalculationMode(ZipArchive archive, XElement workbook, XNamespace mainNs) { XElement calcPr = workbook.Root?.Element(mainNs + "calcPr"); if (calcPr == null) { calcPr = new XElement(mainNs + "calcPr"); workbook.Root?.Add(calcPr); } calcPr.SetAttributeValue("calcMode", "auto"); calcPr.SetAttributeValue("fullCalcOnLoad", "1"); calcPr.SetAttributeValue("forceFullCalc", "1"); }
-    private static void UpdateWorkbookXml(ZipArchive archive, string entryName, XElement document) { ZipArchiveEntry entry = archive.GetEntry(entryName); if (entry == null) return; entry.Delete(); ZipArchiveEntry newEntry = archive.CreateEntry(entryName, CompressionLevel.Optimal); using (Stream stream = newEntry.Open()) document.Save(stream, SaveOptions.DisableFormatting); }
-    private static XElement LoadSheetCellForWrite(ZipArchive archive, XElement workbook, XElement workbookRels, XNamespace mainNs, XNamespace relNs, XNamespace packageRelNs, string sheetName, string cellRef) { XElement sheet = workbook.Root?.Element(mainNs + "sheets")?.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), sheetName, StringComparison.OrdinalIgnoreCase)); if (sheet == null) return null; string relId = (string)sheet.Attribute(relNs + "id"); string target = workbookRels.Root?.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relId, StringComparison.OrdinalIgnoreCase))?.Attribute("Target")?.Value; if (string.IsNullOrWhiteSpace(target)) return null; string path = ResolveZipPath("xl/workbook.xml", target); ZipArchiveEntry entry = archive.GetEntry(path); if (entry == null) return null; XDocument doc; using (Stream stream = entry.Open()) doc = XDocument.Load(stream, LoadOptions.PreserveWhitespace); XElement cell = doc.Descendants(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), cellRef, StringComparison.OrdinalIgnoreCase)); return cell; }
-    private static string ReadZipEntry(ZipArchive archive, string name) { ZipArchiveEntry entry = archive.GetEntry(name); if (entry == null) return string.Empty; using (StreamReader reader = new StreamReader(entry.Open(), Encoding.UTF8, true)) return reader.ReadToEnd(); }
-    private static string ResolveZipPath(string basePath, string target) { string baseDirectory = Path.GetDirectoryName(basePath).Replace('\\', '/'); string combined = (baseDirectory + "/" + target).Replace('\\', '/'); var parts = new List<string>(); foreach (string part in combined.Split('/')) { if (part == "" || part == ".") continue; if (part == ".." && parts.Count > 0) parts.RemoveAt(parts.Count - 1); else if (part != "..") parts.Add(part); } return string.Join("/", parts); }
-    private static string GetBlockName(Transaction transaction, BlockReference blockReference) { ObjectId definitionId = blockReference.BlockTableRecord; if (blockReference.IsDynamicBlock && !blockReference.DynamicBlockTableRecord.IsNull) definitionId = blockReference.DynamicBlockTableRecord; BlockTableRecord definition = transaction.GetObject(definitionId, OpenMode.ForRead) as BlockTableRecord; return definition?.Name ?? string.Empty; }
-    private static string GetDiameter(BlockReference blockReference) { return GetDynamicProperty(blockReference, "DIAMETRO"); }
-    private static string GetSuggestedFileName(UcKey uc) { string diameter = uc.Diameter.Replace('/', '-'); string code = SurfaceFileCode.TryGetValue(uc.Surface, out string value) ? value : NormalizeToken(uc.Surface); return "Formato_" + diameter + "_" + code + ".xlsx"; }
+    private static void SetWorkbookCalculationMode(ZipArchive archive, XElement workbook, XNamespace mainNs)
+    {
+        XElement calcPr = workbook.Element(mainNs + "calcPr"); if (calcPr == null) { calcPr = new XElement(mainNs + "calcPr"); workbook.Add(calcPr); }
+        calcPr.SetAttributeValue("calcMode", "auto"); calcPr.SetAttributeValue("fullCalcOnLoad", "1"); calcPr.SetAttributeValue("forceFullCalc", "1"); calcPr.SetAttributeValue("calcOnSave", "1");
+        ZipArchiveEntry entry = archive.GetEntry("xl/workbook.xml"); SaveXml(archive, "xl/workbook.xml", entry, workbook);
+    }
+
+    private static void RemoveCalculationChain(ZipArchive archive, XElement workbookRels, XNamespace packageRelNs)
+    {
+        ZipArchiveEntry chain = archive.GetEntry("xl/calcChain.xml"); if (chain != null) chain.Delete();
+        foreach (XElement rel in workbookRels.Elements(packageRelNs + "Relationship").Where(x => string.Equals((string)x.Attribute("Type"), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain", StringComparison.OrdinalIgnoreCase) || string.Equals((string)x.Attribute("Target"), "calcChain.xml", StringComparison.OrdinalIgnoreCase)).ToList()) rel.Remove();
+        ZipArchiveEntry relEntry = archive.GetEntry("xl/_rels/workbook.xml.rels"); SaveXml(archive, "xl/_rels/workbook.xml.rels", relEntry, workbookRels);
+        ZipArchiveEntry contentEntry = archive.GetEntry("[Content_Types].xml");
+        if (contentEntry != null)
+        {
+            XNamespace ns = "http://schemas.openxmlformats.org/package/2006/content-types"; XElement content = LoadXml(contentEntry);
+            foreach (XElement item in content.Elements(ns + "Override").Where(x => string.Equals((string)x.Attribute("PartName"), "/xl/calcChain.xml", StringComparison.OrdinalIgnoreCase)).ToList()) item.Remove();
+            SaveXml(archive, "[Content_Types].xml", contentEntry, content);
+        }
+    }
+
+    private static XElement LoadXml(ZipArchiveEntry entry) { using (Stream stream = entry.Open()) return XElement.Load(stream, LoadOptions.PreserveWhitespace); }
+    private static void SaveXml(ZipArchive archive, string entryName, ZipArchiveEntry oldEntry, XElement document) { if (oldEntry != null) oldEntry.Delete(); ZipArchiveEntry newEntry = archive.CreateEntry(entryName, CompressionLevel.Optimal); using (Stream stream = newEntry.Open()) document.Save(stream, SaveOptions.DisableFormatting); }
+    private static string ReadZipEntry(ZipArchive archive, string path) { ZipArchiveEntry entry = archive.GetEntry(path); if (entry == null) return string.Empty; using (Stream stream = entry.Open()) using (var reader = new StreamReader(stream, Encoding.UTF8, true)) return reader.ReadToEnd(); }
+    private static string ResolveZipPath(string basePath, string target)
+    {
+        string baseDirectory = Path.GetDirectoryName(basePath); string combined = string.IsNullOrWhiteSpace(baseDirectory) ? target : baseDirectory.Replace('\\', '/') + "/" + target; var parts = new List<string>();
+        foreach (string part in combined.Replace('\\', '/').Split('/')) { if (part.Length == 0 || part == ".") continue; if (part == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); continue; } parts.Add(part); }
+        return string.Join("/", parts);
+    }
+
+    private static string GetBlockName(Transaction transaction, BlockReference blockReference)
+    {
+        ObjectId definitionId = blockReference.BlockTableRecord; if (blockReference.IsDynamicBlock && !blockReference.DynamicBlockTableRecord.IsNull) definitionId = blockReference.DynamicBlockTableRecord;
+        BlockTableRecord definition = transaction.GetObject(definitionId, OpenMode.ForRead) as BlockTableRecord; return definition == null ? string.Empty : definition.Name;
+    }
+
+    private static string GetDiameter(BlockReference blockReference)
+    {
+        if (!blockReference.IsDynamicBlock) return string.Empty;
+        foreach (DynamicBlockReferenceProperty property in blockReference.DynamicBlockReferencePropertyCollection) if (string.Equals(property.PropertyName, "DIAMETRO", StringComparison.OrdinalIgnoreCase)) return property.Value == null ? string.Empty : property.Value.ToString().Trim();
+        return string.Empty;
+    }
+
+    private static string GetSuggestedFileName(UcKey uc)
+    {
+        string surfaceCode; if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode)) surfaceCode = "UC"; string diameterCode = uc.Diameter == "1/2" ? "1-2" : "3-4"; return surfaceCode + " " + diameterCode + " PULG.xlsx";
+    }
+
     private static string EnsureXlsxExtension(string path) => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
     private static string ToDisplaySurface(string surface) => surface == "ANDEN TABLETA" ? "ANDÉN TABLETA, BALDOSÍN, GRAVILLA" : surface;
     private static int GetSurfaceOrder(string surface) { int i = Array.FindIndex(SurfaceOrder, x => string.Equals(x, surface, StringComparison.OrdinalIgnoreCase)); return i < 0 ? int.MaxValue : i; }
     private static int DiameterOrder(string diameter) => diameter == "1/2" ? 0 : 1;
 
-    private sealed record UcSurface(string Name, int? ColorIndex, byte? Red, byte? Green, byte? Blue);
-    private sealed record MaterialSpec(string Description, string Diameter, string Code);
-    private readonly record struct UcKey(string Diameter, string Surface);
-    private readonly record struct MaterialKey(string Description, string Diameter, string Unit, string Code);
-    private sealed record SourceMaterialRow(int Row, string Code, string Description, string Diameter);
+    private struct UcKey : IEquatable<UcKey>
+    {
+        public UcKey(string diameter, string surface) { Diameter = NormalizeDiameter(diameter); Surface = NormalizeSurface(surface); }
+        public string Diameter { get; private set; }
+        public string Surface { get; private set; }
+        public bool Equals(UcKey other) => string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase) && string.Equals(Surface, other.Surface, StringComparison.OrdinalIgnoreCase);
+        public override bool Equals(object obj) => obj is UcKey && Equals((UcKey)obj);
+        public override int GetHashCode() { unchecked { return (StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty) * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Surface ?? string.Empty); } }
+    }
+
+    private struct MaterialKey : IEquatable<MaterialKey>
+    {
+        public MaterialKey(string description, string diameter, string unit, string code) { Description = NormalizeToken(description); Diameter = NormalizeDiameter(diameter); Unit = string.IsNullOrWhiteSpace(unit) ? "UND" : unit.Trim(); Code = code == null ? string.Empty : code.Trim(); }
+        public string Description { get; private set; }
+        public string Diameter { get; private set; }
+        public string Unit { get; private set; }
+        public string Code { get; private set; }
+        public bool Equals(MaterialKey other) => string.Equals(Description, other.Description, StringComparison.OrdinalIgnoreCase) && string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase) && string.Equals(Unit, other.Unit, StringComparison.OrdinalIgnoreCase) && string.Equals(Code, other.Code, StringComparison.OrdinalIgnoreCase);
+        public override bool Equals(object obj) => obj is MaterialKey && Equals((MaterialKey)obj);
+        public override int GetHashCode() { unchecked { int hash = StringComparer.OrdinalIgnoreCase.GetHashCode(Description ?? string.Empty); hash = hash * 397 ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty); hash = hash * 397 ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Unit ?? string.Empty); return hash * 397 ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Code ?? string.Empty); } }
+    }
+
+    private sealed class UcSurface
+    {
+        public UcSurface(string name, int? colorIndex, byte? red, byte? green, byte? blue) { Name = name; ColorIndex = colorIndex; Red = red; Green = green; Blue = blue; }
+        public string Name { get; private set; }
+        public int? ColorIndex { get; private set; }
+        public byte? Red { get; private set; }
+        public byte? Green { get; private set; }
+        public byte? Blue { get; private set; }
+    }
+
+    private sealed class MaterialSpec
+    {
+        public MaterialSpec(string description, string diameter, string code) { Description = description; Diameter = diameter; Code = code; }
+        public string Description { get; private set; }
+        public string Diameter { get; private set; }
+        public string Code { get; private set; }
+    }
+
+    private sealed class SourceMaterialRow
+    {
+        public SourceMaterialRow(int row, string code, string description, string diameter) { Row = row; Code = code; Description = description; Diameter = diameter; }
+        public int Row { get; private set; }
+        public string Code { get; private set; }
+        public string Description { get; private set; }
+        public string Diameter { get; private set; }
+    }
 }
