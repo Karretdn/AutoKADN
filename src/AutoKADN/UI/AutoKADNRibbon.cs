@@ -49,6 +49,12 @@ public sealed class AutoKADNRibbon
         source.Items.Add(CreateButton("GENERAREXCEL", "Generar Excel", "GENERAREXCEL", CreateExcelIcon()));
 
         tab.Panels.Add(panel);
+
+        var debugSource = new RibbonPanelSource { Title = "DEBUG" };
+        var debugPanel = new RibbonPanel { Source = debugSource };
+        debugSource.Items.Add(CreateButton("DEBUGDETALLES", "Debug Detalles", "DEBUGDETALLES", CreateDebugIcon()));
+        tab.Panels.Add(debugPanel);
+
         ComponentManager.Ribbon.Tabs.Add(tab);
         ComponentManager.Ribbon.ActiveTab = tab;
         _tab = tab;
@@ -60,6 +66,19 @@ public sealed class AutoKADNRibbon
         Orientation = System.Windows.Controls.Orientation.Vertical, Size = RibbonItemSize.Large,
         LargeImage = icon, CommandHandler = new RibbonCommandHandler(command)
     };
+
+    private static DrawingImage CreateDebugIcon()
+    {
+        var group = new DrawingGroup();
+        using DrawingContext dc = group.Open();
+        var pen = new Pen(Brushes.White, 2.6);
+        dc.DrawEllipse(null, pen, new System.Windows.Point(18, 18), 11, 11);
+        dc.DrawEllipse(null, pen, new System.Windows.Point(18, 18), 4, 4);
+        dc.DrawLine(pen, new System.Windows.Point(27, 27), new System.Windows.Point(36, 36));
+        dc.DrawLine(pen, new System.Windows.Point(18, 7), new System.Windows.Point(18, 2));
+        dc.DrawLine(pen, new System.Windows.Point(18, 34), new System.Windows.Point(18, 39));
+        return new DrawingImage(group);
+    }
 
     private static DrawingImage CreateExcelIcon()
     {
