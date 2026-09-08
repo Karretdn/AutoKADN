@@ -249,22 +249,18 @@ public sealed class CotaTool
     {
         bool isUc = type.Equals("UC", StringComparison.OrdinalIgnoreCase);
 
-        // Las palabras clave de AutoCAD no deben depender de espacios:
-        // "TUBERIA 3-4\"" se puede truncar a "TUBERIA" y terminar
-        // seleccionando siempre la primera opción. Usamos claves únicas.
-        string firstKeyword = isUc ? "UC12" : "T12";
-        string secondKeyword = isUc ? "UC34" : "T34";
         string firstLabel = isUc ? "CANALIZACION 1-2\"" : "TUBERIA 1-2\"";
         string secondLabel = isUc ? "CANALIZACION 3-4\"" : "TUBERIA 3-4\"";
+        string firstKeyword = isUc ? "UC12" : "T12";
+        string secondKeyword = isUc ? "UC34" : "T34";
+        string globalKeywords = $"{firstKeyword} {secondKeyword}";
 
         var options = new PromptKeywordOptions(
-            $"\nSeleccione capa [{firstLabel}/{secondLabel}] ")
+            $"\nSeleccione capa [{firstLabel}/{secondLabel}]: ",
+            globalKeywords)
         {
             AllowNone = true
         };
-
-        options.Keywords.Add(firstKeyword);
-        options.Keywords.Add(secondKeyword);
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return null;
