@@ -740,7 +740,15 @@ public sealed class GenerarExcelTool
 
     private sealed class SourceMaterialRow
     {
-        public SourceMaterialRow(string code, string description) { Code = code; Description = description; }
+        public SourceMaterialRow(int rowNumber, string code, string description, string diameter)
+        {
+            RowNumber = rowNumber;
+            Code = code;
+            Description = description;
+            Diameter = diameter;
+        }
+
+        public int RowNumber { get; private set; }
         public string Code { get; private set; }
         public string Description { get; private set; }
         public string Diameter { get; private set; }
