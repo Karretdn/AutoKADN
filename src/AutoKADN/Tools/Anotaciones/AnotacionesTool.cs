@@ -14,6 +14,10 @@ public sealed class AnotacionesTool
     private const string MaterialsLayer = "Mat";
     private const string XDataAppName = "AUTOKADN";
     private const string ActivityType = "ACTIVIDAD";
+    private const char Nbsp = ' ';
+    private const char FractionSlash = '∕';
+
+    private static string ToAutoCadKeyword(string label) => label.Replace(' ', Nbsp).Replace('/', FractionSlash);
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -158,22 +162,31 @@ public sealed class AnotacionesTool
 
     private static string? ReadActivityDiameter(Editor editor)
     {
-        var options = new PromptKeywordOptions("\nAsignar diámetro [1/2\"/3/4\"]: ") { AllowNone = false };
-        options.Keywords.Add("MEDIO", "1/2\"", "1/2\"", true, true);
-        options.Keywords.Add("TRESCUARTOS", "3/4\"", "3/4\"", true, true);
+        var options = new PromptKeywordOptions("\nAsignar diámetro:") { AllowNone = false };
+        string half = ToAutoCadKeyword("CANALIZACION 1-2\"");
+        string threeQuarter = ToAutoCadKeyword("CANALIZACION 3-4\"");
+        options.Keywords.Add(half, half, half, true, true);
+        options.Keywords.Add(threeQuarter, threeQuarter, threeQuarter, true, true);
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return null;
-        return result.StringResult == "MEDIO" ? "1/2" : result.StringResult == "TRESCUARTOS" ? "3/4" : null;
+        string selectedKeyword = result.StringResult.Trim();
+        string? diameter = selectedKeyword.Equals(threeQuarter, StringComparison.OrdinalIgnoreCase)
+            ? "3/4"
+            : selectedKeyword.Equals(half, StringComparison.OrdinalIgnoreCase)
+                ? "1/2"
+                : null;
+        if (diameter != null) editor.WriteMessage($"\n[ANOTACIONES] Opción seleccionada: {selectedKeyword} -> {diameter}\n");
+        return diameter;
     }
 
     private static Color? ReadTerrain(Editor editor, out string? surface)
     {
         surface = null;
         var options = new PromptKeywordOptions("\nAsignar terreno: ") { AllowNone = false };
-        options.Keywords.Add("ZONAVERDE", "ZONA VERDE", "ZONA VERDE", true, true);
-        options.Keywords.Add("ANDENCONCRETO", "ANDEN CONCRETO", "ANDEN CONCRETO", true, true);
-        options.Keywords.Add("ANDENTABLETA", "ANDEN TABLETA", "ANDEN TABLETA", true, true);
-        options.Keywords.Add("CALZADACONCRETO", "CALZADA CONCRETO", "CALZADA CONCRETO", true, true);
+        options.Keywords.Add("ZONAVERDE", ToAutoCadKeyword("ZONA VERDE"), ToAutoCadKeyword("ZONA VERDE"), true, true);
+        options.Keywords.Add("ANDENCONCRETO", ToAutoCadKeyword("ANDEN CONCRETO"), ToAutoCadKeyword("ANDEN CONCRETO"), true, true);
+        options.Keywords.Add("ANDENTABLETA", ToAutoCadKeyword("ANDEN TABLETA"), ToAutoCadKeyword("ANDEN TABLETA"), true, true);
+        options.Keywords.Add("CALZADACONCRETO", ToAutoCadKeyword("CALZADA CONCRETO"), ToAutoCadKeyword("CALZADA CONCRETO"), true, true);
         options.Keywords.Add("ADOQUIN", "ADOQUIN", "ADOQUIN", true, true);
         options.Keywords.Add("ASFALTO", "ASFALTO", "ASFALTO", true, true);
         options.Keywords.Add("CUNETA", "CUNETA", "CUNETA", true, true);
@@ -185,7 +198,7 @@ public sealed class AnotacionesTool
             string keyword = item.Name.Replace(" ", string.Empty);
             if (!keyword.Equals(result.StringResult, StringComparison.OrdinalIgnoreCase)) continue;
             surface = item.Name;
-            editor.WriteMessage($"\nTerreno asignado: {ToDisplaySurface(surface)}.\n");
+            editor.WriteMessage($"\n[ANOTACIONES] Opción seleccionada: {result.StringResult} -> {surface}\n");
             return GetConfiguredTerrainColor(item);
         }
         return null;
