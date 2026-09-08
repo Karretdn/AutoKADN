@@ -247,51 +247,36 @@ public sealed class CotaTool
 
     private static string? SelectLayer(Database database, Editor editor, string type)
     {
-        var preferred = type.Equals("UC", StringComparison.OrdinalIgnoreCase)
-            ? UCLayers
-            : LongitudLayers;
+        bool isUc = type.Equals("UC", StringComparison.OrdinalIgnoreCase);
+
+        // Las palabras clave de AutoCAD no deben depender de espacios:
+        // "TUBERIA 3-4\"" se puede truncar a "TUBERIA" y terminar
+        // seleccionando siempre la primera opción. Usamos claves únicas.
+        string firstKeyword = isUc ? "UC12" : "T12";
+        string secondKeyword = isUc ? "UC34" : "T34";
+        string firstLabel = isUc ? "CANALIZACION 1-2\"" : "TUBERIA 1-2\"";
+        string secondLabel = isUc ? "CANALIZACION 3-4\"" : "TUBERIA 3-4\"";
 
         var options = new PromptKeywordOptions(
-            $"\nSeleccione capa [{string.Join("/", preferred.Select(x => x.Label))}]: ")
+            $"\nSeleccione capa [{firstLabel}/{secondLabel}] ")
         {
             AllowNone = true
         };
 
-        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
-        {
-            options.Keywords.Add("UC12", "CANALIZACION 1-2\"", "CANALIZACION 1-2\"", true, true);
-            options.Keywords.Add("UC34", "CANALIZACION 3-4\"", "CANALIZACION 3-4\"", true, true);
-        }
-        else
-        {
-            options.Keywords.Add("T12", "TUBERIA 1-2\"", "TUBERIA 1-2\"", true, true);
-            options.Keywords.Add("T34", "TUBERIA 3-4\"", "TUBERIA 3-4\"", true, true);
-        }
+        options.Keywords.Add(firstKeyword);
+        options.Keywords.Add(secondKeyword);
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return null;
 
         string selectedKeyword = result.StringResult.Trim();
-        string exactLayerName;
+        string? exactLayerName = selectedKeyword.Equals(secondKeyword, StringComparison.OrdinalIgnoreCase)
+            ? (isUc ? "UC_3-4" : "COTA_3-4")
+            : selectedKeyword.Equals(firstKeyword, StringComparison.OrdinalIgnoreCase)
+                ? (isUc ? "UC_1-2" : "COTA_1-2")
+                : null;
 
-        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
-        {
-            exactLayerName = selectedKeyword.Equals("UC34", StringComparison.OrdinalIgnoreCase)
-                ? "UC_3-4"
-                : selectedKeyword.Equals("UC12", StringComparison.OrdinalIgnoreCase)
-                    ? "UC_1-2"
-                    : string.Empty;
-        }
-        else
-        {
-            exactLayerName = selectedKeyword.Equals("T34", StringComparison.OrdinalIgnoreCase)
-                ? "COTA_3-4"
-                : selectedKeyword.Equals("T12", StringComparison.OrdinalIgnoreCase)
-                    ? "COTA_1-2"
-                    : string.Empty;
-        }
-
-        if (string.IsNullOrWhiteSpace(exactLayerName))
+        if (exactLayerName is null)
         {
             editor.WriteMessage($"\nSelección de capa no reconocida: {selectedKeyword}\n");
             return null;
@@ -303,7 +288,7 @@ public sealed class CotaTool
             return null;
         }
 
-        editor.WriteMessage($"\n[COTAK] Capa seleccionada: {exactLayerName}\n");
+        editor.WriteMessage($"\n[COTAK] Opción seleccionada: {selectedKeyword} -> {exactLayerName}\n");
         return exactLayerName;
     }
 
