@@ -257,25 +257,45 @@ public sealed class CotaTool
             AllowNone = true
         };
 
-        string[] keywords = { "OPCION1", "OPCION2" };
-
-        for (int i = 0; i < preferred.Length; i++)
+        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
         {
-            options.Keywords.Add(
-                keywords[i],
-                preferred[i].Label,
-                preferred[i].Label,
-                true,
-                true);
+            options.Keywords.Add("UC12", "CANALIZACION 1-2\"", "CANALIZACION 1-2\"", true, true);
+            options.Keywords.Add("UC34", "CANALIZACION 3-4\"", "CANALIZACION 3-4\"", true, true);
+        }
+        else
+        {
+            options.Keywords.Add("T12", "TUBERIA 1-2\"", "TUBERIA 1-2\"", true, true);
+            options.Keywords.Add("T34", "TUBERIA 3-4\"", "TUBERIA 3-4\"", true, true);
         }
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return null;
 
-        int index = Array.IndexOf(keywords, result.StringResult);
-        if (index < 0 || index >= preferred.Length) return null;
+        string selectedKeyword = result.StringResult.Trim();
+        string exactLayerName;
 
-        string exactLayerName = preferred[index].Layer;
+        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
+        {
+            exactLayerName = selectedKeyword.Equals("UC34", StringComparison.OrdinalIgnoreCase)
+                ? "UC_3-4"
+                : selectedKeyword.Equals("UC12", StringComparison.OrdinalIgnoreCase)
+                    ? "UC_1-2"
+                    : string.Empty;
+        }
+        else
+        {
+            exactLayerName = selectedKeyword.Equals("T34", StringComparison.OrdinalIgnoreCase)
+                ? "COTA_3-4"
+                : selectedKeyword.Equals("T12", StringComparison.OrdinalIgnoreCase)
+                    ? "COTA_1-2"
+                    : string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(exactLayerName))
+        {
+            editor.WriteMessage($"\nSelección de capa no reconocida: {selectedKeyword}\n");
+            return null;
+        }
 
         if (!LayerExists(database, exactLayerName))
         {
@@ -283,6 +303,7 @@ public sealed class CotaTool
             return null;
         }
 
+        editor.WriteMessage($"\n[COTAK] Capa seleccionada: {exactLayerName}\n");
         return exactLayerName;
     }
 
