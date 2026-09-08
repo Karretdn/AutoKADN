@@ -1,4 +1,3 @@
-using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
@@ -25,15 +24,8 @@ public sealed class ResumenUCTool
     private const string UcLayerHalf = "UC_1-2";
     private const string UcLayerThreeQuarter = "UC_3-4";
     private const string XDataAppName = "AUTOKADN";
+    private const string UcSurfaceXDataType = "UC_SURFACE";
     private const string SummaryType = "RESUMEN_UC";
-
-    private static readonly UcSurface[] Surfaces =
-    {
-        new("ZONA VERDE", 3, null, null, null), new("ANDEN TABLETA", 1, null, null, null),
-        new("CALZADA CONCRETO", 8, null, null, null), new("DESTAPADO", 2, null, null, null),
-        new("CUNETA", null, 100, 33, 101), new("ANDEN CONCRETO", 5, null, null, null),
-        new("ASFALTO", 30, null, null, null), new("ADOQUIN", 4, null, null, null)
-    };
 
     private static readonly string[] SurfaceOrder =
     {
@@ -66,7 +58,7 @@ public sealed class ResumenUCTool
                 if (transaction.GetObject(objectId, OpenMode.ForRead) is not Dimension dimension) continue;
                 string? diameter = GetUcDiameter(dimension.Layer);
                 if (diameter is null) continue;
-                string? surface = GetSurface(transaction, dimension);
+                string? surface = GetSurface(dimension);
                 if (surface is null) continue;
                 if (!TryGetDisplayedDimensionValue(dimension, out double value)) continue;
                 var key = new UcKey(diameter, surface);
@@ -159,23 +151,32 @@ public sealed class ResumenUCTool
         return null;
     }
 
-    private static string? GetSurface(Transaction transaction, Dimension dimension)
+    private static string? GetSurface(Dimension dimension)
     {
-        Color color = dimension.Color;
-        if (color.ColorIndex == 256 || color.IsByLayer)
-        {
-            ObjectId layerId = dimension.LayerId;
-            if (!layerId.IsNull && transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer) color = layer.Color;
-        }
-        foreach (UcSurface surface in Surfaces)
-        {
-            if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && IsSameRgb(color, surface.Red.Value, surface.Green!.Value, surface.Blue!.Value)) return surface.Name;
-        }
-        return null;
-    }
+        // CotaTool.SetDimensionSurface graba, para cada cota UC, un XData bajo
+        // la app "AUTOKADN" con esta forma:
+        //   [0] ExtendedDataRegAppName -> "AUTOKADN"
+        //   [1] ExtendedDataAsciiString -> "UC_SURFACE"
+        //   [2] ExtendedDataAsciiString -> nombre de la superficie, p. ej. "ZONA VERDE"
+        // Antes esta función intentaba adivinar la superficie por el color de
+        // la cota/capa, pero CotaTool nunca asigna color por superficie (deja
+        // ColorIndex = 256, ByLayer), así que esa detección nunca coincidía
+        // con lo realmente guardado. Ahora se lee el XData directamente.
+        ResultBuffer? xdata = dimension.GetXDataForApplication(XDataAppName);
+        if (xdata is null) return null;
 
-    private static bool IsSameRgb(Color color, int red, int green, int blue) => color.Red == red && color.Green == green && color.Blue == blue;
+        TypedValue[] values = xdata.AsArray();
+        if (values.Length < 3) return null;
+        if (values[1].Value is not string type ||
+            !string.Equals(type, UcSurfaceXDataType, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return values[2].Value is string surface && !string.IsNullOrWhiteSpace(surface)
+            ? surface.Trim()
+            : null;
+    }
 
     private static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
     {
@@ -281,5 +282,4 @@ public sealed class ResumenUCTool
     }
 
     private readonly record struct UcKey(string Diameter, string Surface);
-    private readonly record struct UcSurface(string Name, int? ColorIndex, int? Red, int? Green, int? Blue);
 }
