@@ -11,19 +11,15 @@ public sealed class CotaTool
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
 
-    private static readonly (string Label, string Layer)[] LongitudLayers =
-    {
-        ("TUBERIA 1-2\"", "COTA_1-2"),
-        ("TUBERIA 3-4\"", "COTA_3-4")
-    };
+    private const char Nbsp = '\u00A0';
 
-    private static readonly (string Label, string Layer)[] UCLayers =
-    {
-        ("CANALIZACION 1-2\"", "UC_1-2"),
-        ("CANALIZACION 3-4\"", "UC_3-4")
-    };
+    private static string ToAutoCadKeyword(string label) => label.Replace(' ', Nbsp);
 
-    private sealed record UCAttribute(string Keyword);
+    private sealed record UCAttribute(string Keyword)
+    {
+        public string GlobalKeyword => Keyword.Replace("_", string.Empty);
+        public string AutoCadKeyword => ToAutoCadKeyword(Keyword.Replace('_', ' '));
+    }
 
     private static readonly UCAttribute[] UCAttributes =
     {
@@ -249,22 +245,19 @@ public sealed class CotaTool
     {
         bool isUc = type.Equals("UC", StringComparison.OrdinalIgnoreCase);
 
-        string firstKeyword = isUc ? "UC12" : "T12";
-        string secondKeyword = isUc ? "UC34" : "T34";
+        string firstLabel = isUc ? "CANALIZACION 1-2\"" : "TUBERIA 1-2\"";
+        string secondLabel = isUc ? "CANALIZACION 3-4\"" : "TUBERIA 3-4\"";
 
-        // NBSP: AutoCAD no separa la keyword visible por espacios normales,
-        // pero el usuario sigue viendo exactamente el nombre de la capa.
-        string firstLabel = isUc ? "CANALIZACION\u00A01-2\"" : "TUBERIA\u00A01-2\"";
-        string secondLabel = isUc ? "CANALIZACION\u00A03-4\"" : "TUBERIA\u00A03-4\"";
+        string firstKeyword = ToAutoCadKeyword(firstLabel);
+        string secondKeyword = ToAutoCadKeyword(secondLabel);
 
-        var options = new PromptKeywordOptions(
-            $"\nSeleccione capa [{firstLabel}/{secondLabel}]: ")
+        var options = new PromptKeywordOptions("\nSeleccione capa:")
         {
             AllowNone = true
         };
 
-        options.Keywords.Add(firstKeyword, firstKeyword, firstLabel, true, true);
-        options.Keywords.Add(secondKeyword, secondKeyword, secondLabel, true, true);
+        options.Keywords.Add(firstKeyword, firstKeyword, firstKeyword, true, true);
+        options.Keywords.Add(secondKeyword, secondKeyword, secondKeyword, true, true);
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return null;
@@ -306,21 +299,22 @@ public sealed class CotaTool
     private static bool SelectUCAttribute(Database database, Editor editor, ObjectId dimensionId)
     {
         var options = new PromptKeywordOptions("\nAsignar terreno: ") { AllowNone = false };
-        options.Keywords.Add("ZONAVERDE", "ZONA VERDE", "ZONA VERDE", true, true);
-        options.Keywords.Add("ANDENCONCRETO", "ANDEN CONCRETO", "ANDEN CONCRETO", true, true);
-        options.Keywords.Add("ANDENTABLETA", "ANDEN TABLETA", "ANDEN TABLETA", true, true);
-        options.Keywords.Add("CALZADACONCRETO", "CALZADA CONCRETO", "CALZADA CONCRETO", true, true);
-        options.Keywords.Add("ADOQUIN", "ADOQUIN", "ADOQUIN", true, true);
-        options.Keywords.Add("ASFALTO", "ASFALTO", "ASFALTO", true, true);
-        options.Keywords.Add("CUNETA", "CUNETA", "CUNETA", true, true);
-        options.Keywords.Add("DESTAPADO", "DESTAPADO", "DESTAPADO", true, true);
+
+        foreach (UCAttribute attribute in UCAttributes)
+        {
+            options.Keywords.Add(
+                attribute.GlobalKeyword,
+                attribute.AutoCadKeyword,
+                attribute.AutoCadKeyword,
+                true,
+                true);
+        }
 
         PromptResult result = editor.GetKeywords(options);
         if (result.Status != PromptStatus.OK) return false;
 
         UCAttribute? selected = UCAttributes.FirstOrDefault(
-            attribute => attribute.Keyword.Replace("_", string.Empty)
-                .Equals(result.StringResult, StringComparison.OrdinalIgnoreCase));
+            attribute => attribute.GlobalKeyword.Equals(result.StringResult, StringComparison.OrdinalIgnoreCase));
 
         if (selected is null) return false;
 
