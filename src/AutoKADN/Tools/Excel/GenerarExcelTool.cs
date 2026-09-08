@@ -74,9 +74,11 @@ public sealed class GenerarExcelTool
         {
             string templatePath = SelectTemplatePath(editor);
             if (string.IsNullOrWhiteSpace(templatePath)) { editor.WriteMessage("\nGeneración cancelada: no se seleccionó la plantilla base.\n"); return; }
-            List<UcKey> detectedUcs = ScanUcs(database);
-            if (detectedUcs.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC'.\n"); return; }
+            Dictionary<UcKey, double> ucPipeTotals = ScanUcTotals(database);
+            if (ucPipeTotals.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC'.\n"); return; }
+            List<UcKey> detectedUcs = ucPipeTotals.Keys.OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
             Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities = ScanAccessories(database);
+            MergeMaterialQuantities(materialQuantities, BuildPipeMaterialQuantities(ucPipeTotals));
             MergeMaterialQuantities(materialQuantities, ScanSpiral(database));
             MergeMaterialQuantities(materialQuantities, ScanMaterialTest(database));
             string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath));
@@ -113,9 +115,9 @@ public sealed class GenerarExcelTool
         return File.Exists(path) ? Path.GetFullPath(path) : null;
     }
 
-    private static List<UcKey> ScanUcs(Database database)
+    private static Dictionary<UcKey, double> ScanUcTotals(Database database)
     {
-        var detected = new HashSet<UcKey>();
+        var totals = new Dictionary<UcKey, double>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
             DBDictionary layouts = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
@@ -133,12 +135,32 @@ public sealed class GenerarExcelTool
                     string surface = GetSurface(transaction, dimension);
                     double value;
                     if (surface == null || !TryGetDisplayedDimensionValue(dimension, out value)) continue;
-                    detected.Add(new UcKey(diameter, surface));
+                    UcKey key = new UcKey(diameter, surface);
+                    double current;
+                    totals.TryGetValue(key, out current);
+                    totals[key] = current + Math.Abs(value);
                 }
             }
             transaction.Commit();
         }
-        return detected.OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
+        return totals;
+    }
+
+    // El total real de tubería medido en las cotas UC (capas UC_1-2/UC_3-4) es
+    // la cantidad base de "TUBERIA" por diámetro+terreno. El espiral (ScanSpiral)
+    // y el material de prueba (ScanMaterialTest) se suman por encima de este
+    // total mediante MergeMaterialQuantities, no lo reemplazan.
+    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> BuildPipeMaterialQuantities(Dictionary<UcKey, double> ucPipeTotals)
+    {
+        var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
+        foreach (KeyValuePair<UcKey, double> entry in ucPipeTotals)
+        {
+            if (entry.Value <= 0.0) continue;
+            MaterialSpec material;
+            if (!TryGetMaterialSpec("TUBERIA", entry.Key.Diameter, out material)) continue;
+            AddMaterialQuantity(result, entry.Key, material, "ML", entry.Value);
+        }
+        return result;
     }
 
     private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanAccessories(Database database)
