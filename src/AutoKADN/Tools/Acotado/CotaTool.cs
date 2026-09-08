@@ -249,15 +249,16 @@ public sealed class CotaTool
     {
         bool isUc = type.Equals("UC", StringComparison.OrdinalIgnoreCase);
 
-        string firstLabel = isUc ? "CANALIZACION 1-2\"" : "TUBERIA 1-2\"";
-        string secondLabel = isUc ? "CANALIZACION 3-4\"" : "TUBERIA 3-4\"";
         string firstKeyword = isUc ? "UC12" : "T12";
         string secondKeyword = isUc ? "UC34" : "T34";
 
-        // El keyword interno NO tiene espacios. El displayName sí muestra
-        // el nombre completo, y AutoCAD devuelve el keyword interno tanto
-        // al hacer clic como al escribirlo.
-        var options = new PromptKeywordOptions("\nSeleccione capa:")
+        // NBSP: AutoCAD no separa la keyword visible por espacios normales,
+        // pero el usuario sigue viendo exactamente el nombre de la capa.
+        string firstLabel = isUc ? "CANALIZACION\u00A01-2\"" : "TUBERIA\u00A01-2\"";
+        string secondLabel = isUc ? "CANALIZACION\u00A03-4\"" : "TUBERIA\u00A03-4\"";
+
+        var options = new PromptKeywordOptions(
+            $"\nSeleccione capa [{firstLabel}/{secondLabel}]: ")
         {
             AllowNone = true
         };
