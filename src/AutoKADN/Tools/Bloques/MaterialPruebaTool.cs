@@ -1,9 +1,6 @@
-using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
-using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace AutoKADN.Tools.Bloques;
 
@@ -14,38 +11,14 @@ public sealed class MaterialPruebaTool
     private const double HorizontalOffset = 1.00;
     private const string XDataAppName = "AUTOKADN";
     private const string MaterialTestType = "MATERIAL_PRUEBA";
-    private const string UcLayerHalf = "UC_1-2";
-    private const string UcLayerThreeQuarter = "UC_3-4";
 
-    private static readonly Regex DetailLayoutPattern = new(
-        @"^ANILLO\s+(\d+)\s+DETALLE$",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    private static readonly Regex UcLayoutPattern = new(
-        @"^ANILLO\s+(\d+)\s+UC$",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    private static readonly TestMaterial[] Materials =
+    // Los keywords de AutoCAD con espacios (incluso NBSP) se truncan a la primera palabra
+    // y siempre terminan seleccionando la primera opción (ver fix histórico en CotaTool.SelectLayer).
+    // Por eso el keyword real es un código corto sin espacios; el texto completo va en el mensaje.
+    private static readonly (string Code, string Name)[] TerrainCodes =
     {
-        new("UNION", "3/4\"", "UND"),
-        new("UNION", "1/2\"", "UND"),
-        new("TAPON", "1/2\"", "UND"),
-        new("TAPON", "3/4\"", "UND"),
-        new("REDUCCION", "3/4x1/2\"", "UND")
-    };
-
-    private static readonly UcSurface[] Surfaces =
-    {
-        new("ZONA VERDE", 3, null, null, null), new("ANDEN TABLETA", 1, null, null, null),
-        new("CALZADA CONCRETO", 8, null, null, null), new("DESTAPADO", 2, null, null, null),
-        new("CUNETA", null, 100, 33, 101), new("ANDEN CONCRETO", 5, null, null, null),
-        new("ASFALTO", 30, null, null, null), new("ADOQUIN", 4, null, null, null)
-    };
-
-    private static readonly string[] SurfaceOrder =
-    {
-        "ZONA VERDE", "ANDEN CONCRETO", "CALZADA CONCRETO", "ANDEN TABLETA",
-        "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
+        ("ZV", "ZONA VERDE"), ("AC", "ANDEN CONCRETO"), ("AT", "ANDEN TABLETA"), ("CC", "CALZADA CONCRETO"),
+        ("AD", "ADOQUIN"), ("AS", "ASFALTO"), ("CU", "CUNETA"), ("DE", "DESTAPADO")
     };
 
     public void Run()
@@ -56,31 +29,20 @@ public sealed class MaterialPruebaTool
         Database database = document.Database;
         string layoutName = LayoutManager.Current.CurrentLayout;
 
-        if (!TryGetPairedUcLayout(database, layoutName, out string ucLayoutName, out ObjectId ucLayoutId))
-        {
-            editor.WriteMessage($"\nNo se encontró la pareja UC para el layout '{layoutName}'. Debe existir 'ANILLO X UC' con el mismo número.\n");
-            return;
-        }
-
-        editor.WriteMessage($"\nLeyendo UC desde '{ucLayoutName}' para '{layoutName}'.\n");
-
-        if (!TryScanUcs(database, ucLayoutId, out Dictionary<UcKey, double> availableUcs))
-        {
-            editor.WriteMessage($"\nNo se encontraron cotas UC válidas en el layout '{ucLayoutName}'.\n");
-            return;
-        }
-
         var assignments = new List<TestMaterialAssignment>();
         while (true)
         {
-            if (!TrySelectUc(editor, availableUcs, out UcKey selectedUc)) return;
-            if (!TrySelectMaterial(editor, out TestMaterial material)) return;
-            if (!TryReadQuantity(editor, material, out int quantity)) return;
+            if (!TrySelectMaterialName(editor, out string materialName)) return;
+            if (!TrySelectDiameter(editor, out string diameter)) return;
+            if (!TrySelectTerrain(editor, out string surface)) return;
+            if (!TryReadQuantity(editor, materialName, diameter, out int quantity)) return;
 
-            assignments.Add(new TestMaterialAssignment(selectedUc, material, quantity));
-            editor.WriteMessage($"\nAgregado: {quantity} {FormatMaterialName(material.Name, quantity)} DE {material.Diameter} - {ToDisplaySurface(selectedUc.Surface)}.\n");
+            var material = new TestMaterial(materialName, diameter, "UND");
+            var uc = new UcKey(diameter, surface);
+            assignments.Add(new TestMaterialAssignment(uc, material, quantity));
+            editor.WriteMessage($"\nAgregado: {quantity} {FormatMaterialName(materialName, quantity)} DE {diameter}\" - {ToDisplaySurface(surface)}.\n");
 
-            string? more = ReadYesNo(editor, "¿Añadir más? [Y/N]: ");
+            string? more = ReadYesNo(editor, "\n¿Añadir más? [Y/N]: ");
             if (more is null) return;
             if (more.Equals("N", StringComparison.OrdinalIgnoreCase)) break;
         }
@@ -96,110 +58,53 @@ public sealed class MaterialPruebaTool
         editor.WriteMessage($"\nMaterial de prueba generado en el layout '{layoutName}'.\n");
     }
 
-    private static bool TryGetPairedUcLayout(Database database, string detailLayoutName, out string ucLayoutName, out ObjectId ucLayoutId)
+    private static bool TrySelectMaterialName(Editor editor, out string materialName)
     {
-        ucLayoutName = string.Empty;
-        ucLayoutId = ObjectId.Null;
+        materialName = string.Empty;
+        var options = new PromptKeywordOptions("\nMaterial: ") { AllowNone = false };
+        options.Keywords.Add("UNION");
+        options.Keywords.Add("TAPON");
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK) return false;
+        materialName = result.StringResult;
+        return true;
+    }
 
-        Match detailMatch = DetailLayoutPattern.Match(detailLayoutName.Trim());
-        if (!detailMatch.Success) return false;
-        string ringNumber = detailMatch.Groups[1].Value;
+    private static bool TrySelectDiameter(Editor editor, out string diameter)
+    {
+        diameter = string.Empty;
+        // Ojo: el "/" dentro de un mismo texto entre corchetes se interpreta como separador de
+        // opciones en el tooltip dinámico de AutoCAD (parte "1/2" en dos líneas). Se usa "1-2" / "3-4",
+        // igual que las capas UC_1-2 / UC_3-4 y las etiquetas ya corregidas en CotaTool.
+        var options = new PromptKeywordOptions("\nDiametro [D12=1-2\" / D34=3-4\"]: ") { AllowNone = false };
+        options.Keywords.Add("D12");
+        options.Keywords.Add("D34");
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK) return false;
+        diameter = result.StringResult.Equals("D34", StringComparison.OrdinalIgnoreCase) ? "3/4" : "1/2";
+        return true;
+    }
 
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-        DBDictionary layoutDictionary = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
-
-        foreach (DBDictionaryEntry entry in layoutDictionary)
+    private static bool TrySelectTerrain(Editor editor, out string surface)
+    {
+        surface = string.Empty;
+        var options = new PromptKeywordOptions(
+            "\nTerreno [ZV=ZonaVerde/AC=AndenConcreto/AT=AndenTableta/CC=CalzadaConcreto/AD=Adoquin/AS=Asfalto/CU=Cuneta/DE=Destapado]: ")
+        { AllowNone = false };
+        foreach ((string code, string _) in TerrainCodes) options.Keywords.Add(code);
+        PromptResult result = editor.GetKeywords(options);
+        if (result.Status != PromptStatus.OK) return false;
+        foreach ((string code, string name) in TerrainCodes)
         {
-            string candidateName = entry.Key.Trim();
-            Match ucMatch = UcLayoutPattern.Match(candidateName);
-            if (!ucMatch.Success) continue;
-            if (!string.Equals(ucMatch.Groups[1].Value, ringNumber, StringComparison.Ordinal)) continue;
-
-            ucLayoutName = candidateName;
-            ucLayoutId = entry.Value;
-            transaction.Commit();
-            return true;
+            if (string.Equals(result.StringResult, code, StringComparison.OrdinalIgnoreCase)) { surface = name; return true; }
         }
-
-        transaction.Commit();
         return false;
     }
 
-    private static bool TryScanUcs(Database database, ObjectId ucLayoutId, out Dictionary<UcKey, double> quantities)
-    {
-        quantities = new Dictionary<UcKey, double>();
-        using Transaction transaction = database.TransactionManager.StartTransaction();
-        var layout = (Layout)transaction.GetObject(ucLayoutId, OpenMode.ForRead);
-        var layoutSpace = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-
-        foreach (ObjectId objectId in layoutSpace)
-        {
-            if (transaction.GetObject(objectId, OpenMode.ForRead) is not Dimension dimension) continue;
-            string? diameter = GetUcDiameter(dimension.Layer);
-            if (diameter is null) continue;
-            string? surface = GetSurface(transaction, dimension);
-            if (surface is null) continue;
-            if (!TryGetDisplayedDimensionValue(dimension, out double value)) continue;
-            var key = new UcKey(diameter, surface);
-            quantities.TryGetValue(key, out double current);
-            quantities[key] = current + Math.Abs(value);
-        }
-        transaction.Commit();
-        return quantities.Count > 0;
-    }
-
-    private static bool TrySelectUc(Editor editor, IReadOnlyDictionary<UcKey, double> quantities, out UcKey selectedUc)
-    {
-        selectedUc = default;
-        List<UcKey> available = quantities.Keys
-            .OrderBy(x => GetSurfaceOrder(x.Surface))
-            .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (available.Count == 0) return false;
-
-        editor.WriteMessage("\nSeleccionar UC:\n");
-        for (int i = 0; i < available.Count; i++)
-        {
-            UcKey uc = available[i];
-            editor.WriteMessage($"  {i + 1}. {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)} - {FormatQuantity(quantities[uc])} ML\n");
-        }
-
-        var options = new PromptIntegerOptions("\nEscriba el numero de la UC: ")
-        {
-            AllowNone = false, AllowNegative = false, AllowZero = false,
-            LowerLimit = 1, UpperLimit = available.Count
-        };
-        PromptIntegerResult result = editor.GetInteger(options);
-        if (result.Status != PromptStatus.OK) return false;
-        selectedUc = available[result.Value - 1];
-        return true;
-    }
-
-    private static bool TrySelectMaterial(Editor editor, out TestMaterial material)
-    {
-        material = default;
-        editor.WriteMessage("\nMaterial de prueba disponible:\n");
-        for (int i = 0; i < Materials.Length; i++)
-        {
-            TestMaterial item = Materials[i];
-            editor.WriteMessage($"  {i + 1}. {item.Name} DE {item.Diameter}\n");
-        }
-
-        var options = new PromptIntegerOptions("\nEscriba el numero del material: ")
-        {
-            AllowNone = false, AllowNegative = false, AllowZero = false,
-            LowerLimit = 1, UpperLimit = Materials.Length
-        };
-        PromptIntegerResult result = editor.GetInteger(options);
-        if (result.Status != PromptStatus.OK) return false;
-        material = Materials[result.Value - 1];
-        return true;
-    }
-
-    private static bool TryReadQuantity(Editor editor, TestMaterial material, out int quantity)
+    private static bool TryReadQuantity(Editor editor, string materialName, string diameter, out int quantity)
     {
         quantity = 0;
-        var options = new PromptIntegerOptions($"\nCantidad de {material.Name} DE {material.Diameter}: ")
+        var options = new PromptIntegerOptions($"\nCantidad de {materialName} DE {diameter}\": ")
         {
             AllowNone = false, AllowNegative = false, AllowZero = false,
             LowerLimit = 1
@@ -252,7 +157,7 @@ public sealed class MaterialPruebaTool
     private static string BuildMaterialText(IReadOnlyList<TestMaterialAssignment> assignments)
     {
         var parts = assignments.Select(x =>
-            $"{x.Quantity} {FormatMaterialName(x.Material.Name, x.Quantity)} DE {x.Material.Diameter}").ToList();
+            $"{x.Quantity} {FormatMaterialName(x.Material.Name, x.Quantity)} DE {x.Material.Diameter}\"").ToList();
 
         if (parts.Count == 1)
             return $"MATERIAL DE PRUEBA: {parts[0]}.";
@@ -269,7 +174,6 @@ public sealed class MaterialPruebaTool
         {
             "UNION" => "UNIONES",
             "TAPON" => "TAPONES",
-            "REDUCCION" => "REDUCCIONES",
             _ => name
         };
     }
@@ -314,49 +218,6 @@ public sealed class MaterialPruebaTool
         return string.Empty;
     }
 
-    private static string? GetUcDiameter(string layer)
-    {
-        if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2";
-        if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4";
-        return null;
-    }
-
-    private static string? GetSurface(Transaction transaction, Dimension dimension)
-    {
-        Color color = dimension.Color;
-        if (color.ColorIndex == 256 || color.IsByLayer)
-        {
-            ObjectId layerId = dimension.LayerId;
-            if (!layerId.IsNull && transaction.GetObject(layerId, OpenMode.ForRead) is LayerTableRecord layer)
-                color = layer.Color;
-        }
-
-        foreach (UcSurface surface in Surfaces)
-        {
-            if (surface.ColorIndex.HasValue && color.ColorIndex == surface.ColorIndex.Value) return surface.Name;
-            if (surface.Red.HasValue && color.Red == surface.Red.Value && color.Green == surface.Green!.Value && color.Blue == surface.Blue!.Value)
-                return surface.Name;
-        }
-        return null;
-    }
-
-    private static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
-    {
-        value = 0.0;
-        string text = dimension.DimensionText?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        Match match = Regex.Match(text, @"[-+]?\d+(?:[\.,]\d+)?");
-        if (!match.Success) return false;
-        return double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
-    }
-
-    private static int GetSurfaceOrder(string surface)
-    {
-        for (int i = 0; i < SurfaceOrder.Length; i++)
-            if (string.Equals(surface, SurfaceOrder[i], StringComparison.OrdinalIgnoreCase)) return i;
-        return SurfaceOrder.Length;
-    }
-
     private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
     {
         "zona verde" => "Zona Verde", "anden tableta" => "Anden Tableta", "calzada concreto" => "Calzada Concreto",
@@ -364,10 +225,7 @@ public sealed class MaterialPruebaTool
         "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
     };
 
-    private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
-
     private readonly record struct TestMaterial(string Name, string Diameter, string Unit);
-    private readonly record struct UcSurface(string Name, int? ColorIndex, byte? Red, byte? Green, byte? Blue);
     private readonly record struct UcKey(string Diameter, string Surface);
     private readonly record struct TestMaterialAssignment(UcKey Uc, TestMaterial Material, int Quantity);
 }

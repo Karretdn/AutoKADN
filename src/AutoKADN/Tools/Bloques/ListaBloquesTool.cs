@@ -67,7 +67,7 @@ public sealed class ListaBloquesTool
                     string? diameter = GetPipeDiameter(dimension.Layer);
                     if (diameter is null) continue;
                     if (!TryGetManualDimensionValue(dimension, out double value)) continue;
-                    AddCount(counts, new BlockKey("TUBERIA", diameter, "ML", string.Empty), Math.Abs(value));
+                    AddCount(counts, new BlockKey("TUBERIA", NormalizeDiameter(diameter), "ML", string.Empty), Math.Abs(value));
                 }
                 else if (entity is MText mtext)
                 {
@@ -94,9 +94,9 @@ public sealed class ListaBloquesTool
     {
         if (!string.Equals(mtext.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) return;
         if (!TryReadSpiralXData(mtext, out double pipe, out double unions, out double tees)) return;
-        if (pipe > 0.0) AddCount(counts, new BlockKey("TUBERIA", "3/4\"", "ML", string.Empty), pipe);
-        if (unions > 0.0) AddCount(counts, new BlockKey("UNION", "3/4\"", "UND", string.Empty), unions);
-        if (tees > 0.0) AddCount(counts, new BlockKey("TEE", "3/4\"", "UND", string.Empty), tees);
+        if (pipe > 0.0) AddCount(counts, new BlockKey("TUBERIA", "3/4", "ML", string.Empty), pipe);
+        if (unions > 0.0) AddCount(counts, new BlockKey("UNION", "3/4", "UND", string.Empty), unions);
+        if (tees > 0.0) AddCount(counts, new BlockKey("TEE", "3/4", "UND", string.Empty), tees);
     }
 
     private static bool TryReadSpiralXData(MText mtext, out double pipe, out double unions, out double tees)
@@ -127,8 +127,8 @@ public sealed class ListaBloquesTool
 
     private static string? GetPipeDiameter(string layer)
     {
-        if (string.Equals(layer, PipeLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2\"";
-        if (string.Equals(layer, PipeLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4\"";
+        if (string.Equals(layer, PipeLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2";
+        if (string.Equals(layer, PipeLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4";
         return null;
     }
 
@@ -172,7 +172,7 @@ public sealed class ListaBloquesTool
             double unitX = columnX + DescriptionWidth + DiameterWidth + (UnitWidth / 2.0) + UnitCenterCorrection;
             double quantityX = columnX + DescriptionWidth + DiameterWidth + UnitWidth + (QuantityWidth / 2.0) + QuantityCenterCorrection;
             AddLeftAlignedText(transaction, currentSpace, item.Key.Description, new Point3d(descriptionX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DESCRIPCION");
-            AddCenteredText(transaction, currentSpace, item.Key.Diameter, new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DIAMETRO");
+            AddCenteredText(transaction, currentSpace, item.Key.Diameter + "\"", new Point3d(diameterX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "DIAMETRO");
             AddCenteredText(transaction, currentSpace, item.Key.Unit, new Point3d(unitX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "UNIDAD");
             AddCenteredText(transaction, currentSpace, FormatQuantity(item.Value, item.Key.Unit), new Point3d(quantityX, y, 0), TextHeight, layerName, textStyleId, layoutName, summaryId, rowId, "CANTIDAD");
             index++;
@@ -271,5 +271,32 @@ public sealed class ListaBloquesTool
         return string.Empty;
     }
 
-    private readonly record struct BlockKey(string Description, string Diameter, string Unit, string Surface);
+    private readonly struct BlockKey : IEquatable<BlockKey>
+    {
+        // Normaliza (mayusculas/trim) para que el mismo material no quede duplicado cuando
+        // llega con formato ligeramente distinto segun su origen (bloque, cota o espiral).
+        public BlockKey(string description, string diameter, string unit, string surface)
+        {
+            Description = NormalizeKeyPart(description);
+            Diameter = NormalizeKeyPart(diameter);
+            Unit = NormalizeKeyPart(unit);
+            Surface = NormalizeKeyPart(surface);
+        }
+
+        public string Description { get; }
+        public string Diameter { get; }
+        public string Unit { get; }
+        public string Surface { get; }
+
+        private static string NormalizeKeyPart(string value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
+
+        public bool Equals(BlockKey other) =>
+            string.Equals(Description, other.Description, StringComparison.Ordinal) &&
+            string.Equals(Diameter, other.Diameter, StringComparison.Ordinal) &&
+            string.Equals(Unit, other.Unit, StringComparison.Ordinal) &&
+            string.Equals(Surface, other.Surface, StringComparison.Ordinal);
+
+        public override bool Equals(object obj) => obj is BlockKey other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(Description, Diameter, Unit, Surface);
+    }
 }

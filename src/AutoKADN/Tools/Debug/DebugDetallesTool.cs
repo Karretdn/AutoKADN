@@ -20,6 +20,7 @@ public sealed class DebugDetallesTool
     private const string UcSurfaceXDataType = "UC_SURFACE";
     private const string SpiralXDataType = "ESPIRAL";
     private const string SpiralDiameter = "3/4";
+    private const string MaterialTestXDataType = "MATERIAL_PRUEBA";
     private const string ActivityXDataType = "ACTIVIDAD";
     private const string PlanosAsBuiltCode = "100005412";
     private const string PantallaCode = "100006014";
@@ -400,6 +401,46 @@ public sealed class DebugDetallesTool
                 }
             }
 
+            foreach (DBDictionaryEntry entry in layouts)
+            {
+                Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                if (layout == null) continue;
+                BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                foreach (ObjectId objectId in space)
+                {
+                    MText mtext = transaction.GetObject(objectId, OpenMode.ForRead) as MText;
+                    if (mtext == null) continue;
+                    ResultBuffer xdata = mtext.XData;
+                    if (xdata == null) continue;
+                    TypedValue[] values = xdata.AsArray();
+                    int typeIndex = -1;
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        if (values[i].TypeCode == (int)DxfCode.ExtendedDataAsciiString && string.Equals(values[i].Value as string, MaterialTestXDataType, StringComparison.OrdinalIgnoreCase))
+                        {
+                            typeIndex = i;
+                            break;
+                        }
+                    }
+                    if (typeIndex < 0) continue;
+                    int index = typeIndex + 3;
+                    while (index + 5 < values.Length)
+                    {
+                        string description = values[index].Value == null ? string.Empty : values[index].Value.ToString().Trim();
+                        string diameter = values[index + 1].Value == null ? string.Empty : values[index + 1].Value.ToString().Trim();
+                        if (!TryReadXDataDouble(values[index + 3].Value, out double quantity)) break;
+                        string surface = values[index + 5].Value == null ? string.Empty : values[index + 5].Value.ToString().Trim();
+                        surface = NormalizeSurface(surface);
+                        index += 6;
+                        if (string.IsNullOrWhiteSpace(surface) || string.IsNullOrWhiteSpace(description)) continue;
+
+                        DebugKey key = new DebugKey(surface, description, diameter, "MATERIAL PRUEBA", layout.LayoutName);
+                        rows.TryGetValue(key, out int current);
+                        rows[key] = current + (int)Math.Round(Math.Abs(quantity));
+                    }
+                }
+            }
+
             var spiralByGroup = new Dictionary<UcGroupKey, SpiralAgg>();
             foreach (DBDictionaryEntry entry in layouts)
             {
@@ -440,13 +481,9 @@ public sealed class DebugDetallesTool
                     agg.Pipe += Math.Abs(pipe);
                     agg.Unions += Math.Abs(unions);
                     agg.Tees += Math.Abs(tees);
-                    agg.Valves += Math.Abs(valves);
-                    if (Math.Abs(saddles) > 0.0 && !string.IsNullOrWhiteSpace(saddleDiameter))
-                    {
-                        int saddleIndex = agg.Saddles.FindIndex(x => string.Equals(x.Diameter, saddleDiameter, StringComparison.OrdinalIgnoreCase));
-                        if (saddleIndex < 0) agg.Saddles.Add((saddleDiameter, Math.Abs(saddles)));
-                        else agg.Saddles[saddleIndex] = (agg.Saddles[saddleIndex].Diameter, agg.Saddles[saddleIndex].Qty + Math.Abs(saddles));
-                    }
+                    // VALVULA y SILLETA del ESPIRAL no se agregan aquí: ya se cuentan como material físico
+                    // (bloque en capa Mat), igual que en GenerarExcelTool. Sumarlas también aquí duplicaría
+                    // el conteo mostrado frente al que realmente va al Excel.
                     agg.Layouts.Add(layout.LayoutName);
                 }
             }

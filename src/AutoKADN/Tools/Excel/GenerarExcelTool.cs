@@ -24,6 +24,10 @@ public sealed class GenerarExcelTool
     private const string MaterialQuantityColumn = "G";
     private const int MaterialStartRow = 46;
     private const int MaterialEndRow = 71;
+    // Color de relleno que se aplica a las filas de material/actividad que efectivamente
+    // quedan usadas (con cantidad) en el Excel generado.
+    private const string HighlightFillArgb = "FFFDE9D9";
+    private static readonly string[] RowHighlightColumns = { "B", "C", "D", "E", "F", "G" };
     private const string MaterialTestXDataType = "MATERIAL_PRUEBA";
     private const string SpiralXDataType = "ESPIRAL";
     private const string XDataAppName = "AUTOKADN";
@@ -97,12 +101,15 @@ public sealed class GenerarExcelTool
             string templatePath = SelectTemplatePath(editor);
             if (string.IsNullOrWhiteSpace(templatePath)) { editor.WriteMessage("\nGeneración cancelada: no se seleccionó la plantilla base.\n"); return; }
             Dictionary<UcKey, double> ucPipeTotals = ScanUcs(database);
-            if (ucPipeTotals.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC'.\n"); return; }
-            List<UcKey> detectedUcs = ucPipeTotals.Keys.OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
             Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities = ScanAccessories(database);
             MergeMaterialQuantities(materialQuantities, ScanSpiral(database));
             MergeMaterialQuantities(materialQuantities, ScanMaterialTest(database));
             MergeMaterialQuantities(materialQuantities, ConvertUcTotalsToPipeMaterials(ucPipeTotals));
+            // Las UC a procesar son la unión entre las que tienen cota real (ScanUcs) y las que solo
+            // aparecen por material de prueba/accesorios/espiral, para que estas últimas también se generen.
+            List<UcKey> detectedUcs = ucPipeTotals.Keys.Union(materialQuantities.Keys)
+                .OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
+            if (detectedUcs.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC' ni materiales de prueba.\n"); return; }
             Dictionary<UcKey, ActivityAgg> activityAggs = ScanActivities(database);
             string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath));
             int generated = 0;
@@ -117,14 +124,21 @@ public sealed class GenerarExcelTool
                 if (string.Equals(Path.GetFullPath(outputPath), Path.GetFullPath(templatePath), StringComparison.OrdinalIgnoreCase)) { editor.WriteMessage("\nNo se puede sobrescribir la plantilla original. Se omitirá esta UC y se continuará con la siguiente.\n"); continue; }
                 if (File.Exists(outputPath)) File.Delete(outputPath);
                 File.Copy(templatePath, outputPath, true);
-                string activity = SetActivitySelection(outputPath, uc);
-                Dictionary<MaterialKey, double> quantities;
-                if (!materialQuantities.TryGetValue(uc, out quantities)) quantities = new Dictionary<MaterialKey, double>();
-                SetMaterialQuantities(outputPath, activity, quantities);
-                Dictionary<string, double> activityQuantities = BuildActivityQuantities(uc, ucPipeTotals, materialQuantities, activityAggs);
-                SetActivityQuantities(outputPath, activity, activityQuantities);
-                generated++;
-                editor.WriteMessage("Excel generado: " + outputPath + "\n");
+                try
+                {
+                    string activity = SetActivitySelection(outputPath, uc);
+                    Dictionary<MaterialKey, double> quantities;
+                    if (!materialQuantities.TryGetValue(uc, out quantities)) quantities = new Dictionary<MaterialKey, double>();
+                    SetMaterialQuantities(outputPath, activity, quantities);
+                    Dictionary<string, double> activityQuantities = BuildActivityQuantities(uc, ucPipeTotals, materialQuantities, activityAggs);
+                    SetActivityQuantities(outputPath, activity, activityQuantities);
+                    generated++;
+                    editor.WriteMessage("Excel generado: " + outputPath + "\n");
+                }
+                catch (Exception ucEx)
+                {
+                    editor.WriteMessage("\nERROR en " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ": " + ucEx.Message + ". Se omitió esta UC y se continuará con la siguiente.\n");
+                }
             }
             editor.WriteMessage("\nProceso terminado. Se generaron " + generated + " de " + detectedUcs.Count + " formato(s) Excel.\n");
         }
@@ -278,8 +292,9 @@ public sealed class GenerarExcelTool
                     if (pipe > 0.0 && TryGetMaterialSpec("TUBERIA", "3/4", out material)) AddMaterialQuantity(result, uc, material, "ML", Math.Abs(pipe));
                     if (unions > 0.0 && TryGetMaterialSpec("UNION", "3/4", out material)) AddMaterialQuantity(result, uc, material, "UND", Math.Abs(unions));
                     if (tees > 0.0 && TryGetMaterialSpec("TEE", "3/4", out material)) AddMaterialQuantity(result, uc, material, "UND", Math.Abs(tees));
-                    if (valves > 0.0 && TryGetMaterialSpec("VALVULA", "3/4", out material)) AddMaterialQuantity(result, uc, material, "UND", Math.Abs(valves));
-                    if (saddles > 0.0 && TryGetMaterialSpec("SILLETA", saddleDiameter, out material)) AddMaterialQuantity(result, uc, material, "UND", Math.Abs(saddles));
+                    // VALVULA y SILLETA del ESPIRAL NO se suman aquí: ya se cuentan como material físico
+                    // (bloque en capa Mat) vía ScanAccessories. Sumarlas también desde el XData del ESPIRAL
+                    // duplicaría la cantidad en el Excel.
                 }
             }
             transaction.Commit();
@@ -607,6 +622,10 @@ public sealed class GenerarExcelTool
             XElement worksheet = LoadXml(worksheetEntry);
             XElement sheetData = worksheet.Element(mainNs + "sheetData");
             if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
+            ZipArchiveEntry stylesEntry = archive.GetEntry("xl/styles.xml");
+            XElement stylesRoot = stylesEntry != null ? LoadXml(stylesEntry) : null;
+            int highlightFillId = stylesRoot != null ? EnsureHighlightFill(stylesRoot, mainNs, HighlightFillArgb) : 0;
+            var highlightCache = new Dictionary<int, int>();
             for (int index = 0; index < sourceRows.Count && MaterialStartRow + index <= MaterialEndRow; index++)
             {
                 int rowNumber = MaterialStartRow + index;
@@ -617,7 +636,11 @@ public sealed class GenerarExcelTool
                 SourceMaterialRow source = sourceRows[index];
                 MaterialKey matchedKey;
                 double quantity;
-                if (TryMatchSourceMaterial(source, quantities, out matchedKey, out quantity)) SetNumericCell(quantityCell, quantity, mainNs);
+                if (TryMatchSourceMaterial(source, quantities, out matchedKey, out quantity))
+                {
+                    SetNumericCell(quantityCell, quantity, mainNs);
+                    if (stylesRoot != null) HighlightUsedRow(row, rowNumber, mainNs, stylesRoot, highlightFillId, highlightCache);
+                }
                 else SetBlankCell(quantityCell, mainNs);
             }
             for (int rowNumber = MaterialStartRow + sourceRows.Count; rowNumber <= MaterialEndRow; rowNumber++)
@@ -627,6 +650,7 @@ public sealed class GenerarExcelTool
                 XElement quantityCell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), MaterialQuantityColumn + rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
                 if (quantityCell != null) SetBlankCell(quantityCell, mainNs);
             }
+            if (stylesRoot != null) SaveXml(archive, "xl/styles.xml", stylesEntry, stylesRoot);
             SaveXml(archive, worksheetPath, worksheetEntry, worksheet);
             SetWorkbookCalculationMode(archive, workbook, mainNs);
             RemoveCalculationChain(archive, workbookRels, packageRelNs);
@@ -730,6 +754,10 @@ public sealed class GenerarExcelTool
             XElement worksheet = LoadXml(worksheetEntry);
             XElement sheetData = worksheet.Element(mainNs + "sheetData");
             if (sheetData == null) return;
+            ZipArchiveEntry stylesEntry = archive.GetEntry("xl/styles.xml");
+            XElement stylesRoot = stylesEntry != null ? LoadXml(stylesEntry) : null;
+            int highlightFillId = stylesRoot != null ? EnsureHighlightFill(stylesRoot, mainNs, HighlightFillArgb) : 0;
+            var highlightCache = new Dictionary<int, int>();
             for (int index = 0; index < sourceRows.Count && ActivityStartRow + index <= ActivityEndRow; index++)
             {
                 int rowNumber = ActivityStartRow + index;
@@ -741,7 +769,9 @@ public sealed class GenerarExcelTool
                 XElement quantityCell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), ActivityQuantityColumn + rowNumber.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
                 if (quantityCell == null) { quantityCell = new XElement(mainNs + "c", new XAttribute("r", ActivityQuantityColumn + rowNumber.ToString(CultureInfo.InvariantCulture))); row.Add(quantityCell); }
                 SetNumericCell(quantityCell, quantity, mainNs);
+                if (stylesRoot != null) HighlightUsedRow(row, rowNumber, mainNs, stylesRoot, highlightFillId, highlightCache);
             }
+            if (stylesRoot != null) SaveXml(archive, "xl/styles.xml", stylesEntry, stylesRoot);
             SaveXml(archive, worksheetPath, worksheetEntry, worksheet);
             SetWorkbookCalculationMode(archive, workbook, mainNs);
             RemoveCalculationChain(archive, workbookRels, packageRelNs);
@@ -770,6 +800,59 @@ public sealed class GenerarExcelTool
         if (style != null) cell.SetAttributeValue("s", style.Value);
         XElement valueElement = new XElement(mainNs + "v", value.ToString("0.###", CultureInfo.InvariantCulture));
         cell.Add(valueElement);
+    }
+
+    private static int EnsureHighlightFill(XElement stylesRoot, XNamespace mainNs, string argbRgb)
+    {
+        XElement fills = stylesRoot.Element(mainNs + "fills");
+        if (fills == null) { fills = new XElement(mainNs + "fills", new XAttribute("count", "0")); stylesRoot.AddFirst(fills); }
+        List<XElement> fillList = fills.Elements(mainNs + "fill").ToList();
+        for (int i = 0; i < fillList.Count; i++)
+        {
+            string rgb = (string)fillList[i].Element(mainNs + "patternFill")?.Element(mainNs + "fgColor")?.Attribute("rgb");
+            if (string.Equals(rgb, argbRgb, StringComparison.OrdinalIgnoreCase)) return i;
+        }
+        XElement newFill = new XElement(mainNs + "fill",
+            new XElement(mainNs + "patternFill", new XAttribute("patternType", "solid"),
+                new XElement(mainNs + "fgColor", new XAttribute("rgb", argbRgb)),
+                new XElement(mainNs + "bgColor", new XAttribute("indexed", "64"))));
+        fills.Add(newFill);
+        fills.SetAttributeValue("count", (fillList.Count + 1).ToString(CultureInfo.InvariantCulture));
+        return fillList.Count;
+    }
+
+    private static int GetOrCreateHighlightedStyle(XElement stylesRoot, XNamespace mainNs, int baseStyleIndex, int highlightFillId, Dictionary<int, int> cache)
+    {
+        if (cache.TryGetValue(baseStyleIndex, out int cached)) return cached;
+        XElement cellXfs = stylesRoot.Element(mainNs + "cellXfs");
+        if (cellXfs == null) { cellXfs = new XElement(mainNs + "cellXfs", new XAttribute("count", "0")); stylesRoot.Add(cellXfs); }
+        List<XElement> xfList = cellXfs.Elements(mainNs + "xf").ToList();
+        XElement baseXf = baseStyleIndex >= 0 && baseStyleIndex < xfList.Count ? xfList[baseStyleIndex] : null;
+        XElement newXf = baseXf != null
+            ? new XElement(baseXf)
+            : new XElement(mainNs + "xf", new XAttribute("numFmtId", "0"), new XAttribute("fontId", "0"), new XAttribute("borderId", "0"), new XAttribute("xfId", "0"));
+        newXf.SetAttributeValue("fillId", highlightFillId.ToString(CultureInfo.InvariantCulture));
+        newXf.SetAttributeValue("applyFill", "1");
+        int newIndex = xfList.Count;
+        cellXfs.Add(newXf);
+        cellXfs.SetAttributeValue("count", (xfList.Count + 1).ToString(CultureInfo.InvariantCulture));
+        cache[baseStyleIndex] = newIndex;
+        return newIndex;
+    }
+
+    private static void HighlightUsedRow(XElement row, int rowNumber, XNamespace mainNs, XElement stylesRoot, int highlightFillId, Dictionary<int, int> highlightCache)
+    {
+        foreach (string column in RowHighlightColumns)
+        {
+            string cellRef = column + rowNumber.ToString(CultureInfo.InvariantCulture);
+            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), cellRef, StringComparison.OrdinalIgnoreCase));
+            if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", cellRef)); row.Add(cell); }
+            int baseIndex = 0;
+            XAttribute styleAttr = cell.Attribute("s");
+            if (styleAttr != null) int.TryParse(styleAttr.Value, out baseIndex);
+            int highlightedIndex = GetOrCreateHighlightedStyle(stylesRoot, mainNs, baseIndex, highlightFillId, highlightCache);
+            cell.SetAttributeValue("s", highlightedIndex.ToString(CultureInfo.InvariantCulture));
+        }
     }
 
     private static void SetBlankCell(XElement cell, XNamespace mainNs)
