@@ -103,7 +103,8 @@ public sealed class GenerarExcelTool
             Dictionary<UcKey, double> ucPipeTotals = ScanUcs(database);
             Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities = ScanAccessories(database);
             MergeMaterialQuantities(materialQuantities, ScanSpiral(database));
-            MergeMaterialQuantities(materialQuantities, ScanMaterialTest(database));
+            Dictionary<UcKey, Dictionary<MaterialKey, double>> materialTestQuantities = ScanMaterialTest(database);
+            MergeMaterialQuantities(materialQuantities, materialTestQuantities);
             MergeMaterialQuantities(materialQuantities, ConvertUcTotalsToPipeMaterials(ucPipeTotals));
             // Las UC a procesar son la unión entre las que tienen cota real (ScanUcs) y las que solo
             // aparecen por material de prueba/accesorios/espiral, para que estas últimas también se generen.
@@ -130,8 +131,17 @@ public sealed class GenerarExcelTool
                     Dictionary<MaterialKey, double> quantities;
                     if (!materialQuantities.TryGetValue(uc, out quantities)) quantities = new Dictionary<MaterialKey, double>();
                     SetMaterialQuantities(outputPath, activity, quantities);
-                    Dictionary<string, double> activityQuantities = BuildActivityQuantities(uc, ucPipeTotals, materialQuantities, activityAggs);
+                    double pipeTotal;
+                    Dictionary<string, double> activityQuantities = BuildActivityQuantities(uc, ucPipeTotals, materialQuantities, activityAggs, out pipeTotal);
                     SetActivityQuantities(outputPath, activity, activityQuantities);
+                    double ucLength;
+                    ucPipeTotals.TryGetValue(uc, out ucLength);
+                    ActivityAgg agg;
+                    activityAggs.TryGetValue(uc, out agg);
+                    Dictionary<MaterialKey, double> materialTestForUc;
+                    materialTestQuantities.TryGetValue(uc, out materialTestForUc);
+                    List<string> observaciones = BuildObservaciones(ucLength, pipeTotal, agg, materialTestForUc);
+                    SetObservaciones(outputPath, observaciones);
                     generated++;
                     editor.WriteMessage("Excel generado: " + outputPath + "\n");
                 }
@@ -691,7 +701,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<string, double> BuildActivityQuantities(UcKey uc, Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities, Dictionary<UcKey, ActivityAgg> activityAggs)
+    private static Dictionary<string, double> BuildActivityQuantities(UcKey uc, Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities, Dictionary<UcKey, ActivityAgg> activityAggs, out double pipeTotal)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         double ucLength = 0.0; ucPipeTotals.TryGetValue(uc, out ucLength);
@@ -702,7 +712,7 @@ public sealed class GenerarExcelTool
         double vigaConcreto = agg == null ? 0.0 : agg.VigaConcreto;
         double empedradoMl = agg == null ? 0.0 : agg.Empedrado;
 
-        double pipeTotal = ucLength;
+        pipeTotal = ucLength;
         Dictionary<MaterialKey, double> materials;
         if (materialQuantities.TryGetValue(uc, out materials))
         {
@@ -724,6 +734,113 @@ public sealed class GenerarExcelTool
         if (vigaConcreto > 0.0) result[VigaConcretoCode] = vigaConcreto;
         if (empedradoMl > 0.0) result[EmpedradoCode] = empedradoMl * EmpedradoFactor;
         return result;
+    }
+
+    private static List<string> BuildObservaciones(double ucLength, double pipeTotal, ActivityAgg agg, Dictionary<MaterialKey, double> materialTest)
+    {
+        var lines = new List<string>();
+        double camisa = agg == null ? 0.0 : agg.Camisa;
+        double espiralPipe = pipeTotal - ucLength;
+        if (espiralPipe < 0.0) espiralPipe = 0.0;
+
+        if (camisa > 0.0 && espiralPipe > 0.0)
+        {
+            lines.Add("SE RESTAN " + FormatMl(camisa) + "ML EN CANALIZACION DE TRAMO QUE PASA POR CAMISA INSTALADA POR LA CONSTRUCTORA Y " + FormatMl(espiralPipe) + "ML DE ESPIRAL.");
+        }
+        else if (camisa > 0.0)
+        {
+            lines.Add("SE RESTAN " + FormatMl(camisa) + "ML EN CANALIZACION DE TRAMO QUE PASA POR CAMISA INSTALADA POR LA CONSTRUCTORA.");
+        }
+        else if (espiralPipe > 0.0)
+        {
+            lines.Add("SE RESTAN " + FormatMl(espiralPipe) + "ML EN CANALIZACION DE ESPIRAL DE VALVULA.");
+        }
+
+        double empedradoMl = agg == null ? 0.0 : agg.Empedrado;
+        if (empedradoMl > 0.0)
+        {
+            double empedradoResult = empedradoMl * EmpedradoFactor;
+            lines.Add("EMPEDRADO: " + FormatMl(empedradoMl) + " x " + EmpedradoFactor.ToString("0.0", CultureInfo.InvariantCulture) + " = " + FormatMl(empedradoResult) + "m2");
+        }
+
+        string materialPruebaLine = BuildMaterialPruebaLine(materialTest);
+        if (!string.IsNullOrEmpty(materialPruebaLine)) lines.Add(materialPruebaLine);
+
+        return lines;
+    }
+
+    private static string BuildMaterialPruebaLine(Dictionary<MaterialKey, double> materialTest)
+    {
+        if (materialTest == null || materialTest.Count == 0) return string.Empty;
+        string unionToken = NormalizeToken("UNION");
+        string taponToken = NormalizeToken("TAPON");
+        var parts = new List<string>();
+        foreach (KeyValuePair<MaterialKey, double> item in materialTest.Where(x => x.Key.Description == unionToken).OrderBy(x => DiameterOrder(x.Key.Diameter)))
+        {
+            parts.Add(FormatCount(item.Value) + " UNION DE " + item.Key.Diameter + "\"");
+        }
+        foreach (KeyValuePair<MaterialKey, double> item in materialTest.Where(x => x.Key.Description == taponToken).OrderBy(x => DiameterOrder(x.Key.Diameter)))
+        {
+            parts.Add(FormatCount(item.Value) + " TAPON DE " + item.Key.Diameter + "\"");
+        }
+        if (parts.Count == 0) return string.Empty;
+        return "MATERIAL DE PRUEBA Y LABORATORIO: " + string.Join(" Y ", parts) + ".";
+    }
+
+    private static string FormatMl(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
+    private static string FormatCount(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+
+    private static readonly (string Column, int Row)[] ObservacionesCells =
+    {
+        ("C", 123), ("B", 124), ("B", 125), ("B", 126), ("B", 127), ("B", 128)
+    };
+
+    private static void SetObservaciones(string path, List<string> lines)
+    {
+        if (lines.Count == 0) return;
+        using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Update, false))
+        {
+            XNamespace mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+            ZipArchiveEntry workbookEntry = archive.GetEntry("xl/workbook.xml");
+            ZipArchiveEntry workbookRelsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
+            if (workbookEntry == null || workbookRelsEntry == null) return;
+            XElement workbook = LoadXml(workbookEntry);
+            XElement workbookRels = LoadXml(workbookRelsEntry);
+            XElement sheets = workbook.Element(mainNs + "sheets");
+            XElement targetSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), TargetSheetName, StringComparison.OrdinalIgnoreCase));
+            if (targetSheet == null) return;
+            string relationshipId = (string)targetSheet.Attribute(relNs + "id");
+            XElement relationship = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), relationshipId, StringComparison.Ordinal));
+            if (relationship == null) return;
+            string worksheetPath = ResolveZipPath("xl/workbook.xml", (string)relationship.Attribute("Target"));
+            ZipArchiveEntry worksheetEntry = archive.GetEntry(worksheetPath);
+            if (worksheetEntry == null) return;
+            XElement worksheet = LoadXml(worksheetEntry);
+            XElement sheetData = worksheet.Element(mainNs + "sheetData");
+            if (sheetData == null) return;
+            for (int i = 0; i < lines.Count && i < ObservacionesCells.Length; i++)
+            {
+                string column = ObservacionesCells[i].Column;
+                int rowNumber = ObservacionesCells[i].Row;
+                string rowNumberText = rowNumber.ToString(CultureInfo.InvariantCulture);
+                XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), rowNumberText, StringComparison.Ordinal));
+                if (row == null) { row = new XElement(mainNs + "row", new XAttribute("r", rowNumberText)); sheetData.Add(row); }
+                string cellRef = column + rowNumberText;
+                XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), cellRef, StringComparison.OrdinalIgnoreCase));
+                if (cell == null) { cell = new XElement(mainNs + "c", new XAttribute("r", cellRef)); row.Add(cell); }
+                XAttribute style = cell.Attribute("s");
+                cell.RemoveNodes();
+                cell.SetAttributeValue("t", "inlineStr");
+                if (style != null) cell.SetAttributeValue("s", style.Value);
+                cell.Add(new XElement(mainNs + "is", new XElement(mainNs + "t", new XAttribute("{http://www.w3.org/XML/1998/namespace}space", "preserve"), lines[i])));
+            }
+            SaveXml(archive, worksheetPath, worksheetEntry, worksheet);
+            SetWorkbookCalculationMode(archive, workbook, mainNs);
+            RemoveCalculationChain(archive, workbookRels, packageRelNs);
+        }
     }
 
     private static void SetActivityQuantities(string path, string activity, Dictionary<string, double> quantities)

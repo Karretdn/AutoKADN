@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -60,14 +61,14 @@ public sealed class ListaBloquesTool
                     string surface = GetDynamicProperty(blockReference, "UC");
                     if (string.IsNullOrWhiteSpace(diameter) || string.IsNullOrWhiteSpace(surface)) continue;
                     AttachMaterialXData(database, transaction, blockReference, description, diameter, surface, layoutName);
-                    AddCount(counts, new BlockKey(description, NormalizeDiameter(diameter), "UND", NormalizeSurface(surface)), 1.0);
+                    AddCount(counts, new BlockKey(description, NormalizeDiameter(diameter), "UND"), 1.0);
                 }
                 else if (entity is Dimension dimension)
                 {
                     string? diameter = GetPipeDiameter(dimension.Layer);
                     if (diameter is null) continue;
                     if (!TryGetManualDimensionValue(dimension, out double value)) continue;
-                    AddCount(counts, new BlockKey("TUBERIA", NormalizeDiameter(diameter), "ML", string.Empty), Math.Abs(value));
+                    AddCount(counts, new BlockKey("TUBERIA", NormalizeDiameter(diameter), "ML"), Math.Abs(value));
                 }
                 else if (entity is MText mtext)
                 {
@@ -94,9 +95,9 @@ public sealed class ListaBloquesTool
     {
         if (!string.Equals(mtext.Layer, BlocksLayer, StringComparison.OrdinalIgnoreCase)) return;
         if (!TryReadSpiralXData(mtext, out double pipe, out double unions, out double tees)) return;
-        if (pipe > 0.0) AddCount(counts, new BlockKey("TUBERIA", "3/4", "ML", string.Empty), pipe);
-        if (unions > 0.0) AddCount(counts, new BlockKey("UNION", "3/4", "UND", string.Empty), unions);
-        if (tees > 0.0) AddCount(counts, new BlockKey("TEE", "3/4", "UND", string.Empty), tees);
+        if (pipe > 0.0) AddCount(counts, new BlockKey("TUBERIA", "3/4", "ML"), pipe);
+        if (unions > 0.0) AddCount(counts, new BlockKey("UNION", "3/4", "UND"), unions);
+        if (tees > 0.0) AddCount(counts, new BlockKey("TEE", "3/4", "UND"), tees);
     }
 
     private static bool TryReadSpiralXData(MText mtext, out double pipe, out double unions, out double tees)
@@ -155,8 +156,7 @@ public sealed class ListaBloquesTool
             .OrderBy(x => GetPriority(x.Key.Description))
             .ThenBy(x => x.Key.Diameter, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Key.Description, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.Key.Unit, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.Key.Surface, StringComparer.OrdinalIgnoreCase);
+            .ThenBy(x => x.Key.Unit, StringComparer.OrdinalIgnoreCase);
 
         int index = 0;
         foreach (var item in orderedItems)
@@ -275,28 +275,34 @@ public sealed class ListaBloquesTool
     {
         // Normaliza (mayusculas/trim) para que el mismo material no quede duplicado cuando
         // llega con formato ligeramente distinto segun su origen (bloque, cota o espiral).
-        public BlockKey(string description, string diameter, string unit, string surface)
+        // El terreno no forma parte de la clave: este resumen totaliza por layout, sin distinguir UC.
+        public BlockKey(string description, string diameter, string unit)
         {
             Description = NormalizeKeyPart(description);
             Diameter = NormalizeKeyPart(diameter);
             Unit = NormalizeKeyPart(unit);
-            Surface = NormalizeKeyPart(surface);
         }
 
         public string Description { get; }
         public string Diameter { get; }
         public string Unit { get; }
-        public string Surface { get; }
 
         private static string NormalizeKeyPart(string value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
 
         public bool Equals(BlockKey other) =>
             string.Equals(Description, other.Description, StringComparison.Ordinal) &&
             string.Equals(Diameter, other.Diameter, StringComparison.Ordinal) &&
-            string.Equals(Unit, other.Unit, StringComparison.Ordinal) &&
-            string.Equals(Surface, other.Surface, StringComparison.Ordinal);
+            string.Equals(Unit, other.Unit, StringComparison.Ordinal);
 
         public override bool Equals(object obj) => obj is BlockKey other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Description, Diameter, Unit, Surface);
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = StringComparer.Ordinal.GetHashCode(Description ?? string.Empty);
+                hash = (hash * 397) ^ StringComparer.Ordinal.GetHashCode(Diameter ?? string.Empty);
+                return (hash * 397) ^ StringComparer.Ordinal.GetHashCode(Unit ?? string.Empty);
+            }
+        }
     }
 }
