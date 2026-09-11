@@ -15,11 +15,7 @@ public sealed class CotaTool
 
     private static string ToAutoCadKeyword(string label) => label.Replace(' ', Nbsp);
 
-    private sealed record UCAttribute(string Keyword)
-    {
-        public string GlobalKeyword => Keyword.Replace("_", string.Empty);
-        public string AutoCadKeyword => ToAutoCadKeyword(Keyword.Replace('_', ' '));
-    }
+    private sealed record UCAttribute(string Keyword);
 
     private static readonly UCAttribute[] UCAttributes =
     {
@@ -152,28 +148,83 @@ public sealed class CotaTool
             editor.Regen();
         }
 
-        string? layerName = SelectLayer(document.Database, editor, type);
-        if (layerName is null)
+        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase))
         {
-            EraseDimension(document.Database, dimensionId);
-            return false;
-        }
+            if (!TrySelectUcParameters(out string ucLayerName, out UCAttribute? terrain))
+            {
+                EraseDimension(document.Database, dimensionId);
+                return false;
+            }
 
-        if (!SetDimensionAppearance(document.Database, dimensionId, layerName))
-        {
-            EraseDimension(document.Database, dimensionId);
-            return false;
+            if (!SetDimensionAppearance(document.Database, dimensionId, ucLayerName) ||
+                !SetDimensionSurface(document.Database, dimensionId, terrain!))
+            {
+                EraseDimension(document.Database, dimensionId);
+                return false;
+            }
         }
-
-        if (type.Equals("UC", StringComparison.OrdinalIgnoreCase) &&
-            !SelectUCAttribute(document.Database, editor, dimensionId))
+        else
         {
-            EraseDimension(document.Database, dimensionId);
-            return false;
+            string? layerName = SelectLayer(document.Database, editor, type);
+            if (layerName is null)
+            {
+                EraseDimension(document.Database, dimensionId);
+                return false;
+            }
+
+            if (!SetDimensionAppearance(document.Database, dimensionId, layerName))
+            {
+                EraseDimension(document.Database, dimensionId);
+                return false;
+            }
         }
 
         editor.Regen();
         return true;
+    }
+
+    // Menú en cascada (DIAMETRO -> UC), igual al de la Tabla de propiedades de los bloques
+    // dinámicos, para elegir diámetro y terreno de la cota UC en una sola interacción.
+    private static bool TrySelectUcParameters(out string diameterLayer, out UCAttribute? terrain)
+    {
+        string? selectedDiameterLayer = null;
+        UCAttribute? selectedTerrain = null;
+
+        var menu = new System.Windows.Controls.ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var diameterHeader = new System.Windows.Controls.MenuItem { Header = "DIAMETRO", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        menu.Items.Add(diameterHeader);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        foreach ((string label, string layerName) in new[] { ("3/4\"", "UC_3-4"), ("1/2\"", "UC_1-2") })
+        {
+            var diameterItem = new System.Windows.Controls.MenuItem { Header = label };
+            var ucHeader = new System.Windows.Controls.MenuItem { Header = "UC", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+            diameterItem.Items.Add(ucHeader);
+            diameterItem.Items.Add(new System.Windows.Controls.Separator());
+
+            foreach (UCAttribute attribute in UCAttributes)
+            {
+                var terrainItem = new System.Windows.Controls.MenuItem { Header = attribute.Keyword.Replace('_', ' ') };
+                terrainItem.Click += (_, _) =>
+                {
+                    selectedDiameterLayer = layerName;
+                    selectedTerrain = attribute;
+                    menu.IsOpen = false;
+                };
+                diameterItem.Items.Add(terrainItem);
+            }
+
+            menu.Items.Add(diameterItem);
+        }
+
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.IsOpen = true;
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+        diameterLayer = selectedDiameterLayer ?? string.Empty;
+        terrain = selectedTerrain;
+        return selectedDiameterLayer != null && selectedTerrain != null;
     }
 
     private static ObjectId CreateDimension(
@@ -294,31 +345,6 @@ public sealed class CotaTool
         bool exists = layerTable.Has(layerName);
         transaction.Commit();
         return exists;
-    }
-
-    private static bool SelectUCAttribute(Database database, Editor editor, ObjectId dimensionId)
-    {
-        var options = new PromptKeywordOptions("\nAsignar terreno: ") { AllowNone = false };
-
-        foreach (UCAttribute attribute in UCAttributes)
-        {
-            options.Keywords.Add(
-                attribute.GlobalKeyword,
-                attribute.AutoCadKeyword,
-                attribute.AutoCadKeyword,
-                true,
-                true);
-        }
-
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK) return false;
-
-        UCAttribute? selected = UCAttributes.FirstOrDefault(
-            attribute => attribute.GlobalKeyword.Equals(result.StringResult, StringComparison.OrdinalIgnoreCase));
-
-        if (selected is null) return false;
-
-        return SetDimensionSurface(database, dimensionId, selected);
     }
 
     private static bool SetDimensionSurface(

@@ -1,8 +1,8 @@
 using Autodesk.AutoCAD.DatabaseServices;
+using static AutoKADN.Core.Naming;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -612,46 +612,6 @@ public sealed class DebugDetallesTool
         if (string.Equals(layer, "UC_1-2", StringComparison.OrdinalIgnoreCase)) return "1/2";
         if (string.Equals(layer, "UC_3-4", StringComparison.OrdinalIgnoreCase)) return "3/4";
         return null;
-    }
-
-    private static string GetUcDiameterFromMaterial(string diameter)
-    {
-        if (string.IsNullOrWhiteSpace(diameter)) return null;
-        string normalized = Regex.Replace(diameter.Trim().ToUpperInvariant().Replace("\"", string.Empty), @"\s+", string.Empty);
-        if (normalized == "1/2") return "1/2";
-        if (normalized == "3/4" || normalized.EndsWith("X3/4", StringComparison.OrdinalIgnoreCase)) return "3/4";
-        if (normalized == "3/4X1/2") return "3/4";
-        return null;
-    }
-
-    private static string NormalizeSurface(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        string normalized = NormalizeWhitespace(value).Trim().ToUpperInvariant();
-        if (normalized.Length == 0) return string.Empty;
-        normalized = RemoveAccents(normalized);
-        normalized = Regex.Replace(normalized, @"\s+", " ");
-        if (normalized == "CALZADA ASFALTO") normalized = "ASFALTO";
-        return normalized;
-    }
-
-    private static string NormalizeWhitespace(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        var builder = new StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            builder.Append(char.IsWhiteSpace(c) ? ' ' : c);
-        }
-        return builder.ToString();
-    }
-
-    private static string RemoveAccents(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return value;
-        return value
-            .Replace('Á', 'A').Replace('É', 'E').Replace('Í', 'I').Replace('Ó', 'O').Replace('Ú', 'U').Replace('Ü', 'U')
-            .Replace('á', 'a').Replace('é', 'e').Replace('í', 'i').Replace('ó', 'o').Replace('ú', 'u').Replace('ü', 'u');
     }
 
     private sealed record DebugSnapshot(int UcCount, int DetailCount, List<UcRow> UcRows, List<string> Diagnostics, List<DebugRow> Rows, Dictionary<UcGroupKey, SpiralAgg> SpiralByGroup, Dictionary<UcGroupKey, ActivityAgg> ActivityByGroup);

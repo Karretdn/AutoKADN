@@ -1,6 +1,7 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using static AutoKADN.Core.Naming;
 using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -236,16 +237,6 @@ public sealed class ListaBloquesTool
         }
         return string.Empty;
     }
-
-    private static string NormalizeDiameter(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-        string normalized = value.Trim().Replace("\"", string.Empty).Replace(" ", string.Empty);
-        normalized = normalized.Replace("PULGADAS", string.Empty).Replace("PULG", string.Empty);
-        return normalized;
-    }
-
-    private static string NormalizeSurface(string value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
 
     private static void EnsureXDataRegApp(Database database, Transaction transaction)
     {

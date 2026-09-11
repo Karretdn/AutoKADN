@@ -1,24 +1,26 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using static AutoKADN.Core.Naming;
 
 namespace AutoKADN.Tools.Bloques;
 
 public sealed class MaterialPruebaTool
 {
-    private const double TextHeight = 2.00;
-    private const double VerticalOffset = 2.50;
+    private const double TextHeight = 2.60;
+    private const double VerticalOffset = 4.00;
     private const double HorizontalOffset = 1.00;
     private const string XDataAppName = "AUTOKADN";
     private const string MaterialTestType = "MATERIAL_PRUEBA";
 
-    // Los keywords de AutoCAD con espacios (incluso NBSP) se truncan a la primera palabra
-    // y siempre terminan seleccionando la primera opción (ver fix histórico en CotaTool.SelectLayer).
-    // Por eso el keyword real es un código corto sin espacios; el texto completo va en el mensaje.
-    private static readonly (string Code, string Name)[] TerrainCodes =
+    private static readonly string[] SimpleMaterials = { "UNION", "TAPON" };
+    // Diametros propios de REDUCCION (distintos del diametro de la UC "hogar"). Para empezar
+    // solo existe 3/4x1/2"; se puede ampliar esta lista sin tocar el resto del flujo.
+    private static readonly string[] ReduccionDiameters = { "3/4x1/2" };
+    private static readonly string[] TerrainNames =
     {
-        ("ZV", "ZONA VERDE"), ("AC", "ANDEN CONCRETO"), ("AT", "ANDEN TABLETA"), ("CC", "CALZADA CONCRETO"),
-        ("AD", "ADOQUIN"), ("AS", "ASFALTO"), ("CU", "CUNETA"), ("DE", "DESTAPADO")
+        "ZONA VERDE", "ANDEN CONCRETO", "ANDEN TABLETA", "CALZADA CONCRETO",
+        "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
     };
 
     public void Run()
@@ -32,19 +34,17 @@ public sealed class MaterialPruebaTool
         var assignments = new List<TestMaterialAssignment>();
         while (true)
         {
-            if (!TrySelectMaterialName(editor, out string materialName)) return;
-            if (!TrySelectDiameter(editor, out string diameter)) return;
-            if (!TrySelectTerrain(editor, out string surface)) return;
-            if (!TryReadQuantity(editor, materialName, diameter, out int quantity)) return;
+            if (!TrySelectMaterial(out string materialName, out string materialDiameter)) return;
+            if (!TryReadQuantity(editor, materialName, materialDiameter, out int quantity)) return;
+            if (!TrySelectDiameterTerrain(out string hogarDiameter, out string hogarSurface)) return;
 
-            var material = new TestMaterial(materialName, diameter, "UND");
-            var uc = new UcKey(diameter, surface);
+            string effectiveDiameter = string.IsNullOrWhiteSpace(materialDiameter) ? hogarDiameter : materialDiameter;
+            var material = new TestMaterial(materialName, effectiveDiameter, "UND");
+            var uc = new UcKey(hogarDiameter, hogarSurface);
             assignments.Add(new TestMaterialAssignment(uc, material, quantity));
-            editor.WriteMessage($"\nAgregado: {quantity} {FormatMaterialName(materialName, quantity)} DE {diameter}\" - {ToDisplaySurface(surface)}.\n");
+            editor.WriteMessage($"\nAgregado: {quantity} {FormatMaterialName(materialName, quantity)} DE {effectiveDiameter}\" - {ToDisplaySurface(hogarSurface)} (UC {hogarDiameter}\").\n");
 
-            string? more = ReadYesNo(editor, "\n¿Añadir más? [Y/N]: ");
-            if (more is null) return;
-            if (more.Equals("N", StringComparison.OrdinalIgnoreCase)) break;
+            if (!ShowAddAnotherMenu()) break;
         }
 
         if (assignments.Count == 0) return;
@@ -58,53 +58,122 @@ public sealed class MaterialPruebaTool
         editor.WriteMessage($"\nMaterial de prueba generado en el layout '{layoutName}'.\n");
     }
 
-    private static bool TrySelectMaterialName(Editor editor, out string materialName)
+    // Menú MATERIAL: UNION / TAPON (sin submenú, usan el diámetro de la UC "hogar") y
+    // REDUCCION (submenú propio con sus diámetros, ej. 3/4x1/2").
+    private static bool TrySelectMaterial(out string materialName, out string materialDiameter)
     {
-        materialName = string.Empty;
-        var options = new PromptKeywordOptions("\nMaterial: ") { AllowNone = false };
-        options.Keywords.Add("UNION");
-        options.Keywords.Add("TAPON");
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK) return false;
-        materialName = result.StringResult;
-        return true;
-    }
+        string? selectedName = null;
+        string? selectedDiameter = null;
 
-    private static bool TrySelectDiameter(Editor editor, out string diameter)
-    {
-        diameter = string.Empty;
-        // Ojo: el "/" dentro de un mismo texto entre corchetes se interpreta como separador de
-        // opciones en el tooltip dinámico de AutoCAD (parte "1/2" en dos líneas). Se usa "1-2" / "3-4",
-        // igual que las capas UC_1-2 / UC_3-4 y las etiquetas ya corregidas en CotaTool.
-        var options = new PromptKeywordOptions("\nDiametro [D12=1-2\" / D34=3-4\"]: ") { AllowNone = false };
-        options.Keywords.Add("D12");
-        options.Keywords.Add("D34");
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK) return false;
-        diameter = result.StringResult.Equals("D34", StringComparison.OrdinalIgnoreCase) ? "3/4" : "1/2";
-        return true;
-    }
+        var menu = new System.Windows.Controls.ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var header = new System.Windows.Controls.MenuItem { Header = "MATERIAL", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        menu.Items.Add(header);
+        menu.Items.Add(new System.Windows.Controls.Separator());
 
-    private static bool TrySelectTerrain(Editor editor, out string surface)
-    {
-        surface = string.Empty;
-        var options = new PromptKeywordOptions(
-            "\nTerreno [ZV=ZonaVerde/AC=AndenConcreto/AT=AndenTableta/CC=CalzadaConcreto/AD=Adoquin/AS=Asfalto/CU=Cuneta/DE=Destapado]: ")
-        { AllowNone = false };
-        foreach ((string code, string _) in TerrainCodes) options.Keywords.Add(code);
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK) return false;
-        foreach ((string code, string name) in TerrainCodes)
+        foreach (string name in SimpleMaterials)
         {
-            if (string.Equals(result.StringResult, code, StringComparison.OrdinalIgnoreCase)) { surface = name; return true; }
+            var item = new System.Windows.Controls.MenuItem { Header = name };
+            item.Click += (_, _) => { selectedName = name; selectedDiameter = string.Empty; menu.IsOpen = false; };
+            menu.Items.Add(item);
         }
-        return false;
+
+        var reduccionItem = new System.Windows.Controls.MenuItem { Header = "REDUCCION" };
+        var reduccionHeader = new System.Windows.Controls.MenuItem { Header = "DIAMETRO REDUCCION", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        reduccionItem.Items.Add(reduccionHeader);
+        reduccionItem.Items.Add(new System.Windows.Controls.Separator());
+        foreach (string reduccionDiameter in ReduccionDiameters)
+        {
+            var diameterItem = new System.Windows.Controls.MenuItem { Header = reduccionDiameter + "\"" };
+            diameterItem.Click += (_, _) => { selectedName = "REDUCCION"; selectedDiameter = reduccionDiameter; menu.IsOpen = false; };
+            reduccionItem.Items.Add(diameterItem);
+        }
+        menu.Items.Add(reduccionItem);
+
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.IsOpen = true;
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+        materialName = selectedName ?? string.Empty;
+        materialDiameter = selectedDiameter ?? string.Empty;
+        return selectedName != null;
     }
 
-    private static bool TryReadQuantity(Editor editor, string materialName, string diameter, out int quantity)
+    // Menú en cascada DIAMETRO -> UC (mismo patrón que CotaTool/AnotacionesTool) para elegir
+    // la UC "hogar" (diámetro + terreno) a la que pertenece el material de prueba.
+    private static bool TrySelectDiameterTerrain(out string diameter, out string surface)
+    {
+        string? selectedDiameter = null;
+        string? selectedSurface = null;
+
+        var menu = new System.Windows.Controls.ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var diameterHeader = new System.Windows.Controls.MenuItem { Header = "DIAMETRO", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        menu.Items.Add(diameterHeader);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        foreach ((string label, string diameterValue) in new[] { ("3/4\"", "3/4"), ("1/2\"", "1/2") })
+        {
+            var diameterItem = new System.Windows.Controls.MenuItem { Header = label };
+            var ucHeader = new System.Windows.Controls.MenuItem { Header = "UC", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+            diameterItem.Items.Add(ucHeader);
+            diameterItem.Items.Add(new System.Windows.Controls.Separator());
+
+            foreach (string terrainName in TerrainNames)
+            {
+                var terrainItem = new System.Windows.Controls.MenuItem { Header = ToDisplaySurface(terrainName) };
+                terrainItem.Click += (_, _) =>
+                {
+                    selectedDiameter = diameterValue;
+                    selectedSurface = terrainName;
+                    menu.IsOpen = false;
+                };
+                diameterItem.Items.Add(terrainItem);
+            }
+
+            menu.Items.Add(diameterItem);
+        }
+
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.IsOpen = true;
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+        diameter = selectedDiameter ?? string.Empty;
+        surface = selectedSurface ?? string.Empty;
+        return selectedDiameter != null && selectedSurface != null;
+    }
+
+    // Menú Sí/No con el mismo estilo, para decidir si se agrega otro material de prueba.
+    private static bool ShowAddAnotherMenu()
+    {
+        bool addAnother = false;
+
+        var menu = new System.Windows.Controls.ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var header = new System.Windows.Controls.MenuItem { Header = "¿AÑADIR OTRO MATERIAL?", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        menu.Items.Add(header);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var yesItem = new System.Windows.Controls.MenuItem { Header = "Sí, otro material" };
+        yesItem.Click += (_, _) => { addAnother = true; menu.IsOpen = false; };
+        menu.Items.Add(yesItem);
+
+        var noItem = new System.Windows.Controls.MenuItem { Header = "No, generar" };
+        noItem.Click += (_, _) => { addAnother = false; menu.IsOpen = false; };
+        menu.Items.Add(noItem);
+
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.IsOpen = true;
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+        return addAnother;
+    }
+
+    private static bool TryReadQuantity(Editor editor, string materialName, string materialDiameter, out int quantity)
     {
         quantity = 0;
-        var options = new PromptIntegerOptions($"\nCantidad de {materialName} DE {diameter}\": ")
+        string label = string.IsNullOrWhiteSpace(materialDiameter) ? materialName : $"{materialName} DE {materialDiameter}\"";
+        var options = new PromptIntegerOptions($"\nCantidad de {label}: ")
         {
             AllowNone = false, AllowNegative = false, AllowZero = false,
             LowerLimit = 1
@@ -113,15 +182,6 @@ public sealed class MaterialPruebaTool
         if (result.Status != PromptStatus.OK) return false;
         quantity = result.Value;
         return true;
-    }
-
-    private static string? ReadYesNo(Editor editor, string prompt)
-    {
-        var options = new PromptKeywordOptions(prompt) { AllowNone = false };
-        options.Keywords.Add("Y");
-        options.Keywords.Add("N");
-        PromptResult result = editor.GetKeywords(options);
-        return result.Status == PromptStatus.OK ? result.StringResult : null;
     }
 
     private static void CreateMaterialTestText(Database database, Point3d topLeftPoint,
@@ -174,6 +234,7 @@ public sealed class MaterialPruebaTool
         {
             "UNION" => "UNIONES",
             "TAPON" => "TAPONES",
+            "REDUCCION" => "REDUCCIONES",
             _ => name
         };
     }
@@ -218,12 +279,6 @@ public sealed class MaterialPruebaTool
         return string.Empty;
     }
 
-    private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
-    {
-        "zona verde" => "Zona Verde", "anden tableta" => "Anden Tableta", "calzada concreto" => "Calzada Concreto",
-        "destapado" => "Destapado", "cuneta" => "Cuneta", "anden concreto" => "Anden Concreto",
-        "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
-    };
 
     private readonly record struct TestMaterial(string Name, string Diameter, string Unit);
     private readonly record struct UcKey(string Diameter, string Surface);

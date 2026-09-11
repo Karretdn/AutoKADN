@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using static AutoKADN.Core.Naming;
 using System.Globalization;
 
 namespace AutoKADN.Tools.Anotaciones;
@@ -14,10 +15,6 @@ public sealed class AnotacionesTool
     private const string MaterialsLayer = "Mat";
     private const string XDataAppName = "AUTOKADN";
     private const string ActivityType = "ACTIVIDAD";
-    private const char Nbsp = ' ';
-    private const char FractionSlash = '∕';
-
-    private static string ToAutoCadKeyword(string label) => label.Replace(' ', Nbsp).Replace('/', FractionSlash);
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -127,11 +124,7 @@ public sealed class AnotacionesTool
         bool addMore = true;
         while (addMore)
         {
-            string? diameter = ReadActivityDiameter(editor);
-            if (diameter is null) return null;
-
-            Color? selectedColor = ReadTerrain(editor, out string? surface);
-            if (selectedColor is null || surface is null) return null;
+            if (!TrySelectActivityDiameterTerrain(out string diameter, out string surface, out Color selectedColor)) return null;
 
             double? quantity = ReadActivityQuantity(editor, geometricLength, components.Count == 0);
             if (!quantity.HasValue) return null;
@@ -139,9 +132,83 @@ public sealed class AnotacionesTool
             components.Add(new ActivityComponent(label, diameter, surface, quantity.Value, selectedColor));
             editor.WriteMessage($"\nComponente registrado: {label} | {diameter}\" | {ToDisplaySurface(surface)} | {FormatQuantity(quantity.Value)} ML.\n");
 
-            addMore = ReadYesNo(editor, "¿Desea añadir otra combinación de diámetro/terreno/cantidad? [Y/N]: ") is string answer && answer.Equals("Y", StringComparison.OrdinalIgnoreCase);
+            addMore = ShowAddAnotherMenu();
         }
         return components;
+    }
+
+    // Menú Sí/No con el mismo estilo que el de DIAMETRO/UC, para decidir si se agrega otra
+    // combinación de diámetro/terreno/cantidad a la misma actividad.
+    private static bool ShowAddAnotherMenu()
+    {
+        bool addAnother = false;
+
+        var menu = new System.Windows.Controls.ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var header = new System.Windows.Controls.MenuItem { Header = "¿AÑADIR OTRO TERRENO?", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        menu.Items.Add(header);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var yesItem = new System.Windows.Controls.MenuItem { Header = "Sí, otra combinación" };
+        yesItem.Click += (_, _) => { addAnother = true; menu.IsOpen = false; };
+        menu.Items.Add(yesItem);
+
+        var noItem = new System.Windows.Controls.MenuItem { Header = "No, terminar actividad" };
+        noItem.Click += (_, _) => { addAnother = false; menu.IsOpen = false; };
+        menu.Items.Add(noItem);
+
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.IsOpen = true;
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+        return addAnother;
+    }
+
+    // Menú en cascada (DIAMETRO -> UC), igual al usado en CotaTool para la cota UC, para elegir
+    // diámetro y terreno de cada combinación de actividad en una sola interacción.
+    private static bool TrySelectActivityDiameterTerrain(out string diameter, out string surface, out Color color)
+    {
+        string? selectedDiameter = null;
+        string? selectedSurface = null;
+        Color? selectedColor = null;
+
+        var menu = new System.Windows.Controls.ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var diameterHeader = new System.Windows.Controls.MenuItem { Header = "DIAMETRO", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        menu.Items.Add(diameterHeader);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        foreach ((string label, string diameterValue) in new[] { ("3/4\"", "3/4"), ("1/2\"", "1/2") })
+        {
+            var diameterItem = new System.Windows.Controls.MenuItem { Header = label };
+            var ucHeader = new System.Windows.Controls.MenuItem { Header = "UC", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+            diameterItem.Items.Add(ucHeader);
+            diameterItem.Items.Add(new System.Windows.Controls.Separator());
+
+            foreach (UcSurface item in Surfaces)
+            {
+                var terrainItem = new System.Windows.Controls.MenuItem { Header = ToDisplaySurface(item.Name) };
+                terrainItem.Click += (_, _) =>
+                {
+                    selectedDiameter = diameterValue;
+                    selectedSurface = item.Name;
+                    selectedColor = GetConfiguredTerrainColor(item);
+                    menu.IsOpen = false;
+                };
+                diameterItem.Items.Add(terrainItem);
+            }
+
+            menu.Items.Add(diameterItem);
+        }
+
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.IsOpen = true;
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+        diameter = selectedDiameter ?? string.Empty;
+        surface = selectedSurface ?? string.Empty;
+        color = selectedColor ?? Color.FromColorIndex(ColorMethod.ByAci, 256);
+        return selectedDiameter != null && selectedSurface != null;
     }
 
     private static double? ReadActivityQuantity(Editor editor, double geometricLength, bool firstComponent)
@@ -158,50 +225,6 @@ public sealed class AnotacionesTool
         }
         PromptDoubleResult result = editor.GetDouble(options);
         return result.Status == PromptStatus.OK ? result.Value : null;
-    }
-
-    private static string? ReadActivityDiameter(Editor editor)
-    {
-        var options = new PromptKeywordOptions("\nAsignar diámetro:") { AllowNone = false };
-        string half = ToAutoCadKeyword("CANALIZACION 1-2\"");
-        string threeQuarter = ToAutoCadKeyword("CANALIZACION 3-4\"");
-        options.Keywords.Add(half, half, half, true, true);
-        options.Keywords.Add(threeQuarter, threeQuarter, threeQuarter, true, true);
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK) return null;
-        string selectedKeyword = result.StringResult.Trim();
-        string? diameter = selectedKeyword.Equals(threeQuarter, StringComparison.OrdinalIgnoreCase)
-            ? "3/4"
-            : selectedKeyword.Equals(half, StringComparison.OrdinalIgnoreCase)
-                ? "1/2"
-                : null;
-        if (diameter != null) editor.WriteMessage($"\n[ANOTACIONES] Opción seleccionada: {selectedKeyword} -> {diameter}\n");
-        return diameter;
-    }
-
-    private static Color? ReadTerrain(Editor editor, out string? surface)
-    {
-        surface = null;
-        var options = new PromptKeywordOptions("\nAsignar terreno: ") { AllowNone = false };
-        options.Keywords.Add("ZONAVERDE", ToAutoCadKeyword("ZONA VERDE"), ToAutoCadKeyword("ZONA VERDE"), true, true);
-        options.Keywords.Add("ANDENCONCRETO", ToAutoCadKeyword("ANDEN CONCRETO"), ToAutoCadKeyword("ANDEN CONCRETO"), true, true);
-        options.Keywords.Add("ANDENTABLETA", ToAutoCadKeyword("ANDEN TABLETA"), ToAutoCadKeyword("ANDEN TABLETA"), true, true);
-        options.Keywords.Add("CALZADACONCRETO", ToAutoCadKeyword("CALZADA CONCRETO"), ToAutoCadKeyword("CALZADA CONCRETO"), true, true);
-        options.Keywords.Add("ADOQUIN", "ADOQUIN", "ADOQUIN", true, true);
-        options.Keywords.Add("ASFALTO", "ASFALTO", "ASFALTO", true, true);
-        options.Keywords.Add("CUNETA", "CUNETA", "CUNETA", true, true);
-        options.Keywords.Add("DESTAPADO", "DESTAPADO", "DESTAPADO", true, true);
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK) return null;
-        foreach (UcSurface item in Surfaces)
-        {
-            string keyword = item.Name.Replace(" ", string.Empty);
-            if (!keyword.Equals(result.StringResult, StringComparison.OrdinalIgnoreCase)) continue;
-            surface = item.Name;
-            editor.WriteMessage($"\n[ANOTACIONES] Opción seleccionada: {result.StringResult} -> {surface}\n");
-            return GetConfiguredTerrainColor(item);
-        }
-        return null;
     }
 
     private static Color? GetConfiguredTerrainColor(UcSurface surface)
@@ -228,45 +251,51 @@ public sealed class AnotacionesTool
     private static string? ReadSpiral(Editor editor, out SpiralData? spiralData)
     {
         spiralData = null;
-        string? pipe = ReadNumber(editor, "METROS DE TUBERIA DE 3/4\"?"); if (pipe is null) return null;
-        string? unions = ReadNumber(editor, "CANTIDAD DE UNIONES DE 3/4\"?"); if (unions is null) return null;
-        string? tees = ReadNumber(editor, "CANTIDAD DE TEE DE 3/4\"?"); if (tees is null) return null;
-        string? valves = ReadNumber(editor, "VALVULA DE 3/4\"?"); if (valves is null) return null;
-        string? saddles = ReadNumber(editor, "SILLETA?"); if (saddles is null) return null;
-        string saddleDiameter = string.Empty;
-        if (!IsZero(saddles))
-        {
-            var diameterOptions = new PromptStringOptions("DIAMETRO DE SILLETA? (puede escribir signos y números): ") { AllowSpaces = false };
-            PromptResult diameterResult = editor.GetString(diameterOptions);
-            if (diameterResult.Status != PromptStatus.OK) return null;
-            saddleDiameter = diameterResult.StringResult.Trim(); if (saddleDiameter.Length == 0) return null;
-        }
-        string? peExt = ReadYesNo(editor, "PE.EXT.? [Y/N]: "); if (peExt is null) return null;
-        Color? selectedColor = ReadTerrain(editor, out string? surface);
-        if (selectedColor is null || surface is null) return null;
+        if (!TryShowSpiralDialog(out double pipe, out double unions, out double tees, out double valves,
+                out double saddles, out string saddleDiameter, out string surface, out Color selectedColor))
+            return null;
+
+        // PE.EXT. ya no se pregunta: se genera automáticamente cuando hay SILLETA.
+        bool hasSaddle = saddles > 0.0;
+        string peExt = hasSaddle ? "Y" : "N";
         var lines = new List<string>();
-        if (!IsZero(pipe)) lines.Add($"{pipe}ML TUBERIA 3/4\"");
-        if (!IsZero(unions)) lines.Add($"{unions} UNIONES DE 3/4\"");
-        if (!IsZero(tees)) lines.Add($"{tees} TEE DE 3/4\"");
-        if (!IsZero(valves)) lines.Add($"{valves} VALVULA DE 3/4\"");
-        if (!IsZero(saddles)) lines.Add($"{saddles} SILLETA DE {saddleDiameter}");
-        if (peExt.Equals("Y", StringComparison.OrdinalIgnoreCase)) lines.Add("PE.EXT.");
-        if (lines.Count == 0) { editor.WriteMessage("\nESPIRAL: no se generó ninguna línea porque todas las cantidades fueron cero y PE.EXT. fue N.\n"); return string.Empty; }
-        spiralData = new SpiralData(ParseNumber(pipe), ParseNumber(unions), ParseNumber(tees), ParseNumber(valves), ParseNumber(saddles), saddleDiameter, peExt, surface, selectedColor);
+        if (pipe > 0.0) lines.Add($"{FormatQuantity(pipe)}ML TUBERIA 3/4\"");
+        if (unions > 0.0) lines.Add($"{FormatInteger(unions)} UNIONES DE 3/4\"");
+        if (tees > 0.0) lines.Add($"{FormatInteger(tees)} TEE DE 3/4\"");
+        if (valves > 0.0) lines.Add($"{FormatInteger(valves)} VALVULA DE 3/4\"");
+        if (hasSaddle) { lines.Add($"{FormatInteger(saddles)} SILLETA DE {saddleDiameter}"); lines.Add("PE.EXT."); }
+        if (lines.Count == 0) { editor.WriteMessage("\nESPIRAL: no se generó ninguna línea porque todas las cantidades fueron cero.\n"); return string.Empty; }
+        spiralData = new SpiralData(pipe, unions, tees, valves, saddles, saddleDiameter, peExt, surface, selectedColor);
         editor.WriteMessage($"\nESPIRAL registrado: {ToDisplaySurface(surface)}. Todos sus componentes usarán este terreno.\n");
         return string.Join("\\P", lines);
     }
 
-    private static string? ReadNumber(Editor editor, string prompt)
+    // Ventana única con todos los campos numéricos del ESPIRAL editables a la vez (sin salir
+    // del menú entre cada uno) más el terreno, en vez de los prompts secuenciales anteriores.
+    private static bool TryShowSpiralDialog(out double pipe, out double unions, out double tees, out double valves,
+        out double saddles, out string saddleDiameter, out string surface, out Color color)
     {
-        var options = new PromptStringOptions($"\n{prompt} (número): ") { AllowSpaces = false };
-        while (true)
+        var dialog = new SpiralWindow(Surfaces);
+        try { new System.Windows.Interop.WindowInteropHelper(dialog).Owner = Application.MainWindow.Handle; } catch { }
+        bool? result = dialog.ShowDialog();
+        if (result != true)
         {
-            PromptResult result = editor.GetString(options); if (result.Status != PromptStatus.OK) return null;
-            string normalized = result.StringResult.Trim().Replace(',', '.');
-            if (double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out double number) && number >= 0.0) return normalized;
-            editor.WriteMessage("\nIngrese una cantidad numérica mayor o igual a cero.\n");
+            pipe = unions = tees = valves = saddles = 0.0;
+            saddleDiameter = string.Empty;
+            surface = string.Empty;
+            color = Color.FromColorIndex(ColorMethod.ByAci, 256);
+            return false;
         }
+
+        pipe = dialog.Pipe;
+        unions = dialog.Unions;
+        tees = dialog.Tees;
+        valves = dialog.Valves;
+        saddles = dialog.Saddles;
+        saddleDiameter = dialog.SaddleDiameter;
+        surface = dialog.SelectedSurfaceName;
+        color = dialog.SelectedColor;
+        return true;
     }
 
     private static string? ReadYesNo(Editor editor, string prompt)
@@ -275,8 +304,141 @@ public sealed class AnotacionesTool
         PromptResult result = editor.GetKeywords(options); return result.Status == PromptStatus.OK ? result.StringResult : null;
     }
 
-    private static bool IsZero(string value) => double.TryParse(value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double number) && Math.Abs(number) <= 1e-12;
-    private static double ParseNumber(string value) => double.TryParse(value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double number) ? number : 0.0;
+    private sealed class SpiralWindow : System.Windows.Window
+    {
+        private readonly UcSurface[] _surfaces;
+        private readonly System.Windows.Controls.TextBox _pipeBox;
+        private readonly System.Windows.Controls.TextBox _unionsBox;
+        private readonly System.Windows.Controls.TextBox _teesBox;
+        private readonly System.Windows.Controls.TextBox _valvesBox;
+        private readonly System.Windows.Controls.TextBox _saddlesBox;
+        private readonly System.Windows.Controls.ComboBox _saddleDiameterCombo;
+        private readonly System.Windows.Controls.ComboBox _terrainCombo;
+
+        // Debe coincidir con las SILLETA del catálogo de materiales en GenerarExcelTool
+        // (misma lista, para que el texto elegido siempre matchee con el código correcto).
+        private static readonly string[] SaddleDiameters = { "2x3/4", "3x3/4", "4x3/4", "6x3/4" };
+
+        public double Pipe { get; private set; }
+        public double Unions { get; private set; }
+        public double Tees { get; private set; }
+        public double Valves { get; private set; }
+        public double Saddles { get; private set; }
+        public string SaddleDiameter { get; private set; } = string.Empty;
+        public string SelectedSurfaceName { get; private set; } = string.Empty;
+        public Color SelectedColor { get; private set; } = Color.FromColorIndex(ColorMethod.ByAci, 256);
+
+        public SpiralWindow(UcSurface[] surfaces)
+        {
+            _surfaces = surfaces;
+            Title = "AutoKADN - ESPIRAL";
+            Width = 280;
+            SizeToContent = System.Windows.SizeToContent.Height;
+            WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen;
+            ShowInTaskbar = false;
+            ResizeMode = System.Windows.ResizeMode.NoResize;
+
+            var grid = new System.Windows.Controls.Grid { Margin = new System.Windows.Thickness(10) };
+            grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = System.Windows.GridLength.Auto });
+            grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star) });
+            for (int i = 0; i < 8; i++) grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = System.Windows.GridLength.Auto });
+
+            _pipeBox = AddField(grid, 0, "TUBERIA 3/4\":", "3");
+            _unionsBox = AddField(grid, 1, "UNIONES 3/4\":", "1");
+            _teesBox = AddField(grid, 2, "TEE 3/4\":", "1");
+            _valvesBox = AddField(grid, 3, "VALVULA 3/4\":", "1");
+            _saddlesBox = AddField(grid, 4, "SILLETA:", "1");
+
+            _saddleDiameterCombo = AddCombo(grid, 5, "DIAM. SILLETA:");
+            foreach (string diameter in SaddleDiameters) _saddleDiameterCombo.Items.Add(diameter + "\"");
+            _saddleDiameterCombo.SelectedIndex = 0;
+
+            _terrainCombo = AddCombo(grid, 6, "TERRENO:");
+            foreach (UcSurface item in surfaces) _terrainCombo.Items.Add(ToDisplaySurface(item.Name));
+            _terrainCombo.SelectedIndex = 0;
+
+            var buttonsPanel = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new System.Windows.Thickness(0, 8, 0, 0) };
+            var cancelButton = new System.Windows.Controls.Button { Content = "Cancelar", Padding = new System.Windows.Thickness(10, 3, 10, 3), Margin = new System.Windows.Thickness(0, 0, 6, 0) };
+            cancelButton.Click += (_, _) => { DialogResult = false; Close(); };
+            buttonsPanel.Children.Add(cancelButton);
+            var acceptButton = new System.Windows.Controls.Button { Content = "Generar", Padding = new System.Windows.Thickness(10, 3, 10, 3), FontWeight = System.Windows.FontWeights.Bold, IsDefault = true };
+            acceptButton.Click += OnAcceptClick;
+            buttonsPanel.Children.Add(acceptButton);
+            System.Windows.Controls.Grid.SetRow(buttonsPanel, 7);
+            System.Windows.Controls.Grid.SetColumn(buttonsPanel, 0);
+            System.Windows.Controls.Grid.SetColumnSpan(buttonsPanel, 2);
+            grid.Children.Add(buttonsPanel);
+
+            Content = grid;
+            _pipeBox.Focus();
+        }
+
+        private static System.Windows.Controls.TextBox AddField(System.Windows.Controls.Grid grid, int row, string label, string defaultValue)
+        {
+            var textBlock = new System.Windows.Controls.TextBlock { Text = label, VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new System.Windows.Thickness(0, 0, 6, 3) };
+            System.Windows.Controls.Grid.SetRow(textBlock, row);
+            System.Windows.Controls.Grid.SetColumn(textBlock, 0);
+            grid.Children.Add(textBlock);
+
+            var textBox = new System.Windows.Controls.TextBox { Text = defaultValue, Padding = new System.Windows.Thickness(3, 1, 3, 1), Margin = new System.Windows.Thickness(0, 0, 0, 3) };
+            textBox.GotFocus += (_, _) => textBox.SelectAll();
+            System.Windows.Controls.Grid.SetRow(textBox, row);
+            System.Windows.Controls.Grid.SetColumn(textBox, 1);
+            grid.Children.Add(textBox);
+            return textBox;
+        }
+
+        private static System.Windows.Controls.ComboBox AddCombo(System.Windows.Controls.Grid grid, int row, string label)
+        {
+            var textBlock = new System.Windows.Controls.TextBlock { Text = label, VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new System.Windows.Thickness(0, 0, 6, 3) };
+            System.Windows.Controls.Grid.SetRow(textBlock, row);
+            System.Windows.Controls.Grid.SetColumn(textBlock, 0);
+            grid.Children.Add(textBlock);
+
+            var comboBox = new System.Windows.Controls.ComboBox { Margin = new System.Windows.Thickness(0, 0, 0, 3) };
+            System.Windows.Controls.Grid.SetRow(comboBox, row);
+            System.Windows.Controls.Grid.SetColumn(comboBox, 1);
+            grid.Children.Add(comboBox);
+            return comboBox;
+        }
+
+        private void OnAcceptClick(object sender, System.Windows.RoutedEventArgs e)
+        {
+            if (!TryParse(_pipeBox.Text, out double pipe) || !TryParse(_unionsBox.Text, out double unions) ||
+                !TryParse(_teesBox.Text, out double tees) || !TryParse(_valvesBox.Text, out double valves) ||
+                !TryParse(_saddlesBox.Text, out double saddles) ||
+                pipe < 0.0 || unions < 0.0 || tees < 0.0 || valves < 0.0 || saddles < 0.0)
+            {
+                System.Windows.MessageBox.Show(this, "Ingrese valores numéricos válidos (mayores o iguales a cero).", "AutoKADN", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            if (saddles > 0.0 && _saddleDiameterCombo.SelectedIndex < 0)
+            {
+                System.Windows.MessageBox.Show(this, "Seleccione el diámetro de la silleta.", "AutoKADN", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+            string saddleDiameter = _saddleDiameterCombo.SelectedIndex >= 0 ? SaddleDiameters[_saddleDiameterCombo.SelectedIndex] : string.Empty;
+
+            if (_terrainCombo.SelectedIndex < 0)
+            {
+                System.Windows.MessageBox.Show(this, "Seleccione un terreno.", "AutoKADN", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            Pipe = pipe; Unions = unions; Tees = tees; Valves = valves; Saddles = saddles;
+            SaddleDiameter = saddleDiameter;
+            UcSurface selectedSurface = _surfaces[_terrainCombo.SelectedIndex];
+            SelectedSurfaceName = selectedSurface.Name;
+            SelectedColor = GetConfiguredTerrainColor(selectedSurface) ?? Color.FromColorIndex(ColorMethod.ByAci, 256);
+
+            DialogResult = true;
+            Close();
+        }
+
+        private static bool TryParse(string text, out double value) =>
+            double.TryParse(text.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    }
 
     private static ObjectId CreateReferenceLine(Database database, Point3d startPoint, Point3d endPoint)
     {
@@ -380,14 +542,9 @@ public sealed class AnotacionesTool
 
     private static bool IsSameRgb(Color color, int red, int green, int blue) => color.Red == red && color.Green == green && color.Blue == blue;
 
-    private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
-    {
-        "zona verde" => "Zona Verde", "anden tableta" => "Anden Tableta", "calzada concreto" => "Calzada Concreto",
-        "destapado" => "Destapado", "cuneta" => "Cuneta", "anden concreto" => "Anden Concreto",
-        "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
-    };
 
     private static string FormatQuantity(double value) => Math.Abs(value).ToString("0.0##", CultureInfo.InvariantCulture);
+    private static string FormatInteger(double value) => Math.Round(Math.Abs(value)).ToString("0", CultureInfo.InvariantCulture);
 
     private static void EraseEntity(Database database, ObjectId objectId)
     {

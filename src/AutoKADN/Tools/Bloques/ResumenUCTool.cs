@@ -1,6 +1,8 @@
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using AutoKADN.Core;
+using static AutoKADN.Core.Naming;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -26,18 +28,6 @@ public sealed class ResumenUCTool
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
     private const string SummaryType = "RESUMEN_UC";
-
-    private static readonly string[] SurfaceOrder =
-    {
-        "ZONA VERDE",
-        "ANDEN CONCRETO",
-        "CALZADA CONCRETO",
-        "ANDEN TABLETA",
-        "ADOQUIN",
-        "ASFALTO",
-        "CUNETA",
-        "DESTAPADO"
-    };
 
     public void Run()
     {
@@ -222,21 +212,6 @@ public sealed class ResumenUCTool
         transaction.Commit();
     }
 
-    private static int GetSurfaceOrder(string surface)
-    {
-        for (int i = 0; i < SurfaceOrder.Length; i++)
-        {
-            if (string.Equals(surface, SurfaceOrder[i], StringComparison.OrdinalIgnoreCase)) return i;
-        }
-        return SurfaceOrder.Length;
-    }
-
-    private static string ToDisplaySurface(string value) => value.ToLowerInvariant() switch
-    {
-        "zona verde" => "Zona Verde", "anden tableta" => "Anden Tableta", "calzada concreto" => "Calzada Concreto",
-        "destapado" => "Destapado", "cuneta" => "Cuneta", "anden concreto" => "Anden Concreto",
-        "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
-    };
 
     private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
 
@@ -281,5 +256,4 @@ public sealed class ResumenUCTool
         return string.Empty;
     }
 
-    private readonly record struct UcKey(string Diameter, string Surface);
 }

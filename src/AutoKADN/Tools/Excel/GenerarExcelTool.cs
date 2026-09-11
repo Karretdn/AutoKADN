@@ -1,6 +1,8 @@
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using AutoKADN.Core;
+using static AutoKADN.Core.Naming;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -65,12 +67,6 @@ public sealed class GenerarExcelTool
         new UcSurface("ANDEN CONCRETO", 5, null, null, null),
         new UcSurface("ASFALTO", 30, null, null, null),
         new UcSurface("ADOQUIN", 4, null, null, null)
-    };
-
-    private static readonly string[] SurfaceOrder =
-    {
-        "ZONA VERDE", "ANDEN CONCRETO", "CALZADA CONCRETO", "ANDEN TABLETA",
-        "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
     };
 
     private static readonly Dictionary<string, string> SurfaceFileCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -467,14 +463,6 @@ public sealed class GenerarExcelTool
         return false;
     }
 
-    private static string GetUcDiameterFromMaterial(string diameter)
-    {
-        string normalized = NormalizeDiameter(diameter);
-        if (normalized == "1/2") return "1/2";
-        if (normalized == "3/4" || normalized.EndsWith("X3/4", StringComparison.OrdinalIgnoreCase)) return "3/4";
-        if (normalized == "3/4X1/2") return "3/4";
-        return null;
-    }
 
     private static Color GetEffectiveColor(Transaction transaction, Entity entity)
     {
@@ -982,23 +970,6 @@ public sealed class GenerarExcelTool
 
     private static string GetDropdownSurfaceToken(string surface) => string.Equals(surface, "ASFALTO", StringComparison.OrdinalIgnoreCase) ? "CALZADA ASFALTO" : surface;
     private static string NormalizeActivityText(string value) => NormalizeToken(value);
-    private static string NormalizeToken(string value) { if (string.IsNullOrWhiteSpace(value)) return string.Empty; return Regex.Replace(value.Trim().ToUpperInvariant(), @"[^A-Z0-9]", string.Empty); }
-    private static string NormalizeDiameter(string value) { if (string.IsNullOrWhiteSpace(value)) return string.Empty; return Regex.Replace(value.Trim().ToUpperInvariant().Replace("\"", string.Empty).Replace("PULGADAS", string.Empty).Replace("PULG", string.Empty), @"\s+", string.Empty); }
-    private static string NormalizeSurface(string value) { if (string.IsNullOrEmpty(value)) return string.Empty; string normalized = NormalizeWhitespace(value).Trim().ToUpperInvariant(); if (normalized.Length == 0) return string.Empty; normalized = RemoveAccents(normalized); normalized = Regex.Replace(normalized, @"\s+", " "); if (normalized == "CALZADA ASFALTO") normalized = "ASFALTO"; return normalized; }
-    private static string NormalizeWhitespace(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        var builder = new StringBuilder(value.Length);
-        foreach (char c in value) builder.Append(char.IsWhiteSpace(c) ? ' ' : c);
-        return builder.ToString();
-    }
-    private static string RemoveAccents(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return value;
-        return value
-            .Replace('Á', 'A').Replace('É', 'E').Replace('Í', 'I').Replace('Ó', 'O').Replace('Ú', 'U').Replace('Ü', 'U')
-            .Replace('á', 'a').Replace('é', 'e').Replace('í', 'i').Replace('ó', 'o').Replace('ú', 'u').Replace('ü', 'u');
-    }
 
     private static Dictionary<int, string> LoadSharedStrings(ZipArchive archive, XNamespace mainNs)
     {
@@ -1087,18 +1058,7 @@ public sealed class GenerarExcelTool
     }
     private static string EnsureXlsxExtension(string path) => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
     private static string ToDisplaySurface(string surface) => surface == "ANDEN TABLETA" ? "ANDÉN TABLETA, BALDOSÍN, GRAVILLA" : surface;
-    private static int GetSurfaceOrder(string surface) { int i = Array.FindIndex(SurfaceOrder, x => string.Equals(x, surface, StringComparison.OrdinalIgnoreCase)); return i < 0 ? int.MaxValue : i; }
     private static int DiameterOrder(string diameter) => diameter == "1/2" ? 0 : 1;
-
-    private struct UcKey : IEquatable<UcKey>
-    {
-        public UcKey(string diameter, string surface) { Diameter = NormalizeDiameter(diameter); Surface = NormalizeSurface(surface); }
-        public string Diameter { get; private set; }
-        public string Surface { get; private set; }
-        public bool Equals(UcKey other) => string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase) && string.Equals(Surface, other.Surface, StringComparison.OrdinalIgnoreCase);
-        public override bool Equals(object obj) => obj is UcKey && Equals((UcKey)obj);
-        public override int GetHashCode() { unchecked { return (StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty) * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Surface ?? string.Empty); } }
-    }
 
     private sealed class ActivityAgg
     {
@@ -1117,18 +1077,6 @@ public sealed class GenerarExcelTool
             else if (normalized == "EMPEDRADO") Empedrado += quantity;
             else if (normalized == "VIGA EN CONCRETO") VigaConcreto += quantity;
         }
-    }
-
-    private struct MaterialKey : IEquatable<MaterialKey>
-    {
-        public MaterialKey(string description, string diameter, string unit, string code) { Description = NormalizeToken(description); Diameter = NormalizeDiameter(diameter); Unit = string.IsNullOrWhiteSpace(unit) ? "UND" : unit.Trim(); Code = code == null ? string.Empty : code.Trim(); }
-        public string Description { get; private set; }
-        public string Diameter { get; private set; }
-        public string Unit { get; private set; }
-        public string Code { get; private set; }
-        public bool Equals(MaterialKey other) => string.Equals(Description, other.Description, StringComparison.OrdinalIgnoreCase) && string.Equals(Diameter, other.Diameter, StringComparison.OrdinalIgnoreCase) && string.Equals(Unit, other.Unit, StringComparison.OrdinalIgnoreCase) && string.Equals(Code, other.Code, StringComparison.OrdinalIgnoreCase);
-        public override bool Equals(object obj) => obj is MaterialKey && Equals((MaterialKey)obj);
-        public override int GetHashCode() { unchecked { int hash = StringComparer.OrdinalIgnoreCase.GetHashCode(Description ?? string.Empty); hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Diameter ?? string.Empty); hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Unit ?? string.Empty); return (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(Code ?? string.Empty); } }
     }
 
     private sealed class MaterialSpec
