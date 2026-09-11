@@ -28,6 +28,7 @@ public class NomenclaturaVialCommand
 
     [CommandMethod("LIMIK", CommandFlags.Modal)] public void Limites() => new LimiteTool().Run();
     [CommandMethod("COTAK", CommandFlags.Modal)] public void Acotado() => new CotaTool().Run();
+    [CommandMethod("PEGAS", CommandFlags.Modal)] public void Pegas() => new PegasTool().Run();
     [CommandMethod("ANOTACIONES", CommandFlags.Modal)] public void Anotaciones() => new AnotacionesTool().Run();
     [CommandMethod("LISTABLOQUES", CommandFlags.Modal)] public void ListaBloques() => new ListaBloquesTool().Run();
     [CommandMethod("RESUMENUC", CommandFlags.Modal)] public void ResumenUC() => new ResumenUCTool().Run();

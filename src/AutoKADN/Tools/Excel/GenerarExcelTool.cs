@@ -45,6 +45,7 @@ public sealed class GenerarExcelTool
     private const string CruceTopoCode = "100005403";
     private const double EmpedradoFactor = 0.4;
 
+    // Canalización Anillo, solo para las UC pequeñas (1/2"/3/4").
     private static readonly Dictionary<string, string> CanalizacionCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["ZONA VERDE"] = "100005377",
@@ -56,6 +57,21 @@ public sealed class GenerarExcelTool
         ["CUNETA"] = "100006912",
         ["DESTAPADO"] = "100006911",
     };
+
+    // Canalización Troncal - P80, para las UC troncales (2"/3"/4"/6"). No se trabaja con P100.
+    private static readonly Dictionary<string, string> CanalizacionTroncalCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ZONA VERDE"] = "100005388",
+        ["ANDEN CONCRETO"] = "100005392",
+        ["CALZADA CONCRETO"] = "100005389",
+        ["ANDEN TABLETA"] = "100005390",
+        ["ADOQUIN"] = "100006916",
+        ["ASFALTO"] = "100005391",
+        ["CUNETA"] = "100006915",
+        ["DESTAPADO"] = "100006914",
+    };
+
+    private static readonly string[] TroncalDiameters = { "2", "3", "4", "6" };
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -83,7 +99,30 @@ public sealed class GenerarExcelTool
         new MaterialSpec("UNION", "3/4", "100003142"), new MaterialSpec("TUBERIA", "3/4", "100003130"),
         new MaterialSpec("TEE", "3/4", "100003118"), new MaterialSpec("TAPON", "3/4", "100003102"),
         new MaterialSpec("REDUCCION", "3/4x1/2", "100003075"), new MaterialSpec("SILLETA", "3x3/4", "100003086"),
-        new MaterialSpec("SILLETA", "4x3/4", "100003087"), new MaterialSpec("SILLETA", "6x3/4", "100003088")
+        new MaterialSpec("SILLETA", "4x3/4", "100003087"), new MaterialSpec("SILLETA", "6x3/4", "100003088"),
+
+        // Diámetros troncales (2/3/4/6): UNION, TAPON, TEE, VALVULA, TUBERIA, REDUCCION.
+        new MaterialSpec("UNION", "2", "100005477"), new MaterialSpec("UNION", "3", "100005476"),
+        new MaterialSpec("UNION", "4", "100005474"), new MaterialSpec("UNION", "6", "100003146"),
+        new MaterialSpec("TAPON", "2", "100003101"), new MaterialSpec("TAPON", "3", "100003105"),
+        new MaterialSpec("TAPON", "4", "100003106"), new MaterialSpec("TAPON", "6", "100003103"),
+        new MaterialSpec("TEE", "2", "100003114"), new MaterialSpec("TEE", "3", "100003120"),
+        new MaterialSpec("TEE", "4", "100003115"), new MaterialSpec("TEE", "6", "100003116"),
+        new MaterialSpec("VALVULA", "2", "100003152"), new MaterialSpec("VALVULA", "3", "100003157"),
+        new MaterialSpec("VALVULA", "4", "100003158"), new MaterialSpec("VALVULA", "6", "100003151"),
+        new MaterialSpec("TUBERIA", "2", "100003129"), new MaterialSpec("TUBERIA", "3", "100003136"),
+        new MaterialSpec("TUBERIA", "4", "100003131"), new MaterialSpec("TUBERIA", "6", "100003132"),
+        new MaterialSpec("REDUCCION", "4x2", "100003068"), new MaterialSpec("REDUCCION", "6x4", "100003069")
+    };
+
+    // Actividad "Tendido y Termofusión" por diámetro troncal (2/3/4/6) — mismo valor que TUBERIA/
+    // Planos As-Built para esa UC, sin variar por terreno (a diferencia de Canalización Anillo).
+    private static readonly Dictionary<string, string> TendidoTermofusionCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["2"] = "100005398",
+        ["3"] = "100005399",
+        ["4"] = "100005400",
+        ["6"] = "100005401",
     };
 
     public void Run()
@@ -512,7 +551,7 @@ public sealed class GenerarExcelTool
 
     private static bool IsUcLayout(string name) => Regex.IsMatch(name, @"^ANILLO\s+\d+\s+UC$", RegexOptions.IgnoreCase);
     private static bool IsDetailLayout(string name) => Regex.IsMatch(name, @"^ANILLO\s+\d+\s+DETALLE$", RegexOptions.IgnoreCase);
-    private static string GetUcDiameter(string layer) { if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2"; if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4"; return null; }
+    private static string GetUcDiameter(string layer) => GetUcDiameterFromLayer(layer);
 
     private static string GetSurface(Transaction transaction, Dimension dimension)
     {
@@ -711,12 +750,19 @@ public sealed class GenerarExcelTool
             }
         }
 
+        bool isTroncal = Array.IndexOf(TroncalDiameters, uc.Diameter) >= 0;
+        Dictionary<string, string> canalizacionCodes = isTroncal ? CanalizacionTroncalCodeBySurface : CanalizacionCodeBySurface;
         string canalizacionCode;
-        if (CanalizacionCodeBySurface.TryGetValue(uc.Surface, out canalizacionCode))
+        if (canalizacionCodes.TryGetValue(uc.Surface, out canalizacionCode))
         {
             result[canalizacionCode] = ucLength - camisa - cruceTopo;
         }
         result[PlanosAsBuiltCode] = pipeTotal;
+        string tendidoCode;
+        if (TendidoTermofusionCodeByDiameter.TryGetValue(uc.Diameter, out tendidoCode))
+        {
+            result[tendidoCode] = pipeTotal;
+        }
         if (cruceTopo > 0.0) result[CruceTopoCode] = cruceTopo;
         if (pantalla > 0.0) result[PantallaCode] = pantalla;
         if (vigaConcreto > 0.0) result[VigaConcretoCode] = vigaConcreto;
@@ -1054,11 +1100,14 @@ public sealed class GenerarExcelTool
     }
     private static string GetSuggestedFileName(UcKey uc)
     {
-        string surfaceCode; if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode)) surfaceCode = "UC"; string diameterCode = uc.Diameter == "1/2" ? "1-2" : "3-4"; return surfaceCode + " " + diameterCode + " PULG.xlsx";
+        string surfaceCode; if (!SurfaceFileCode.TryGetValue(uc.Surface, out surfaceCode)) surfaceCode = "UC";
+        string diameterCode = uc.Diameter == "1/2" ? "1-2" : uc.Diameter == "3/4" ? "3-4" : uc.Diameter;
+        return surfaceCode + " " + diameterCode + " PULG.xlsx";
     }
     private static string EnsureXlsxExtension(string path) => path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ? path : path + ".xlsx";
     private static string ToDisplaySurface(string surface) => surface == "ANDEN TABLETA" ? "ANDÉN TABLETA, BALDOSÍN, GRAVILLA" : surface;
-    private static int DiameterOrder(string diameter) => diameter == "1/2" ? 0 : 1;
+    private static readonly string[] DiameterOrderList = { "1/2", "3/4", "2", "3", "4", "6" };
+    private static int DiameterOrder(string diameter) { int i = Array.IndexOf(DiameterOrderList, diameter); return i < 0 ? int.MaxValue : i; }
 
     private sealed class ActivityAgg
     {

@@ -41,6 +41,29 @@ public sealed class DebugDetallesTool
         ["DESTAPADO"] = "100006911",
     };
 
+    // Canalización Troncal - P80, para las UC troncales (2"/3"/4"/6"). No se trabaja con P100.
+    private static readonly Dictionary<string, string> CanalizacionTroncalCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ZONA VERDE"] = "100005388",
+        ["ANDEN CONCRETO"] = "100005392",
+        ["CALZADA CONCRETO"] = "100005389",
+        ["ANDEN TABLETA"] = "100005390",
+        ["ADOQUIN"] = "100006916",
+        ["ASFALTO"] = "100005391",
+        ["CUNETA"] = "100006915",
+        ["DESTAPADO"] = "100006914",
+    };
+
+    private static readonly string[] TroncalDiameters = { "2", "3", "4", "6" };
+
+    private static readonly Dictionary<string, string> TendidoTermofusionCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["2"] = "100005398",
+        ["3"] = "100005399",
+        ["4"] = "100005400",
+        ["6"] = "100005401",
+    };
+
     private static DebugWindow _window;
 
     public void Run()
@@ -234,15 +257,23 @@ public sealed class DebugDetallesTool
 
             var rows = new List<ActivityRow>();
 
+            bool isTroncal = Array.IndexOf(TroncalDiameters, diameter) >= 0;
+
             if (found)
             {
                 double canalizacion = length - camisa - cruceTopo;
-                string canalizacionCode = CanalizacionCodeBySurface.TryGetValue(surface, out string code) ? code : "SIN CODIGO";
+                Dictionary<string, string> canalizacionCodes = isTroncal ? CanalizacionTroncalCodeBySurface : CanalizacionCodeBySurface;
+                string canalizacionCode = canalizacionCodes.TryGetValue(surface, out string code) ? code : "SIN CODIGO";
+                string canalizacionLabel = isTroncal ? "CANALIZACION TRONCAL" : "CANALIZACION ANILLO";
                 string canalizacionNota = (camisa > 0 || cruceTopo > 0)
                     ? "UC (" + length.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + ") − CAMISA (" + camisa.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + ") − CRUCE TOPO (" + cruceTopo.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + ")"
                     : "UC";
-                rows.Add(new ActivityRow(canalizacionCode, "CANALIZACION ANILLO", canalizacion.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", canalizacionNota));
+                rows.Add(new ActivityRow(canalizacionCode, canalizacionLabel, canalizacion.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", canalizacionNota));
                 rows.Add(new ActivityRow(PlanosAsBuiltCode, "PLANOS AS-BUILT", pipeTotal.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", "= TUBERIA (UC + ESPIRAL)"));
+                if (TendidoTermofusionCodeByDiameter.TryGetValue(diameter, out string tendidoCode))
+                {
+                    rows.Add(new ActivityRow(tendidoCode, "TENDIDO Y TERMOFUSION", pipeTotal.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", "= TUBERIA (UC + ESPIRAL)"));
+                }
             }
 
             if (cruceTopo > 0) rows.Add(new ActivityRow(CruceTopoCode, "CRUCE CON TOPO", cruceTopo.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? "También resta en Canalización" : "Sin UC: no se generará"));
@@ -609,9 +640,7 @@ public sealed class DebugDetallesTool
 
     private static string GetUcDiameter(string layer)
     {
-        if (string.Equals(layer, "UC_1-2", StringComparison.OrdinalIgnoreCase)) return "1/2";
-        if (string.Equals(layer, "UC_3-4", StringComparison.OrdinalIgnoreCase)) return "3/4";
-        return null;
+        return GetUcDiameterFromLayer(layer);
     }
 
     private sealed record DebugSnapshot(int UcCount, int DetailCount, List<UcRow> UcRows, List<string> Diagnostics, List<DebugRow> Rows, Dictionary<UcGroupKey, SpiralAgg> SpiralByGroup, Dictionary<UcGroupKey, ActivityAgg> ActivityByGroup);

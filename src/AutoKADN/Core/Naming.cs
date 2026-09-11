@@ -16,6 +16,15 @@ public static class Naming
         "ADOQUIN", "ASFALTO", "CUNETA", "DESTAPADO"
     };
 
+    // Diámetros disponibles para los menús de selección (anotaciones, material de prueba, etc.).
+    // "1/2" y "3/4" son las UC de anillo original; 2/3/4/6 son las troncales nuevas. El resto de
+    // la lógica (catálogo de materiales, capas UC_x-y, código de actividad Canalización Troncal)
+    // debe extenderse por separado para poder procesar estos diámetros nuevos.
+    public static readonly (string Label, string Value)[] DiameterOptions =
+    {
+        ("1/2\"", "1/2"), ("3/4\"", "3/4"), ("2\"", "2"), ("3\"", "3"), ("4\"", "4"), ("6\"", "6")
+    };
+
     public static string NormalizeToken(string value)
     {
         if (string.IsNullOrWhiteSpace(value)) return string.Empty;
@@ -48,7 +57,27 @@ public static class Naming
         if (normalized == "1/2") return "1/2";
         if (normalized == "3/4" || normalized.EndsWith("X3/4", StringComparison.OrdinalIgnoreCase)) return "3/4";
         if (normalized == "3/4X1/2") return "3/4";
+        if (normalized == "2" || normalized == "3" || normalized == "4" || normalized == "6") return normalized;
+        if (normalized == "4X2") return "4";
+        if (normalized == "6X4") return "6";
         return null;
+    }
+
+    // Capa de cota UC (UC_1-2/UC_3-4/UC_2/UC_3/UC_4/UC_6) -> diámetro que representa.
+    // Fuente única para CotaTool (crea), y ResumenUCTool/DebugDetallesTool/GenerarExcelTool (leen).
+    public static readonly Dictionary<string, string> UcLayerDiameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["UC_1-2"] = "1/2",
+        ["UC_3-4"] = "3/4",
+        ["UC_2"] = "2",
+        ["UC_3"] = "3",
+        ["UC_4"] = "4",
+        ["UC_6"] = "6",
+    };
+
+    public static string GetUcDiameterFromLayer(string layer)
+    {
+        return UcLayerDiameters.TryGetValue(layer ?? string.Empty, out string diameter) ? diameter : null;
     }
 
     public static int GetSurfaceOrder(string surface)

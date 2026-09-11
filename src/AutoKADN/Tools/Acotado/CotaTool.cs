@@ -11,10 +11,6 @@ public sealed class CotaTool
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
 
-    private const char Nbsp = '\u00A0';
-
-    private static string ToAutoCadKeyword(string label) => label.Replace(' ', Nbsp);
-
     private sealed record UCAttribute(string Keyword);
 
     private static readonly UCAttribute[] UCAttributes =
@@ -165,7 +161,7 @@ public sealed class CotaTool
         }
         else
         {
-            string? layerName = SelectLayer(document.Database, editor, type);
+            string? layerName = SelectLayer(document.Database, editor);
             if (layerName is null)
             {
                 EraseDimension(document.Database, dimensionId);
@@ -195,7 +191,7 @@ public sealed class CotaTool
         menu.Items.Add(diameterHeader);
         menu.Items.Add(new System.Windows.Controls.Separator());
 
-        foreach ((string label, string layerName) in new[] { ("3/4\"", "UC_3-4"), ("1/2\"", "UC_1-2") })
+        foreach ((string label, string layerName) in new[] { ("1/2\"", "UC_1-2"), ("3/4\"", "UC_3-4"), ("2\"", "UC_2"), ("3\"", "UC_3"), ("4\"", "UC_4"), ("6\"", "UC_6") })
         {
             var diameterItem = new System.Windows.Controls.MenuItem { Header = label };
             var ucHeader = new System.Windows.Controls.MenuItem { Header = "UC", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
@@ -292,48 +288,40 @@ public sealed class CotaTool
         return false;
     }
 
-    private static string? SelectLayer(Database database, Editor editor, string type)
+    // Menú DIAMETRO (mismo patrón que TrySelectUcParameters) para la cota tipo "Longitud", en vez
+    // del antiguo prompt de keywords de AutoCAD: con 6 diámetros, un texto que arranca en dígito
+    // ("2\"", "3\"", ...) reproduce el mismo bug de autocompletado que ya tuvimos con "1/2\"".
+    private static string? SelectLayer(Database database, Editor editor)
     {
-        bool isUc = type.Equals("UC", StringComparison.OrdinalIgnoreCase);
+        string? selectedLayer = null;
 
-        string firstLabel = isUc ? "CANALIZACION 1-2\"" : "TUBERIA 1-2\"";
-        string secondLabel = isUc ? "CANALIZACION 3-4\"" : "TUBERIA 3-4\"";
+        var menu = new System.Windows.Controls.ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        var header = new System.Windows.Controls.MenuItem { Header = "DIAMETRO", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };
+        menu.Items.Add(header);
+        menu.Items.Add(new System.Windows.Controls.Separator());
 
-        string firstKeyword = ToAutoCadKeyword(firstLabel);
-        string secondKeyword = ToAutoCadKeyword(secondLabel);
-
-        var options = new PromptKeywordOptions("\nSeleccione capa:")
+        foreach ((string label, string layerName) in new[] { ("1/2\"", "COTA_1-2"), ("3/4\"", "COTA_3-4"), ("2\"", "COTA_2"), ("3\"", "COTA_3"), ("4\"", "COTA_4"), ("6\"", "COTA_6") })
         {
-            AllowNone = true
-        };
+            var item = new System.Windows.Controls.MenuItem { Header = label };
+            item.Click += (_, _) => { selectedLayer = layerName; menu.IsOpen = false; };
+            menu.Items.Add(item);
+        }
 
-        options.Keywords.Add(firstKeyword, firstKeyword, firstKeyword, true, true);
-        options.Keywords.Add(secondKeyword, secondKeyword, secondKeyword, true, true);
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.IsOpen = true;
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
 
-        PromptResult result = editor.GetKeywords(options);
-        if (result.Status != PromptStatus.OK) return null;
+        if (selectedLayer is null) return null;
 
-        string selectedKeyword = result.StringResult.Trim();
-        string? exactLayerName = selectedKeyword.Equals(secondKeyword, StringComparison.OrdinalIgnoreCase)
-            ? (isUc ? "UC_3-4" : "COTA_3-4")
-            : selectedKeyword.Equals(firstKeyword, StringComparison.OrdinalIgnoreCase)
-                ? (isUc ? "UC_1-2" : "COTA_1-2")
-                : null;
-
-        if (exactLayerName is null)
+        if (!LayerExists(database, selectedLayer))
         {
-            editor.WriteMessage($"\nSelección de capa no reconocida: {selectedKeyword}\n");
+            editor.WriteMessage($"\nNo existe la capa requerida: {selectedLayer}\n");
             return null;
         }
 
-        if (!LayerExists(database, exactLayerName))
-        {
-            editor.WriteMessage($"\nNo existe la capa requerida: {exactLayerName}\n");
-            return null;
-        }
-
-        editor.WriteMessage($"\n[COTAK] Opción seleccionada: {selectedKeyword} -> {exactLayerName}\n");
-        return exactLayerName;
+        editor.WriteMessage($"\n[COTAK] Capa seleccionada: {selectedLayer}\n");
+        return selectedLayer;
     }
 
     private static bool LayerExists(Database database, string layerName)

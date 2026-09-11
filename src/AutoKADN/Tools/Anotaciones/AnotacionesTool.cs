@@ -177,7 +177,7 @@ public sealed class AnotacionesTool
         menu.Items.Add(diameterHeader);
         menu.Items.Add(new System.Windows.Controls.Separator());
 
-        foreach ((string label, string diameterValue) in new[] { ("3/4\"", "3/4"), ("1/2\"", "1/2") })
+        foreach ((string label, string diameterValue) in DiameterOptions)
         {
             var diameterItem = new System.Windows.Controls.MenuItem { Header = label };
             var ucHeader = new System.Windows.Controls.MenuItem { Header = "UC", IsEnabled = false, FontWeight = System.Windows.FontWeights.Bold };

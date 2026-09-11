@@ -26,6 +26,15 @@ public sealed class ListaBloquesTool
     private const string BlocksLayer = "Mat";
     private const string PipeLayerHalf = "COTA_1-2";
     private const string PipeLayerThreeQuarter = "COTA_3-4";
+    private static readonly Dictionary<string, string> PipeLayerDiameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        [PipeLayerHalf] = "1/2",
+        [PipeLayerThreeQuarter] = "3/4",
+        ["COTA_2"] = "2",
+        ["COTA_3"] = "3",
+        ["COTA_4"] = "4",
+        ["COTA_6"] = "6",
+    };
     private const string XDataAppName = "AUTOKADN";
     private const string SpiralType = "ESPIRAL";
     private const string MaterialType = "MATERIAL";
@@ -129,9 +138,7 @@ public sealed class ListaBloquesTool
 
     private static string? GetPipeDiameter(string layer)
     {
-        if (string.Equals(layer, PipeLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2";
-        if (string.Equals(layer, PipeLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4";
-        return null;
+        return PipeLayerDiameters.TryGetValue(layer, out string diameter) ? diameter : null;
     }
 
     private static bool TryGetManualDimensionValue(Dimension dimension, out double value)

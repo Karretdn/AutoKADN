@@ -23,8 +23,6 @@ public sealed class ResumenUCTool
     private const double SubtotalCenterCorrection = -2.0;
     private const double UnitHorizontalShift = 82.0;
     private const double SubtotalHorizontalShift = 95.0;
-    private const string UcLayerHalf = "UC_1-2";
-    private const string UcLayerThreeQuarter = "UC_3-4";
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
     private const string SummaryType = "RESUMEN_UC";
@@ -60,7 +58,7 @@ public sealed class ResumenUCTool
 
         if (quantities.Count == 0)
         {
-            editor.WriteMessage($"\nNo se encontraron cotas UC válidas en '{UcLayerHalf}'/'{UcLayerThreeQuarter}' del layout '{layoutName}'.\n");
+            editor.WriteMessage($"\nNo se encontraron cotas UC válidas en '{string.Join("'/'", UcLayerDiameters.Keys)}' del layout '{layoutName}'.\n");
             return;
         }
 
@@ -136,9 +134,7 @@ public sealed class ResumenUCTool
 
     private static string? GetUcDiameter(string layer)
     {
-        if (string.Equals(layer, UcLayerHalf, StringComparison.OrdinalIgnoreCase)) return "1/2";
-        if (string.Equals(layer, UcLayerThreeQuarter, StringComparison.OrdinalIgnoreCase)) return "3/4";
-        return null;
+        return GetUcDiameterFromLayer(layer);
     }
 
     private static string? GetSurface(Dimension dimension)
