@@ -354,13 +354,14 @@ public sealed class DebugDetallesTool
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
 
                 int dimensionTotal = 0, dimensionOnUcLayer = 0, dimensionWithSurface = 0;
+                var unmatchedLayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (ObjectId objectId in space)
                 {
                     Dimension dimension = transaction.GetObject(objectId, OpenMode.ForRead) as Dimension;
                     if (dimension == null) continue;
                     dimensionTotal++;
                     string diameter = GetUcDiameter(dimension.Layer);
-                    if (diameter == null) continue;
+                    if (diameter == null) { unmatchedLayers.Add(dimension.Layer); continue; }
                     dimensionOnUcLayer++;
                     string surface = GetSurfaceFromXData(dimension);
                     if (string.IsNullOrWhiteSpace(surface)) continue;
@@ -380,8 +381,10 @@ public sealed class DebugDetallesTool
                 string detectedSurfacesText = ucSurfaces.TryGetValue(ring, out HashSet<string> detectedSurfaces) && detectedSurfaces.Count > 0
                     ? string.Join(", ", detectedSurfaces.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
                     : "ninguno";
-                string line = "ANILLO " + ring + " UC: " + dimensionTotal + " cotas totales, " + dimensionOnUcLayer + " en capa UC_1-2/UC_3-4, " + dimensionWithSurface + " con XData UC_SURFACE válido"
+                string knownLayers = string.Join("/", UcLayerDiameters.Keys);
+                string line = "ANILLO " + ring + " UC: " + dimensionTotal + " cotas totales, " + dimensionOnUcLayer + " en capa " + knownLayers + ", " + dimensionWithSurface + " con XData UC_SURFACE válido"
                     + (dimensionWithoutSurface > 0 ? " (" + dimensionWithoutSurface + " en capa UC pero SIN XData UC_SURFACE — probablemente creadas antes de asignar terreno, o con COTAK antiguo: bórrelas y vuelva a crearlas)" : string.Empty)
+                    + (unmatchedLayers.Count > 0 ? " (" + (dimensionTotal - dimensionOnUcLayer) + " en capas NO reconocidas: " + string.Join(", ", unmatchedLayers.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)) + ")" : string.Empty)
                     + ". Terrenos detectados: " + detectedSurfacesText + ".";
                 diagnostics.Add(line);
             }

@@ -7,15 +7,15 @@ using System.Globalization;
 namespace AutoKADN.Tools.Acotado;
 
 // Herramienta 100% visual (sin XData de material - el resumen de materiales lo maneja COTAK):
-// traza una línea recta entre el primer y el último punto seleccionado, la divide en N tramos
-// iguales ("tubos"), marca cada división con una pequeña cruz perpendicular, etiqueta cada tramo
-// con la longitud de tubo indicada (verde, debajo de la línea) y pide, punto por punto, el
-// número de "pega"/empalme para cada división (negro, arriba de la línea).
+// traza una línea recta entre los dos puntos seleccionados (visible de inmediato), la divide en
+// N tramos iguales ("tubos"), marca cada división con una pequeña cruz perpendicular, etiqueta
+// cada tramo con la longitud de tubo indicada (verde, debajo de la línea) y pide, punto por
+// punto, el número de "pega"/empalme para cada división (negro, arriba de la línea).
 public sealed class PegasTool
 {
     private const double TickHalfLength = 2.5;
     private const double LabelOffset = 3.0;
-    private const double PegaLabelOffset = LabelOffset + 1.0;
+    private const double PegaLabelOffset = LabelOffset + 2.0;
     private const double TextHeight = 2.5;
 
     public void Run()
@@ -25,16 +25,36 @@ public sealed class PegasTool
         Editor editor = document.Editor;
         Database database = document.Database;
 
-        editor.WriteMessage("\n[PEGAS] Seleccione los puntos del tramo (Enter o clic derecho para terminar, ESC para cancelar).\n");
-        if (!CollectPoints(editor, out List<Point3d> points)) return;
+        PromptPointOptions firstPointOptions = new PromptPointOptions("\nPrimer punto (ESC para cancelar): ") { AllowNone = true };
+        PromptPointResult firstPointResult = editor.GetPoint(firstPointOptions);
+        if (firstPointResult.Status != PromptStatus.OK) return;
+        Point3d startPoint = firstPointResult.Value;
 
-        Point3d startPoint = points[0];
-        Point3d endPoint = points[points.Count - 1];
+        PromptPointOptions secondPointOptions = new PromptPointOptions("\nSegundo punto (ESC para cancelar): ")
+        {
+            AllowNone = true,
+            BasePoint = startPoint,
+            UseBasePoint = true
+        };
+        PromptPointResult secondPointResult = editor.GetPoint(secondPointOptions);
+        if (secondPointResult.Status != PromptStatus.OK) return;
+        Point3d endPoint = secondPointResult.Value;
+
         if (startPoint.DistanceTo(endPoint) <= Tolerance.Global.EqualPoint)
         {
             editor.WriteMessage("\nEl tramo debe tener una longitud mayor que cero.\n");
             return;
         }
+
+        string mainLineLayerName;
+        using (Transaction lineTransaction = database.TransactionManager.StartTransaction())
+        {
+            BlockTableRecord lineSpace = (BlockTableRecord)lineTransaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
+            mainLineLayerName = GetCurrentLayerName(database, lineTransaction);
+            AddLine(lineTransaction, lineSpace, startPoint, endPoint, mainLineLayerName);
+            lineTransaction.Commit();
+        }
+        editor.Regen();
 
         PromptIntegerOptions countOptions = new PromptIntegerOptions("\n¿Cuántos tubos? ")
         {
@@ -67,8 +87,6 @@ public sealed class PegasTool
             BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
             string layerName = GetCurrentLayerName(database, transaction);
             ObjectId textStyleId = database.Textstyle;
-
-            AddLine(transaction, currentSpace, startPoint, endPoint, layerName);
 
             for (int i = 0; i <= tubeCount; i++)
             {
@@ -114,35 +132,6 @@ public sealed class PegasTool
         editor.WriteMessage("\n[PEGAS] Tendido generado.\n");
     }
 
-    private static bool CollectPoints(Editor editor, out List<Point3d> points)
-    {
-        points = new List<Point3d>();
-
-        PromptPointOptions firstOptions = new PromptPointOptions("\nPrimer punto (ESC para cancelar): ") { AllowNone = true };
-        PromptPointResult first = editor.GetPoint(firstOptions);
-        if (first.Status != PromptStatus.OK) return false;
-        points.Add(first.Value);
-
-        while (true)
-        {
-            PromptPointOptions options = new PromptPointOptions("\nSiguiente punto (Enter o clic derecho para terminar): ")
-            {
-                BasePoint = points[points.Count - 1],
-                UseBasePoint = true,
-                AllowNone = true
-            };
-            PromptPointResult result = editor.GetPoint(options);
-            if (result.Status == PromptStatus.OK)
-            {
-                points.Add(result.Value);
-                continue;
-            }
-            break;
-        }
-
-        return points.Count >= 2;
-    }
-
     private static Color GreenColor() => Color.FromColorIndex(ColorMethod.ByAci, 3);
     private static Color BlackColor() => Color.FromRgb(0, 0, 0);
     private static Color RedColor() => Color.FromColorIndex(ColorMethod.ByAci, 1);
@@ -172,7 +161,7 @@ public sealed class PegasTool
         transaction.AddNewlyCreatedDBObject(text, true);
     }
 
-    private static string FormatQuantity(double value) => value.ToString("0.0##", CultureInfo.InvariantCulture);
+    private static string FormatQuantity(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
     private static string GetCurrentLayerName(Database database, Transaction transaction)
     {
