@@ -15,6 +15,7 @@ public sealed class PegasTool
 {
     private const double TickHalfLength = 2.5;
     private const double LabelOffset = 3.0;
+    private const double PegaLabelOffset = LabelOffset + 1.0;
     private const double TextHeight = 2.5;
 
     public void Run()
@@ -100,7 +101,7 @@ public sealed class PegasTool
                 break;
             }
 
-            Point3d labelPosition = divisionPoints[i] + normal * LabelOffset;
+            Point3d labelPosition = divisionPoints[i] + normal * PegaLabelOffset;
             using Transaction transaction = database.TransactionManager.StartTransaction();
             BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
             string layerName = GetCurrentLayerName(database, transaction);
@@ -144,10 +145,11 @@ public sealed class PegasTool
 
     private static Color GreenColor() => Color.FromColorIndex(ColorMethod.ByAci, 3);
     private static Color BlackColor() => Color.FromRgb(0, 0, 0);
+    private static Color RedColor() => Color.FromColorIndex(ColorMethod.ByAci, 1);
 
     private static void AddLine(Transaction transaction, BlockTableRecord currentSpace, Point3d start, Point3d end, string layerName)
     {
-        var line = new Line(start, end) { Layer = layerName, ColorIndex = 256 };
+        var line = new Line(start, end) { Layer = layerName, Color = RedColor() };
         currentSpace.AppendEntity(line);
         transaction.AddNewlyCreatedDBObject(line, true);
     }
