@@ -43,6 +43,15 @@ public sealed class GenerarExcelTool
     private const string VigaConcretoCode = "100006013";
     private const string EmpedradoCode = "100006010";
     private const string CruceTopoCode = "100005403";
+
+    // Cruce con Topo por diámetro troncal (2/3/4/6) — para 1/2"/3/4" se sigue usando CruceTopoCode.
+    private static readonly Dictionary<string, string> CruceTopoCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["2"] = "100005403",
+        ["3"] = "100005404",
+        ["4"] = "100005405",
+        ["6"] = "100005406",
+    };
     private const double EmpedradoFactor = 0.4;
 
     // Canalización Anillo, solo para las UC pequeñas (1/2"/3/4").
@@ -301,7 +310,7 @@ public sealed class GenerarExcelTool
             foreach (DBDictionaryEntry entry in layouts)
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                if (layout == null) continue;
+                if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -356,7 +365,7 @@ public sealed class GenerarExcelTool
             foreach (DBDictionaryEntry entry in layouts)
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                if (layout == null) continue;
+                if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -410,7 +419,7 @@ public sealed class GenerarExcelTool
             foreach (DBDictionaryEntry entry in layouts)
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                if (layout == null) continue;
+                if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -549,8 +558,8 @@ public sealed class GenerarExcelTool
         return string.Empty;
     }
 
-    private static bool IsUcLayout(string name) => Regex.IsMatch(name, @"^ANILLO\s+\d+\s+UC$", RegexOptions.IgnoreCase);
-    private static bool IsDetailLayout(string name) => Regex.IsMatch(name, @"^ANILLO\s+\d+\s+DETALLE$", RegexOptions.IgnoreCase);
+    private static bool IsUcLayout(string name) => Regex.IsMatch(name, @"^(ANILLO\s+\d+\s+UC|TRONCAL\s+UC)$", RegexOptions.IgnoreCase);
+    private static bool IsDetailLayout(string name) => Regex.IsMatch(name, @"^(ANILLO\s+\d+\s+DETALLE|TRONCAL\s+DETALLE)$", RegexOptions.IgnoreCase);
     private static string GetUcDiameter(string layer) => GetUcDiameterFromLayer(layer);
 
     private static string GetSurface(Transaction transaction, Dimension dimension)
@@ -763,7 +772,11 @@ public sealed class GenerarExcelTool
         {
             result[tendidoCode] = pipeTotal;
         }
-        if (cruceTopo > 0.0) result[CruceTopoCode] = cruceTopo;
+        if (cruceTopo > 0.0)
+        {
+            string cruceTopoCode = CruceTopoCodeByDiameter.TryGetValue(uc.Diameter, out string diameterCode) ? diameterCode : CruceTopoCode;
+            result[cruceTopoCode] = cruceTopo;
+        }
         if (pantalla > 0.0) result[PantallaCode] = pantalla;
         if (vigaConcreto > 0.0) result[VigaConcretoCode] = vigaConcreto;
         if (empedradoMl > 0.0) result[EmpedradoCode] = empedradoMl * EmpedradoFactor;
@@ -1047,12 +1060,17 @@ public sealed class GenerarExcelTool
         string sourcePath = ResolveZipPath("xl/workbook.xml", (string)sourceRel.Attribute("Target")); ZipArchiveEntry sourceEntry = archive.GetEntry(sourcePath); if (sourceEntry == null) throw new InvalidDataException("No se encontró la hoja origen de ACTIVIDAD.");
         XElement sourceXml = LoadXml(sourceEntry); XElement sheetData = sourceXml.Element(mainNs + "sheetData"); if (sheetData == null) return null; Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
         string diameterToken = NormalizeActivityText(uc.Diameter + " PULG"); string surfaceToken = NormalizeActivityText(GetDropdownSurfaceToken(uc.Surface));
+        // El token de diámetro no puede quedar pegado a otro dígito: al quitar los caracteres no
+        // alfanuméricos, "3/4 PULG" se convierte en "34PULG", que contiene "4PULG" como substring
+        // literal — un IndexOf simple hacía que un diámetro de 4" encontrara por error la fila de
+        // 3/4" (y "2" la de 1/2"), ya que esas filas aparecen antes en el rango ACTIVIDAD.
+        Regex diameterRegex = new Regex(@"(?<!\d)" + Regex.Escape(diameterToken) + @"(?!\d)");
         for (int r = startRow; r <= endRow; r++)
         {
             XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), r.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)); if (row == null) continue;
             XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), column + r.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase)); if (cell == null) continue;
             string value = ReadCellText(cell, mainNs, sharedStrings); string normalized = NormalizeActivityText(value);
-            if (normalized.IndexOf(diameterToken, StringComparison.Ordinal) >= 0 && normalized.IndexOf(surfaceToken, StringComparison.Ordinal) >= 0) return value;
+            if (diameterRegex.IsMatch(normalized) && normalized.IndexOf(surfaceToken, StringComparison.Ordinal) >= 0) return value;
         }
         return null;
     }

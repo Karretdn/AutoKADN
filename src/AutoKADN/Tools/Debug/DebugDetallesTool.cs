@@ -13,8 +13,9 @@ namespace AutoKADN.Tools.Debug;
 
 public sealed class DebugDetallesTool
 {
-    private const string UcLayoutPattern = @"^ANILLO\s+(\d+)\s+UC$";
-    private const string DetailLayoutPattern = @"^ANILLO\s+(\d+)\s+DETALLE$";
+    private const string UcLayoutPattern = @"^(?:ANILLO\s+(\d+)\s+UC|TRONCAL\s+UC)$";
+    private const string DetailLayoutPattern = @"^(?:ANILLO\s+(\d+)\s+DETALLE|TRONCAL\s+DETALLE)$";
+    private const int TroncalRing = -1;
     private const string BlocksLayer = "Mat";
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
@@ -27,6 +28,15 @@ public sealed class DebugDetallesTool
     private const string VigaConcretoCode = "100006013";
     private const string EmpedradoCode = "100006010";
     private const string CruceTopoCode = "100005403";
+
+    // Cruce con Topo por diámetro troncal (2/3/4/6) — para 1/2"/3/4" se sigue usando CruceTopoCode.
+    private static readonly Dictionary<string, string> CruceTopoCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["2"] = "100005403",
+        ["3"] = "100005404",
+        ["4"] = "100005405",
+        ["6"] = "100005406",
+    };
     private const double EmpedradoFactor = 0.4;
 
     private static readonly Dictionary<string, string> CanalizacionCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -276,7 +286,11 @@ public sealed class DebugDetallesTool
                 }
             }
 
-            if (cruceTopo > 0) rows.Add(new ActivityRow(CruceTopoCode, "CRUCE CON TOPO", cruceTopo.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? "También resta en Canalización" : "Sin UC: no se generará"));
+            if (cruceTopo > 0)
+            {
+                string cruceTopoCode = CruceTopoCodeByDiameter.TryGetValue(diameter, out string diameterCode) ? diameterCode : CruceTopoCode;
+                rows.Add(new ActivityRow(cruceTopoCode, "CRUCE CON TOPO", cruceTopo.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? "También resta en Canalización" : "Sin UC: no se generará"));
+            }
             if (pantalla > 0) rows.Add(new ActivityRow(PantallaCode, "PANTALLA", pantalla.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? string.Empty : "Sin UC: no se generará"));
             if (vigaConcreto > 0) rows.Add(new ActivityRow(VigaConcretoCode, "VIGA EN CONCRETO", vigaConcreto.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? string.Empty : "Sin UC: no se generará"));
             if (empedradoMl > 0) rows.Add(new ActivityRow(EmpedradoCode, "EMPEDRADO", (empedradoMl * EmpedradoFactor).ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " m²", (found ? string.Empty : "Sin UC: no se generará. ") + empedradoMl.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML × 0.4"));
@@ -303,7 +317,7 @@ public sealed class DebugDetallesTool
             _content.Children.Add(header);
 
             var grid = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, CanUserDeleteRows = false, Height = Math.Min(360, Math.Max(72, rows.Count * 28 + 42)), Margin = new Thickness(0, 0, 0, 8), ItemsSource = rows };
-            grid.Columns.Add(new DataGridTextColumn { Header = "ANILLO", Binding = new System.Windows.Data.Binding(nameof(UcRow.Ring)), Width = new DataGridLength(80) });
+            grid.Columns.Add(new DataGridTextColumn { Header = "ANILLO", Binding = new System.Windows.Data.Binding(nameof(UcRow.RingLabel)), Width = new DataGridLength(80) });
             grid.Columns.Add(new DataGridTextColumn { Header = "TERRENO", Binding = new System.Windows.Data.Binding(nameof(UcRow.Surface)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
             grid.Columns.Add(new DataGridTextColumn { Header = "DIAMETRO", Binding = new System.Windows.Data.Binding(nameof(UcRow.Diameter)), Width = new DataGridLength(120) });
             grid.Columns.Add(new DataGridTextColumn { Header = "METROS", Binding = new System.Windows.Data.Binding(nameof(UcRow.Length)), Width = new DataGridLength(100) });
@@ -315,13 +329,13 @@ public sealed class DebugDetallesTool
         {
             if (diagnostics.Count == 0)
             {
-                _content.Children.Add(new TextBlock { Text = "No se encontró ningún layout con nombre 'ANILLO X UC' en este dibujo.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12), Foreground = Brushes.DarkRed });
+                _content.Children.Add(new TextBlock { Text = "No se encontró ningún layout con nombre 'ANILLO X UC' o 'TRONCAL UC' en este dibujo.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12), Foreground = Brushes.DarkRed });
                 return;
             }
 
             var box = new Border { BorderBrush = Brushes.LightGray, BorderThickness = new Thickness(1), Padding = new Thickness(10), Margin = new Thickness(0, 0, 0, 12) };
             var stack = new StackPanel();
-            stack.Children.Add(new TextBlock { Text = "Diagnóstico por layout ANILLO X UC:", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
+            stack.Children.Add(new TextBlock { Text = "Diagnóstico por layout ANILLO X UC / TRONCAL UC:", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
             foreach (string line in diagnostics)
             {
                 stack.Children.Add(new TextBlock { Text = line, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 2) });
@@ -350,7 +364,8 @@ public sealed class DebugDetallesTool
                 if (layout == null) continue;
                 Match match = Regex.Match(layout.LayoutName.Trim(), UcLayoutPattern, RegexOptions.IgnoreCase);
                 if (!match.Success) continue;
-                int ring = int.Parse(match.Groups[1].Value);
+                int ring = match.Groups[1].Success ? int.Parse(match.Groups[1].Value) : TroncalRing;
+                string ringLabel = ring == TroncalRing ? "TRONCAL" : "ANILLO " + ring;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
 
                 int dimensionTotal = 0, dimensionOnUcLayer = 0, dimensionWithSurface = 0;
@@ -382,7 +397,7 @@ public sealed class DebugDetallesTool
                     ? string.Join(", ", detectedSurfaces.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
                     : "ninguno";
                 string knownLayers = string.Join("/", UcLayerDiameters.Keys);
-                string line = "ANILLO " + ring + " UC: " + dimensionTotal + " cotas totales, " + dimensionOnUcLayer + " en capa " + knownLayers + ", " + dimensionWithSurface + " con XData UC_SURFACE válido"
+                string line = ringLabel + " UC: " + dimensionTotal + " cotas totales, " + dimensionOnUcLayer + " en capa " + knownLayers + ", " + dimensionWithSurface + " con XData UC_SURFACE válido"
                     + (dimensionWithoutSurface > 0 ? " (" + dimensionWithoutSurface + " en capa UC pero SIN XData UC_SURFACE — probablemente creadas antes de asignar terreno, o con COTAK antiguo: bórrelas y vuelva a crearlas)" : string.Empty)
                     + (unmatchedLayers.Count > 0 ? " (" + (dimensionTotal - dimensionOnUcLayer) + " en capas NO reconocidas: " + string.Join(", ", unmatchedLayers.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)) + ")" : string.Empty)
                     + ". Terrenos detectados: " + detectedSurfacesText + ".";
@@ -395,7 +410,7 @@ public sealed class DebugDetallesTool
                 if (layout == null) continue;
                 Match match = Regex.Match(layout.LayoutName.Trim(), DetailLayoutPattern, RegexOptions.IgnoreCase);
                 if (!match.Success) continue;
-                int ring = int.Parse(match.Groups[1].Value);
+                int ring = match.Groups[1].Success ? int.Parse(match.Groups[1].Value) : TroncalRing;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -438,7 +453,7 @@ public sealed class DebugDetallesTool
             foreach (DBDictionaryEntry entry in layouts)
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                if (layout == null) continue;
+                if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -479,7 +494,7 @@ public sealed class DebugDetallesTool
             foreach (DBDictionaryEntry entry in layouts)
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                if (layout == null) continue;
+                if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -526,7 +541,7 @@ public sealed class DebugDetallesTool
             foreach (DBDictionaryEntry entry in layouts)
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
-                if (layout == null) continue;
+                if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -646,12 +661,17 @@ public sealed class DebugDetallesTool
         return GetUcDiameterFromLayer(layer);
     }
 
+    // Materiales (ESPIRAL, MATERIAL_PRUEBA, ACTIVIDAD) solo se procesan si están en un layout
+    // DETALLE — nunca en el layout UC (ahí solo viven las cotas UC), igual que en GenerarExcelTool.
+    private static bool IsDetailLayout(string name) => Regex.IsMatch(name, DetailLayoutPattern, RegexOptions.IgnoreCase);
+
     private sealed record DebugSnapshot(int UcCount, int DetailCount, List<UcRow> UcRows, List<string> Diagnostics, List<DebugRow> Rows, Dictionary<UcGroupKey, SpiralAgg> SpiralByGroup, Dictionary<UcGroupKey, ActivityAgg> ActivityByGroup);
     private sealed record DebugRow(string Surface, string Description, string Diameter, int Quantity, string Source, string Layout);
     private readonly record struct DebugKey(string Surface, string Description, string Diameter, string Source, string Layout);
     private sealed record UcRow(int Ring, string Surface, string Diameter, double LengthValue)
     {
         public string Length => LengthValue.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture);
+        public string RingLabel => Ring == TroncalRing ? "TRONCAL" : Ring.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
     private readonly record struct UcRowKey(int Ring, string Surface, string Diameter);
     private readonly record struct UcGroupKey(string Surface, string Diameter);
