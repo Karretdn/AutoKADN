@@ -348,14 +348,20 @@ public sealed class CotaTool
             return false;
         }
 
+        AssignUcSurface(database, transaction, dimension, attribute.Keyword.Replace('_', ' '));
+
+        transaction.Commit();
+        return true;
+    }
+
+    // Formato del XData que leen DebugDetallesTool/GenerarExcelTool para reconocer una cota UC y su terreno.
+    internal static void AssignUcSurface(Database database, Transaction transaction, Dimension dimension, string surface)
+    {
         EnsureRegApp(database, transaction);
         dimension.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, UcSurfaceXDataType),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, attribute.Keyword.Replace('_', ' ')));
-
-        transaction.Commit();
-        return true;
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, surface));
     }
 
     private static void EnsureRegApp(Database database, Transaction transaction)

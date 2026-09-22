@@ -47,6 +47,7 @@ public sealed class AutoKADNRibbon
         source.Items.Add(CreateButton("LISTABLOQUES", "Resumen materiales", "LISTABLOQUES", CreateListaBloquesIcon()));
         source.Items.Add(CreateButton("RESUMENUC", "Resumen UC", "RESUMENUC", CreateResumenUCIcon()));
         source.Items.Add(CreateButton("MATERIALPRUEBA", "Material de prueba", "MATERIALPRUEBA", CreateMaterialPruebaIcon()));
+        source.Items.Add(CreateButton("CLONARUC", "Clonar a UC", "CLONARUC", CreateClonarUcIcon()));
         source.Items.Add(CreateButton("GENERAREXCEL", "Generar Excel", "GENERAREXCEL", CreateExcelIcon()));
 
         tab.Panels.Add(panel);
@@ -79,6 +80,17 @@ public sealed class AutoKADNRibbon
         dc.DrawLine(pen, new System.Windows.Point(18, 7), new System.Windows.Point(18, 2));
         dc.DrawLine(pen, new System.Windows.Point(18, 34), new System.Windows.Point(18, 39));
         return new DrawingImage(group);
+    }
+
+    private static DrawingImage CreateClonarUcIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(3, 8, 13, 24));
+        dc.DrawRectangle(null, p, new System.Windows.Rect(24, 8, 13, 24));
+        dc.DrawLine(p, new System.Windows.Point(18, 20), new System.Windows.Point(22, 20));
+        dc.DrawLine(p, new System.Windows.Point(19.5, 17), new System.Windows.Point(22, 20));
+        dc.DrawLine(p, new System.Windows.Point(19.5, 23), new System.Windows.Point(22, 20));
+        return new DrawingImage(g);
     }
 
     private static DrawingImage CreateExcelIcon()

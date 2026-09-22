@@ -5,6 +5,7 @@ using AutoKADN.Tools.Acotado;
 using AutoKADN.Tools.Bloques;
 using AutoKADN.Tools.Debug;
 using AutoKADN.Tools.Excel;
+using AutoKADN.Tools.Layouts;
 using AutoKADN.Tools.NomenclaturaPredial;
 using AutoKADN.Tools.NomenclaturaVial;
 
@@ -33,6 +34,7 @@ public class NomenclaturaVialCommand
     [CommandMethod("LISTABLOQUES", CommandFlags.Modal)] public void ListaBloques() => new ListaBloquesTool().Run();
     [CommandMethod("RESUMENUC", CommandFlags.Modal)] public void ResumenUC() => new ResumenUCTool().Run();
     [CommandMethod("MATERIALPRUEBA", CommandFlags.Modal)] public void MaterialPrueba() => new MaterialPruebaTool().Run();
+    [CommandMethod("CLONARUC", CommandFlags.Modal)] public void ClonarUc() => new ClonarUcTool().Run();
     [CommandMethod("GENERAREXCEL", CommandFlags.Modal)] public void GenerarExcel() => new GenerarExcelTool().Run();
     [CommandMethod("DEBUGDETALLES", CommandFlags.Modal)] public void DebugDetalles() => new DebugDetallesTool().Run();
 }
