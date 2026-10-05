@@ -226,11 +226,7 @@ public sealed class DebugDetallesTool
             {
                 if (spiral.Unions > 0) rows.Add(new UcMaterialRow("UNION", diameter, spiral.Unions.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture), "ESPIRAL", string.Join(", ", spiral.Layouts)));
                 if (spiral.Tees > 0) rows.Add(new UcMaterialRow("TEE", diameter, spiral.Tees.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture), "ESPIRAL", string.Join(", ", spiral.Layouts)));
-                if (spiral.Valves > 0) rows.Add(new UcMaterialRow("VALVULA", diameter, spiral.Valves.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture), "ESPIRAL", string.Join(", ", spiral.Layouts)));
-                foreach ((string saddleDiameter, double qty) in spiral.Saddles)
-                {
-                    rows.Add(new UcMaterialRow("SILLETA", saddleDiameter, qty.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture), "ESPIRAL", string.Join(", ", spiral.Layouts)));
-                }
+                // VALVULA y SILLETA no salen del ESPIRAL: se listan como material físico (bloques Mat) más abajo.
             }
             rows.AddRange(materials.OrderBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Description, StringComparer.OrdinalIgnoreCase)
                 .Select(x => new UcMaterialRow(x.Description, x.Diameter, x.Quantity.ToString(), x.Source, x.Layout)));
@@ -682,8 +678,6 @@ public sealed class DebugDetallesTool
         public double Pipe;
         public double Unions;
         public double Tees;
-        public double Valves;
-        public List<(string Diameter, double Qty)> Saddles = new List<(string Diameter, double Qty)>();
         public HashSet<string> Layouts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     }
     private sealed class ActivityAgg
