@@ -62,32 +62,20 @@ public sealed class ResumenUCTool
             return;
         }
 
-        PromptKeywordOptions spiralOptions = new PromptKeywordOptions("\n¿HAY ESPIRAL? [Y/N]")
+        List<UcKey> availableUcs = quantities.Keys
+            .OrderBy(x => GetSurfaceOrder(x.Surface))
+            .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var dialog = new SpiralWindow(availableUcs.Select(uc => $"{uc.Diameter}\" - {ToDisplaySurface(uc.Surface)} ({FormatQuantity(quantities[uc])} ML)").ToArray());
+        try { new System.Windows.Interop.WindowInteropHelper(dialog).Owner = Autodesk.AutoCAD.ApplicationServices.Application.MainWindow.Handle; } catch { }
+        if (dialog.ShowDialog() != true) return;
+
+        if (dialog.HasSpiral)
         {
-            AllowNone = false
-        };
-        spiralOptions.Keywords.Add("Y");
-        spiralOptions.Keywords.Add("N");
-        spiralOptions.Keywords.Default = "N";
-
-        PromptResult spiralResult = editor.GetKeywords(spiralOptions);
-        if (spiralResult.Status != PromptStatus.OK) return;
-
-        if (string.Equals(spiralResult.StringResult, "Y", StringComparison.OrdinalIgnoreCase))
-        {
-            PromptDoubleOptions metersOptions = new PromptDoubleOptions("\n¿CUANTOS METROS DE ESPIRAL? ")
-            {
-                AllowZero = false,
-                AllowNegative = false,
-                AllowNone = false
-            };
-            PromptDoubleResult metersResult = editor.GetDouble(metersOptions);
-            if (metersResult.Status != PromptStatus.OK) return;
-
-            if (!TrySelectSpiralUc(editor, quantities, out UcKey selectedUc)) return;
-            quantities[selectedUc] += metersResult.Value;
-
-            editor.WriteMessage($"\nSe sumaron {FormatQuantity(metersResult.Value)} ML a {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)}.\n");
+            UcKey selectedUc = availableUcs[dialog.SelectedUcIndex];
+            quantities[selectedUc] += dialog.Meters;
+            editor.WriteMessage($"\nSe sumaron {FormatQuantity(dialog.Meters)} ML a {selectedUc.Diameter} Pulg. - {ToDisplaySurface(selectedUc.Surface)}.\n");
         }
 
         PromptPointResult pointResult = editor.GetPoint(new PromptPointOptions("\nSeleccione el vértice SUPERIOR IZQUIERDO de la lista de UNIDAD CONSTRUCTIVA: "));
@@ -97,39 +85,94 @@ public sealed class ResumenUCTool
         editor.WriteMessage($"\nResumen UC generado en el layout '{layoutName}'.\n");
     }
 
-    private static bool TrySelectSpiralUc(Editor editor, IReadOnlyDictionary<UcKey, double> quantities, out UcKey selectedUc)
+    // Ventana compacta (mismo estilo que la del ESPIRAL en ANOTACIONES) en vez de los prompts de
+    // texto: casilla de espiral, metros y la UC donde sumarlos.
+    private sealed class SpiralWindow : System.Windows.Window
     {
-        selectedUc = default;
+        private readonly System.Windows.Controls.CheckBox _hasSpiralBox;
+        private readonly System.Windows.Controls.TextBox _metersBox;
+        private readonly System.Windows.Controls.ComboBox _ucCombo;
 
-        List<UcKey> availableUcs = quantities.Keys
-            .OrderBy(x => GetSurfaceOrder(x.Surface))
-            .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        public bool HasSpiral { get; private set; }
+        public double Meters { get; private set; }
+        public int SelectedUcIndex { get; private set; }
 
-        if (availableUcs.Count == 0) return false;
-
-        editor.WriteMessage("\nUC escaneadas disponibles para aplicar el espiral:\n");
-        for (int i = 0; i < availableUcs.Count; i++)
+        public SpiralWindow(string[] ucItems)
         {
-            UcKey uc = availableUcs[i];
-            editor.WriteMessage(
-                $"  {i + 1}. {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)} - {FormatQuantity(quantities[uc])} ML\n");
+            Title = "AutoKADN - RESUMEN UC";
+            Width = 340;
+            SizeToContent = System.Windows.SizeToContent.Height;
+            WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen;
+            ShowInTaskbar = false;
+            ResizeMode = System.Windows.ResizeMode.NoResize;
+
+            var grid = new System.Windows.Controls.Grid { Margin = new System.Windows.Thickness(10) };
+            grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = System.Windows.GridLength.Auto });
+            grid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new System.Windows.GridLength(1, System.Windows.GridUnitType.Star) });
+            for (int i = 0; i < 4; i++) grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = System.Windows.GridLength.Auto });
+
+            _hasSpiralBox = new System.Windows.Controls.CheckBox { Content = "¿HAY ESPIRAL?", FontWeight = System.Windows.FontWeights.Bold, Margin = new System.Windows.Thickness(0, 0, 0, 6) };
+            System.Windows.Controls.Grid.SetRow(_hasSpiralBox, 0);
+            System.Windows.Controls.Grid.SetColumnSpan(_hasSpiralBox, 2);
+            grid.Children.Add(_hasSpiralBox);
+
+            _metersBox = new System.Windows.Controls.TextBox { Text = "0", IsEnabled = false, Padding = new System.Windows.Thickness(3, 1, 3, 1), Margin = new System.Windows.Thickness(0, 0, 0, 3) };
+            _metersBox.GotFocus += (_, _) => _metersBox.SelectAll();
+            AddRow(grid, 1, "METROS (ML):", _metersBox);
+
+            _ucCombo = new System.Windows.Controls.ComboBox { IsEnabled = false, Margin = new System.Windows.Thickness(0, 0, 0, 3) };
+            foreach (string item in ucItems) _ucCombo.Items.Add(item);
+            if (_ucCombo.Items.Count > 0) _ucCombo.SelectedIndex = 0;
+            AddRow(grid, 2, "SUMAR EN UC:", _ucCombo);
+
+            _hasSpiralBox.Checked += (_, _) => { _metersBox.IsEnabled = true; _ucCombo.IsEnabled = true; _metersBox.Focus(); };
+            _hasSpiralBox.Unchecked += (_, _) => { _metersBox.IsEnabled = false; _ucCombo.IsEnabled = false; };
+
+            var buttonsPanel = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new System.Windows.Thickness(0, 8, 0, 0) };
+            var cancelButton = new System.Windows.Controls.Button { Content = "Cancelar", Padding = new System.Windows.Thickness(10, 3, 10, 3), Margin = new System.Windows.Thickness(0, 0, 6, 0) };
+            cancelButton.Click += (_, _) => { DialogResult = false; Close(); };
+            buttonsPanel.Children.Add(cancelButton);
+            var acceptButton = new System.Windows.Controls.Button { Content = "Generar", Padding = new System.Windows.Thickness(10, 3, 10, 3), FontWeight = System.Windows.FontWeights.Bold, IsDefault = true };
+            acceptButton.Click += OnAcceptClick;
+            buttonsPanel.Children.Add(acceptButton);
+            System.Windows.Controls.Grid.SetRow(buttonsPanel, 3);
+            System.Windows.Controls.Grid.SetColumnSpan(buttonsPanel, 2);
+            grid.Children.Add(buttonsPanel);
+
+            Content = grid;
         }
 
-        PromptIntegerOptions options = new PromptIntegerOptions("\nEscriba el numero de la UC: ")
+        private static void AddRow(System.Windows.Controls.Grid grid, int row, string label, System.Windows.UIElement control)
         {
-            AllowNone = false,
-            AllowNegative = false,
-            AllowZero = false,
-            LowerLimit = 1,
-            UpperLimit = availableUcs.Count
-        };
+            var textBlock = new System.Windows.Controls.TextBlock { Text = label, VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new System.Windows.Thickness(0, 0, 6, 3) };
+            System.Windows.Controls.Grid.SetRow(textBlock, row);
+            grid.Children.Add(textBlock);
+            System.Windows.Controls.Grid.SetRow(control, row);
+            System.Windows.Controls.Grid.SetColumn(control, 1);
+            grid.Children.Add(control);
+        }
 
-        PromptIntegerResult result = editor.GetInteger(options);
-        if (result.Status != PromptStatus.OK) return false;
-
-        selectedUc = availableUcs[result.Value - 1];
-        return true;
+        private void OnAcceptClick(object sender, System.Windows.RoutedEventArgs e)
+        {
+            if (_hasSpiralBox.IsChecked == true)
+            {
+                if (!double.TryParse(_metersBox.Text.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double meters) || meters <= 0.0)
+                {
+                    System.Windows.MessageBox.Show(this, "Ingrese los metros de espiral (mayor que cero).", "AutoKADN", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+                if (_ucCombo.SelectedIndex < 0)
+                {
+                    System.Windows.MessageBox.Show(this, "Seleccione la UC donde sumar el espiral.", "AutoKADN", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+                HasSpiral = true;
+                Meters = meters;
+                SelectedUcIndex = _ucCombo.SelectedIndex;
+            }
+            DialogResult = true;
+            Close();
+        }
     }
 
     private static string? GetUcDiameter(string layer)
