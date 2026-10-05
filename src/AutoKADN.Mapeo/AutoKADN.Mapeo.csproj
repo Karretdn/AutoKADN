@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- 19041: expone Windows.Media.Ocr, el OCR de Windows que lee los PDF cuyo texto está convertido a curvas. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AutoKADN.Mapeo</RootNamespace>
+    <AssemblyName>AutoKADN.Mapeo</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.11" />
+  </ItemGroup>
+
+  <!-- La app web de mapeo viaja en el repo, no en el ejecutable. -->
+  <ItemGroup>
+    <Compile Remove="web\**" />
+    <None Remove="web\**" />
+  </ItemGroup>
+</Project>

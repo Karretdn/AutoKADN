@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapeo de formatos</title>
+<style>
+  :root {
+    --bg: #f3f5f7; --panel: #ffffff; --line: #d6dbe1; --text: #1f2937; --muted: #6b7280;
+    --accent: #0f766e; --accent-soft: #e6f4f1;
+    --auto: #f59e0b; --ok: #16a34a; --manual: #2563eb; --low: #dc2626; --dup: #c026d3;
+    --table: #3b82f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14181d; --panel: #1d232a; --line: #323b45; --text: #e5e9ee; --muted: #9aa4af; --accent: #2dd4bf; --accent-soft: #12332f; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 13px/1.4 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.on { background: var(--accent-soft); border-color: var(--accent); }
+  button.danger:hover { border-color: var(--low); color: var(--low); }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=text], input[type=number], select, textarea { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; width: 100%; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  #bar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+  #bar .grow { flex: 1; }
+  #title { font-weight: 600; }
+  #status { color: var(--muted); }
+  #legend { display: flex; gap: 10px; color: var(--muted); font-size: 12px; }
+  #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  #stageWrap { flex: 1; overflow: auto; padding: 16px; position: relative; }
+  #stage { position: relative; margin: 0 auto; background: #fff; box-shadow: 0 1px 8px rgba(0,0,0,.25); }
+  #pdf { display: block; }
+  #overlay { position: absolute; inset: 0; }
+  #empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
+  #empty div { max-width: 460px; }
+  body.drop #stageWrap { outline: 3px dashed var(--accent); outline-offset: -8px; }
+
+  #side { width: 380px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+  #props { padding: 10px 12px; border-bottom: 1px solid var(--line); overflow: auto; max-height: 52%; }
+  #props h3 { margin: 0 0 8px; font-size: 13px; }
+  .row { display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: center; margin-bottom: 5px; }
+  .row label { color: var(--muted); }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 5px; }
+  .grid4 span { color: var(--muted); font-size: 11px; display: block; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 4px 0; }
+  .chk { display: flex; gap: 6px; align-items: center; margin: 6px 0; font-weight: 600; }
+  .chk input { width: auto; }
+
+  #listHead { padding: 8px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
+  #summary { color: var(--muted); font-size: 12px; }
+  #list { flex: 1; overflow: auto; }
+  .item { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; padding: 5px 12px; cursor: pointer; border-bottom: 1px solid var(--line); align-items: center; }
+  .item:hover { background: var(--accent-soft); }
+  .item.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .item .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--auto); }
+  .item.ok .dot { background: var(--ok); } .item.manual .dot { background: var(--manual); }
+  .item.low .dot { background: var(--low); } .item.dup .dot { background: var(--dup); }
+  .item .id { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .et { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; grid-column: 2; }
+  .item .tp { color: var(--muted); font-size: 11px; grid-row: 1; grid-column: 3; }
+
+  /* ---- cajas sobre el PDF ---- */
+  .box { position: absolute; border: 1.5px solid var(--auto); background: color-mix(in srgb, var(--auto) 20%, transparent); cursor: move; overflow: visible; }
+  .box.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 18%, transparent); }
+  .box.manual { border-color: var(--manual); background: color-mix(in srgb, var(--manual) 18%, transparent); }
+  .box.low { border-color: var(--low); border-style: dashed; background: color-mix(in srgb, var(--low) 16%, transparent); }
+  .box.dup { border-color: var(--dup); background: color-mix(in srgb, var(--dup) 22%, transparent); }
+  .box.multi { background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,.05) 6px 12px); }
+  .box.sel { outline: 2px solid var(--text); outline-offset: 1px; z-index: 20; }
+  .box .nm { position: absolute; left: 0; bottom: 100%; max-width: 260px; font-size: 10px; line-height: 1.15; background: rgba(17,24,39,.88); color: #fff; padding: 1px 4px; border-radius: 3px 3px 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: 5; display: none; }
+  body.names .box .nm, .box.sel .nm, .box:hover .nm { display: block; }
+  .box .pv { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 3px; color: #0b2a8a; font-family: Calibri, Arial, sans-serif; white-space: nowrap; overflow: hidden; pointer-events: none; }
+  .box .ln { position: absolute; border: 1px dashed var(--ok); background: color-mix(in srgb, var(--ok) 20%, transparent); pointer-events: none; }
+  .h { position: absolute; width: 9px; height: 9px; background: var(--text); border: 1px solid var(--panel); border-radius: 2px; z-index: 30; }
+  .h[data-h=nw] { left: -5px; top: -5px; cursor: nwse-resize; } .h[data-h=n] { left: calc(50% - 5px); top: -5px; cursor: ns-resize; }
+  .h[data-h=ne] { right: -5px; top: -5px; cursor: nesw-resize; } .h[data-h=e] { right: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+  .h[data-h=se] { right: -5px; bottom: -5px; cursor: nwse-resize; } .h[data-h=s] { left: calc(50% - 5px); bottom: -5px; cursor: ns-resize; }
+  .h[data-h=sw] { left: -5px; bottom: -5px; cursor: nesw-resize; } .h[data-h=w] { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+
+  .tbl { position: absolute; border: 1.5px solid var(--table); pointer-events: none; }
+  .tbl.sel { outline: 2px solid var(--text); outline-offset: 1px; z-index: 10; }
+  .tbl .rw { position: absolute; left: 0; right: 0; border-top: 1px solid color-mix(in srgb, var(--table) 60%, transparent); background: color-mix(in srgb, var(--table) 8%, transparent); pointer-events: auto; cursor: pointer; }
+  .tbl .cl { position: absolute; top: 0; bottom: 0; border-left: 1px solid color-mix(in srgb, var(--table) 60%, transparent); pointer-events: auto; cursor: pointer; }
+  .tbl .cl.sel { background: color-mix(in srgb, var(--table) 28%, transparent); }
+  .tbl.ok { border-color: var(--ok); }
+  .tbl .tab { position: absolute; left: -1.5px; bottom: 100%; background: var(--table); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 3px 3px 0 0; cursor: grab; pointer-events: auto; white-space: nowrap; }
+  .tbl.ok .tab { background: var(--ok); }
+  .tbl .pv { position: absolute; display: flex; align-items: center; justify-content: center; color: #0b2a8a; font-family: Calibri, Arial, sans-serif; overflow: hidden; pointer-events: none; }
+  #rubber { position: absolute; border: 2px dashed var(--accent); background: var(--accent-soft); opacity: .7; pointer-events: none; z-index: 40; }
+  body.drawing #stage { cursor: crosshair; }
+  body.drawing .box, body.drawing .tbl .cl, body.drawing .tbl .rw { cursor: crosshair; }
+
+  .colrow { display: grid; grid-template-columns: 1.3fr 1fr 64px 64px; gap: 4px; margin-bottom: 4px; align-items: center; }
+  .colrow.sel { background: var(--accent-soft); border-radius: 5px; }
+  .colhead { font-size: 11px; color: var(--muted); }
+  kbd { background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; }
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: #111827; color: #fff; padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 100; max-width: 80vw; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header id="bar">
+  <strong id="title">Mapeo de formatos</strong>
+  <span id="status"></span>
+  <span class="grow"></span>
+  <select id="repoList" title="Formatos de la carpeta del repo (solo al abrir con abrir.bat)" style="width:auto;display:none"></select>
+  <button id="btnPdf">Abrir PDF…</button>
+  <button id="btnMap">Abrir mapa…</button>
+  <button id="btnSave" class="primary" title="Ctrl+S">Guardar mapa</button>
+  <span class="sep"></span>
+  <button id="btnUndo" title="Ctrl+Z">↶</button>
+  <button id="btnRedo" title="Ctrl+Y">↷</button>
+  <span class="sep"></span>
+  <button id="toolCampo" title="Dibujar un campo nuevo (N)">＋ Campo</button>
+  <button id="toolTabla" title="Dibujar una tabla nueva (T)">＋ Tabla</button>
+  <span class="sep"></span>
+  <button id="btnNames" title="Mostrar el nombre sobre cada caja (siempre se ve al pasar el ratón)">Nombres</button>
+  <button id="btnPreview" title="Rellena cada celda con un texto de ejemplo para ver cómo queda">Vista previa</button>
+  <button id="zoomOut">−</button><span id="zoomLbl">140%</span><button id="zoomIn">＋</button>
+  <span id="pager" style="display:none"><button id="pgPrev">◀</button> pág. <span id="pgNo">1</span>/<span id="pgTot">1</span> <button id="pgNext">▶</button></span>
+  <input id="filePdf" type="file" accept="application/pdf,.pdf" hidden>
+  <input id="fileMap" type="file" accept="application/json,.json" hidden>
+</header>
+<div id="legend" style="padding:4px 12px;background:var(--panel);border-bottom:1px solid var(--line)">
+  <span><i style="background:var(--auto)"></i>propuesto (sin revisar)</span>
+  <span><i style="background:var(--ok)"></i>revisado</span>
+  <span><i style="background:var(--manual)"></i>creado a mano</span>
+  <span><i style="background:var(--low)"></i>poca confianza / sin nombre</span>
+  <span><i style="background:var(--dup)"></i>nombre repetido</span>
+  <span class="grow"></span>
+  <span><kbd>Enter</kbd> revisado y siguiente · <kbd>Supr</kbd> borrar · flechas mover · <kbd>R</kbd> alterna revisado</span>
+</div>
+<main>
+  <section id="stageWrap">
+    <div id="stage">
+      <canvas id="pdf"></canvas>
+      <div id="overlay"></div>
+      <div id="empty"><div><h2>Abre un formato</h2>
+        <p>Arrastra aquí el <b>PDF</b> y su <b>.mapa.json</b> (los dos a la vez), o usa los botones de arriba.
+        El .mapa.json lo genera el reconocimiento automático; aquí lo revisas y corriges.</p></div></div>
+    </div>
+  </section>
+  <aside id="side">
+    <div id="props"></div>
+    <div id="listHead">
+      <div id="summary"></div>
+      <div style="display:flex;gap:6px">
+        <input id="filter" type="text" placeholder="Buscar por nombre…">
+        <label style="white-space:nowrap;display:flex;gap:4px;align-items:center"><input id="onlyPending" type="checkbox" style="width:auto"> pendientes</label>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button id="btnNext" class="primary">Siguiente pendiente</button>
+        <button id="btnAllOk" title="Marca como revisado todo lo que se ve en la lista">Marcar lista como revisada</button>
+        <button id="btnRename" title="Cambia un trozo de texto en los nombres de lo que se ve en la lista">Reemplazar en nombres…</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  </aside>
+</main>
+<div id="toast"></div>
+<datalist id="fuentes"></datalist>
+
+<script src="lib/pdf.min.js"></script>
+<script>
+'use strict';
+// ───────────────────────── Estado ─────────────────────────
+const KNOWN_KEYS = ['orden','idProyecto','proyecto','localidad','departamento','municipio','interventor','supervisor','tuberia','diametro',
+  'fechaInicioObra','fechaFinalObra','fechaPruebaInicial','fechaPruebaFinal','fechaGasificado'];
+const TIPOS = ['texto','numero','fecha','check','multilinea'];
+const ALINEACIONES = ['izquierda','centro','derecha'];
+const S = {
+  map: null, mapName: '', pdf: null, pdfName: '', pageNo: 1, zoom: 1.4,
+  sel: null,                 // { kind: 'campo'|'tabla', id, col? }
+  tool: 'select',            // select | campo | tabla
+  preview: false, dirty: false, undo: [], redo: [], handle: null, dupIds: new Set(),
+};
+const $ = (s, r = document) => r.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k === 'style') e.style.cssText = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat()) if (kid != null) e.append(kid.nodeType ? kid : document.createTextNode(kid));
+  return e;
+};
+const round = (v, step = 0.25) => Math.round(v / step) * step;
+const fmt = v => (Math.round(v * 100) / 100).toString();
+function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms); }
+
+// ───────────────────────── Modelo ─────────────────────────
+function emptyMap(code, name) {
+  return { version: 1, codigo: code, nombre: name, archivoPdf: '', generado: new Date().toISOString().slice(0, 19), notas: [], paginas: [], campos: [], tablas: [] };
+}
+function normalizeMap(m) {
+  m.campos = (m.campos || []).map(c => Object.assign({ id: '', etiqueta: '', tipo: 'texto', pagina: 1, x: 0, y: 0, ancho: 20, alto: 12, alineacion: 'izquierda', tamanoFuente: 9, fuente: '', origen: 'auto', confianza: 0.5, revisado: false }, c));
+  m.tablas = (m.tablas || []).map(t => Object.assign({ id: '', etiqueta: '', pagina: 1, x: 0, y: 0, ancho: 0, alto: 0, columnas: [], filas: [], origen: 'auto', revisado: false }, t));
+  m.tablas.forEach(t => { t.columnas = t.columnas.map(c => Object.assign({ id: '', etiqueta: '', tipo: 'texto', x: 0, ancho: 20, alineacion: 'centro', tamanoFuente: 8, fuente: '' }, c)); refitTable(t); });
+  m.paginas = m.paginas || []; m.notas = m.notas || [];
+  return m;
+}
+function refitTable(t) {
+  if (!t.columnas.length || !t.filas.length) return;
+  t.x = Math.min(...t.columnas.map(c => c.x)); t.ancho = Math.max(...t.columnas.map(c => c.x + c.ancho)) - t.x;
+  t.y = t.filas[0].y; const last = t.filas[t.filas.length - 1]; t.alto = last.y + last.alto - t.y;
+}
+const pageInfo = () => (S.map && S.map.paginas.find(p => p.numero === S.pageNo)) || null;
+const findCampo = id => S.map.campos.find(c => c.id === id);
+const findTabla = id => S.map.tablas.find(t => t.id === id);
+function selected() { if (!S.sel || !S.map) return null; return S.sel.kind === 'campo' ? findCampo(S.sel.id) : findTabla(S.sel.id); }
+function lowConf(c) { return c.origen !== 'manual' && !c.revisado && (c.confianza < 0.4 || /^sin_nombre|^campo$|^linea|^espacio/.test(c.id)); }
+function status(c) { return S.dupIds.has(c.id) ? 'dup' : c.revisado ? 'ok' : c.origen === 'manual' ? 'manual' : lowConf(c) ? 'low' : 'auto'; }
+function computeDups() {
+  const count = new Map();
+  for (const c of S.map.campos) count.set(c.id, (count.get(c.id) || 0) + 1);
+  for (const t of S.map.tablas) count.set(t.id, (count.get(t.id) || 0) + 1);
+  S.dupIds = new Set([...count].filter(([, n]) => n > 1).map(([k]) => k));
+}
+
+// ───────────────────────── Deshacer / guardar ─────────────────────────
+function snap() { return JSON.stringify(S.map); }
+function pushUndo(before) { S.undo.push(before); if (S.undo.length > 150) S.undo.shift(); S.redo = []; }
+function mutate(fn, { keepSel = true } = {}) {
+  if (!S.map) return;
+  const before = snap(); fn(); computeDups(); pushUndo(before); markDirty(); renderAll();
+}
+function markDirty() { S.dirty = true; updateBar(); clearTimeout(markDirty.t); markDirty.t = setTimeout(autosave, 500); }
+function autosave() { try { localStorage.setItem('mapeo:' + S.map.codigo, JSON.stringify({ t: Date.now(), map: S.map })); } catch {} }
+function undo() { if (!S.undo.length) return; S.redo.push(snap()); S.map = JSON.parse(S.undo.pop()); afterTimeTravel(); }
+function redo() { if (!S.redo.length) return; S.undo.push(snap()); S.map = JSON.parse(S.redo.pop()); afterTimeTravel(); }
+function afterTimeTravel() { computeDups(); if (S.sel && !selected()) S.sel = null; markDirty(); renderAll(); }
+
+async function save() {
+  if (!S.map) return;
+  S.map.modificado = new Date().toISOString().slice(0, 19);
+  const text = JSON.stringify(S.map, null, 2);
+  const name = S.map.codigo + '.mapa.json';
+  try {
+    if (window.showSaveFilePicker) {
+      if (!S.handle) S.handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'Mapa de formato', accept: { 'application/json': ['.json'] } }] });
+      const w = await S.handle.createWritable(); await w.write(text); await w.close();
+    } else {
+      const a = el('a', { href: URL.createObjectURL(new Blob([text], { type: 'application/json' })), download: name }); document.body.append(a); a.click(); a.remove();
+    }
+    S.dirty = false; autosave(); updateBar(); toast('Guardado: ' + name);
+  } catch (e) { if (e.name !== 'AbortError') toast('No se pudo guardar: ' + e.message, 5000); }
+}
+
+// ───────────────────────── Carga de archivos ─────────────────────────
+function codeFromName(n) { const m = /FT-[A-Z]-\d+/i.exec(n); return m ? m[0].toUpperCase() : n.replace(/\.[^.]+$/, ''); }
+async function loadPdfBytes(bytes, name) {
+  const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+  S.pdf = doc; S.pdfName = name; S.pageNo = 1;
+  if (!S.map) { S.map = emptyMap(codeFromName(name), name.replace(/\.pdf$/i, '')); S.map.archivoPdf = name; }
+  if (!S.map.archivoPdf) S.map.archivoPdf = name;
+  for (let i = 1; i <= doc.numPages; i++) {
+    if (S.map.paginas.some(p => p.numero === i)) continue;
+    const v = (await doc.getPage(i)).getViewport({ scale: 1 }); S.map.paginas.push({ numero: i, ancho: v.width, alto: v.height });
+  }
+  computeDups(); await renderAll(); fitWidth();
+}
+function loadMapObject(m, fileName) {
+  S.map = normalizeMap(m); S.mapName = fileName || ''; S.handle = null; S.undo = []; S.redo = []; S.sel = null; S.dirty = false;
+  try {
+    const raw = localStorage.getItem('mapeo:' + S.map.codigo);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (JSON.stringify(saved.map) !== JSON.stringify(S.map) && confirm('Hay cambios de una sesión anterior para ' + S.map.codigo + ' (' + new Date(saved.t).toLocaleString() + ').\n¿Recuperarlos?')) { S.map = normalizeMap(saved.map); S.dirty = true; }
+    }
+  } catch {}
+  computeDups(); renderAll();
+}
+async function handleFiles(files) {
+  let pdf = null, json = null;
+  for (const f of files) { if (/\.pdf$/i.test(f.name)) pdf = f; else if (/\.json$/i.test(f.name)) json = f; }
+  if (json) loadMapObject(JSON.parse(await json.text()), json.name);
+  if (pdf) await loadPdfBytes(new Uint8Array(await pdf.arrayBuffer()), pdf.name);
+  if (json && S.pdf && S.map.codigo !== codeFromName(S.pdfName)) toast('Ojo: el mapa es de ' + S.map.codigo + ' y el PDF parece ser de ' + codeFromName(S.pdfName), 5000);
+}
+async function loadFromUrls(pdfUrl, mapUrl) {
+  if (mapUrl) { try { const r = await fetch(mapUrl); if (r.ok) loadMapObject(await r.json(), mapUrl.split('/').pop()); } catch {} }
+  if (pdfUrl) { const r = await fetch(pdfUrl); await loadPdfBytes(new Uint8Array(await r.arrayBuffer()), decodeURIComponent(pdfUrl.split('/').pop())); }
+}
+// Los formatos viven en la carpeta de recursos de la app de proyectos (lo que en KARP era "Public").
+const FORMATOS_URL = '../../AutoKADN.Proyectos/Recursos/Formatos/';
+async function initRepoList() {
+  if (location.protocol === 'file:') return;
+  try {
+    const html = await (await fetch(FORMATOS_URL)).text();
+    const names = [...html.matchAll(/href="([^"]+\.pdf)"/gi)].map(m => decodeURIComponent(m[1]));
+    if (!names.length) return;
+    const sel = $('#repoList'); sel.style.display = '';
+    sel.append(el('option', { value: '' }, 'Formatos del repo…'));
+    names.forEach(n => sel.append(el('option', { value: n }, n.replace(/\.pdf$/i, ''))));
+    sel.onchange = async () => {
+      if (!sel.value) return; if (S.dirty && !confirm('Hay cambios sin guardar. ¿Abrir otro formato?')) { sel.value = ''; return; }
+      S.map = null; S.pdf = null;
+      const code = codeFromName(sel.value);
+      await loadFromUrls(FORMATOS_URL + encodeURIComponent(sel.value), FORMATOS_URL + code + '.mapa.json');
+      sel.value = '';
+    };
+  } catch {}
+}
+
+// ───────────────────────── Dibujo ─────────────────────────
+let renderTask = null, renderSeq = 0;
+async function renderPdfPage() {
+  const info = pageInfo(); const canvas = $('#pdf'), stage = $('#stage');
+  const w = info ? info.ancho : 612, h = info ? info.alto : 792;
+  stage.style.width = w * S.zoom + 'px'; stage.style.height = h * S.zoom + 'px';
+  $('#empty').style.display = S.map || S.pdf ? 'none' : '';
+  const seq = ++renderSeq;
+  if (!S.pdf) { canvas.width = 0; canvas.height = 0; return; }
+  const dpr = window.devicePixelRatio || 1;
+  const page = await S.pdf.getPage(S.pageNo);
+  if (seq !== renderSeq) return;
+  const vp = page.getViewport({ scale: S.zoom * dpr });
+  if (renderTask) { try { renderTask.cancel(); await renderTask.promise; } catch {} }
+  if (seq !== renderSeq) return;
+  canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+  canvas.style.width = vp.width / dpr + 'px'; canvas.style.height = vp.height / dpr + 'px';
+  renderTask = page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+  try { await renderTask.promise; } catch {}
+}
+function fitWidth() { const info = pageInfo(); if (!info) return; S.zoom = Math.max(0.5, Math.min(3, ($('#stageWrap').clientWidth - 40) / info.ancho)); renderAll(); }
+
+function px(v) { return v * S.zoom + 'px'; }
+function sample(c) {
+  if (c.tipo === 'fecha') return '05/10/2026';
+  if (c.tipo === 'numero') return '12.5';
+  if (c.tipo === 'check') return 'X';
+  return (c.prefijo ? c.prefijo + ' ' : '') + (c.id.split('.').pop() || '');
+}
+function drawOverlay() {
+  const ov = $('#overlay'); ov.replaceChildren();
+  if (!S.map) return;
+  for (const t of S.map.tablas) if (t.pagina === S.pageNo) ov.append(drawTable(t));
+  for (const c of S.map.campos) if (c.pagina === S.pageNo) ov.append(drawCampo(c));
+}
+function drawCampo(c) {
+  const isSel = S.sel && S.sel.kind === 'campo' && S.sel.id === c.id;
+  const cls = ['box', status(c)]; if (c.lineas && c.lineas.length) cls.push('multi'); if (isSel) cls.push('sel');
+  const b = el('div', { class: cls.join(' '), style: `left:${px(c.x)};top:${px(c.y)};width:${px(c.ancho)};height:${px(c.alto)}`, 'data-id': c.id });
+  b.append(el('span', { class: 'nm' }, c.id));
+  if (c.lineas) for (const l of c.lineas) b.append(el('div', { class: 'ln', style: `left:${px(l.x - c.x)};top:${px(l.y - c.y)};width:${px(l.ancho)};height:${px(l.alto)}` }));
+  if (S.preview) {
+    const p = el('div', { class: 'pv', style: `font-size:${c.tamanoFuente * S.zoom}px;justify-content:${c.alineacion === 'centro' ? 'center' : c.alineacion === 'derecha' ? 'flex-end' : 'flex-start'}` }, sample(c));
+    b.append(p);
+  }
+  if (isSel) for (const h of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) b.append(el('div', { class: 'h', 'data-h': h }));
+  return b;
+}
+function drawTable(t) {
+  const isSel = S.sel && S.sel.kind === 'tabla' && S.sel.id === t.id;
+  const box = el('div', { class: 'tbl' + (t.revisado ? ' ok' : '') + (isSel ? ' sel' : ''), style: `left:${px(t.x)};top:${px(t.y)};width:${px(t.ancho)};height:${px(t.alto)}`, 'data-tid': t.id });
+  box.append(el('div', { class: 'tab', 'data-grab': t.id, title: 'Arrastra para mover toda la tabla' }, '⠿ ' + t.id + ' · ' + t.filas.length + '×' + t.columnas.length));
+  t.filas.forEach((f, i) => box.append(el('div', { class: 'rw', style: `top:${px(f.y - t.y)};height:${px(f.alto)}`, 'data-tid': t.id })));
+  t.columnas.forEach((c, i) => box.append(el('div', { class: 'cl' + (isSel && S.sel.col === i ? ' sel' : ''), style: `left:${px(c.x - t.x)};width:${px(c.ancho)}`, 'data-tid': t.id, 'data-col': i, title: c.id })));
+  if (S.preview) {
+    t.columnas.forEach(c => t.filas.slice(0, 3).forEach((f, r) => {
+      const txt = c.tipo === 'fecha' ? '05/10/26' : c.tipo === 'numero' ? (12.5 + r).toFixed(1) : c.id.split('.').pop();
+      box.append(el('div', { class: 'pv', style: `left:${px(c.x - t.x)};top:${px(f.y - t.y)};width:${px(c.ancho)};height:${px(f.alto)};font-size:${c.tamanoFuente * S.zoom}px` }, txt));
+    }));
+  }
+  return box;
+}
+
+// ───────────────────────── Panel de propiedades ─────────────────────────
+function field(label, input) { return el('div', { class: 'row' }, el('label', {}, label), input); }
+function textInput(value, onChange, { list, area } = {}) {
+  const i = area ? el('textarea', { rows: 2 }) : el('input', { type: 'text' }); i.value = value ?? '';
+  if (list) i.setAttribute('list', list);
+  i.addEventListener('change', () => onChange(i.value)); return i;
+}
+function selectInput(options, value, onChange) {
+  const s = el('select', {}, options.map(o => el('option', { value: o }, o))); s.value = value; s.addEventListener('change', () => onChange(s.value)); return s;
+}
+function numInput(value, onChange, step = 0.5, min) {
+  const i = el('input', { type: 'number', step, min }); i.value = fmt(value);
+  i.addEventListener('change', () => { const v = parseFloat(i.value); if (!isNaN(v)) onChange(v); }); return i;
+}
+function renderProps() {
+  const p = $('#props'); p.replaceChildren();
+  const it = selected();
+  if (!it) {
+    p.append(el('h3', {}, 'Nada seleccionado'),
+      el('p', { class: 'hint' }, 'Haz clic en una caja del PDF o en un elemento de la lista. Con ', el('b', {}, '＋ Campo'), ' o ', el('b', {}, '＋ Tabla'), ' dibujas uno nuevo arrastrando sobre el PDF.'),
+      el('p', { class: 'hint' }, 'Cada celda lleva un ', el('b', {}, 'nombre'), ' (id) corto y único; en ', el('b', {}, 'Conectar con'), ' se escribe la clave del flujo que la va a rellenar.'));
+    if (S.map && S.map.notas && S.map.notas.length) p.append(el('p', { class: 'hint', style: 'color:var(--low)' }, '⚠ ' + S.map.notas.join(' ')));
+    return;
+  }
+  S.sel.kind === 'campo' ? propsCampo(p, it) : propsTabla(p, it);
+}
+function reviewedRow(it) {
+  const cb = el('input', { type: 'checkbox' }); cb.checked = !!it.revisado;
+  cb.addEventListener('change', () => mutate(() => { it.revisado = cb.checked; }));
+  return el('label', { class: 'chk' }, cb, 'Revisado');
+}
+function propsCampo(p, c) {
+  p.append(el('h3', {}, 'Campo · ' + c.id), el('div', { class: 'hint' }, `${c.origen === 'manual' ? 'creado a mano' : 'propuesto por el reconocimiento'} · confianza ${Math.round((c.confianza ?? 0) * 100)}%`));
+  const set = (k, conv = v => v) => v => mutate(() => { c[k] = conv(v); if (k !== 'revisado') { c.origen = 'manual' === c.origen ? 'manual' : c.origen; } });
+  p.append(
+    field('Nombre (id)', textInput(c.id, v => { const old = c.id; mutate(() => { c.id = v.trim(); S.sel.id = c.id; }); })),
+    field('Etiqueta', textInput(c.etiqueta, set('etiqueta'))),
+    field('Tipo', selectInput(TIPOS, c.tipo, set('tipo'))),
+    field('Alineación', selectInput(ALINEACIONES, c.alineacion, set('alineacion'))),
+    field('Tamaño letra', numInput(c.tamanoFuente, set('tamanoFuente', Number), 0.5, 4)),
+    field('Texto previo', textInput(c.prefijo || '', v => mutate(() => { c.prefijo = v || undefined; }))),
+    field('Giro del texto', selectInput(['0', '90'], String(c.rotacion || 0), v => mutate(() => { c.rotacion = v === '0' ? undefined : Number(v); }))),
+    field('Conectar con', textInput(c.fuente, set('fuente'), { list: 'fuentes' })),
+    el('div', { class: 'hint' }, 'Una clave (orden), con formato (fechaGasificado|dia, |mes|titulo, |anio2, interventor|sincodigo, anillos.total|marca = X si es mayor que cero) o un texto con claves: =ID-{idProyecto} (sin claves es un valor fijo: =O.D.P.).'),
+  );
+  const g = el('div', { class: 'grid4' });
+  for (const [k, l] of [['x', 'X'], ['y', 'Y'], ['ancho', 'Ancho'], ['alto', 'Alto']]) g.append(el('div', {}, el('span', {}, l), numInput(c[k], v => mutate(() => { c[k] = v; }))));
+  p.append(g);
+  if (c.contexto) p.append(field('Contexto', textInput(c.contexto, set('contexto'), { area: true })));
+  if (c.lineas && c.lineas.length) {
+    p.append(el('div', { class: 'hint' }, 'Renglones donde se escribe (de arriba abajo):'));
+    c.lineas.forEach((l, i) => {
+      const g2 = el('div', { class: 'grid4' });
+      for (const k of ['x', 'y', 'ancho', 'alto']) g2.append(numInput(l[k], v => mutate(() => { l[k] = v; })));
+      p.append(g2);
+    });
+  }
+  p.append(reviewedRow(c), el('div', { class: 'btns' },
+    el('button', { onclick: () => duplicateSelected() }, 'Duplicar'),
+    el('button', { class: 'danger', onclick: () => deleteSelected() }, 'Eliminar')));
+}
+function propsTabla(p, t) {
+  p.append(el('h3', {}, 'Tabla · ' + t.id), el('div', { class: 'hint' }, 'Una fila por registro. Haz clic en una columna del PDF para elegirla. En «Conectar con», una columna de lista usa «lista[].campo» (ej. accesorios.union[].cantidad): cada elemento de la lista llena una fila.'));
+  p.append(
+    field('Nombre (id)', textInput(t.id, v => mutate(() => { t.id = v.trim(); S.sel.id = t.id; }))),
+    field('Etiqueta', textInput(t.etiqueta, v => mutate(() => { t.etiqueta = v; }))));
+  const avg = t.filas.length ? t.filas.reduce((a, f) => a + f.alto, 0) / t.filas.length : 12;
+  const regen = (n, alto, y0) => mutate(() => { t.filas = Array.from({ length: n }, (_, i) => ({ y: round(y0 + i * alto, 0.01), alto })); refitTable(t); });
+  const rowsBox = el('div', { class: 'grid4' },
+    el('div', {}, el('span', {}, 'Filas'), numInput(t.filas.length, v => regen(Math.max(1, Math.round(v)), avg, t.filas[0]?.y ?? t.y), 1, 1)),
+    el('div', {}, el('span', {}, 'Alto fila'), numInput(avg, v => regen(t.filas.length, v, t.filas[0]?.y ?? t.y), 0.1, 3)),
+    el('div', {}, el('span', {}, 'Y inicial'), numInput(t.filas[0]?.y ?? t.y, v => regen(t.filas.length, avg, v))),
+    el('div', {}, el('span', {}, 'X'), numInput(t.x, v => mutate(() => { const d = v - t.x; t.columnas.forEach(c => c.x += d); refitTable(t); }))));
+  p.append(rowsBox);
+  p.append(el('div', { class: 'colrow colhead' }, 'Columna (id)', 'Conectar con', 'X', 'Ancho'));
+  t.columnas.forEach((c, i) => {
+    const row = el('div', { class: 'colrow' + (S.sel.col === i ? ' sel' : ''), onclick: e => { if (e.target.tagName !== 'INPUT') { S.sel.col = i; renderAll(); } } },
+      textInput(c.id, v => mutate(() => { c.id = v.trim(); })),
+      textInput(c.fuente, v => mutate(() => { c.fuente = v; }), { list: 'fuentes' }),
+      numInput(c.x, v => mutate(() => { c.x = v; refitTable(t); })),
+      numInput(c.ancho, v => mutate(() => { c.ancho = v; refitTable(t); })));
+    p.append(row);
+    if (S.sel.col === i) {
+      p.append(field('Etiqueta', textInput(c.etiqueta, v => mutate(() => { c.etiqueta = v; }))),
+        field('Tipo', selectInput(TIPOS, c.tipo, v => mutate(() => { c.tipo = v; }))),
+        field('Alineación', selectInput(ALINEACIONES, c.alineacion, v => mutate(() => { c.alineacion = v; }))),
+        field('Tamaño letra', numInput(c.tamanoFuente, v => mutate(() => { c.tamanoFuente = v; }), 0.5, 4)),
+        field('Texto previo', textInput(c.prefijo || '', v => mutate(() => { c.prefijo = v || undefined; }))),
+        el('div', { class: 'btns' },
+          el('button', { onclick: () => mutate(() => { const n = JSON.parse(JSON.stringify(c)); n.x = c.x + c.ancho; n.id = c.id + '_2'; t.columnas.splice(i + 1, 0, n); refitTable(t); S.sel.col = i + 1; }) }, '＋ Columna a la derecha'),
+          el('button', { class: 'danger', onclick: () => mutate(() => { if (t.columnas.length > 1) { t.columnas.splice(i, 1); S.sel.col = Math.max(0, i - 1); refitTable(t); } }) }, 'Quitar columna')));
+    }
+  });
+  p.append(reviewedRow(t), el('div', { class: 'btns' }, el('button', { class: 'danger', onclick: () => deleteSelected() }, 'Eliminar tabla')));
+}
+
+// ───────────────────────── Lista ─────────────────────────
+function listItems() {
+  const q = $('#filter').value.trim().toLowerCase(), pend = $('#onlyPending').checked;
+  const out = [];
+  for (const t of S.map.tablas) out.push({ kind: 'tabla', it: t, st: t.revisado ? 'ok' : 'auto', tp: 'tabla', y: t.y, x: t.x, p: t.pagina });
+  for (const c of S.map.campos) out.push({ kind: 'campo', it: c, st: status(c), tp: c.tipo, y: c.y, x: c.x, p: c.pagina });
+  return out.filter(o => (!pend || !o.it.revisado) && (!q || (o.it.id + ' ' + (o.it.etiqueta || '')).toLowerCase().includes(q)))
+    .sort((a, b) => a.p - b.p || (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x));
+}
+function renderList() {
+  const list = $('#list'); list.replaceChildren();
+  if (!S.map) { $('#summary').textContent = ''; return; }
+  const all = [...S.map.campos, ...S.map.tablas], ok = all.filter(i => i.revisado).length;
+  const unlinked = S.map.campos.filter(c => !c.fuente).length;
+  $('#summary').textContent = `Revisados ${ok}/${all.length} · ${S.map.tablas.length} tablas · ${S.dupIds.size ? S.dupIds.size + ' nombres repetidos' : 'sin nombres repetidos'} · ${unlinked} campos sin conectar`;
+  for (const o of listItems()) {
+    const isSel = S.sel && S.sel.kind === o.kind && S.sel.id === o.it.id;
+    list.append(el('div', { class: 'item ' + o.st + (isSel ? ' sel' : ''), 'data-k': o.kind, 'data-id': o.it.id, onclick: () => selectItem(o.kind, o.it.id, true) },
+      el('span', { class: 'dot' }), el('span', { class: 'id' }, o.it.id), el('span', { class: 'tp' }, o.tp + (o.p > 1 ? ' · p' + o.p : '')),
+      el('span', { class: 'et' }, o.it.etiqueta || '')));
+  }
+  const s = $('.item.sel', list); if (s) s.scrollIntoView({ block: 'nearest' });
+}
+
+// ───────────────────────── Selección y acciones ─────────────────────────
+function selectItem(kind, id, scroll) {
+  const it = kind === 'campo' ? findCampo(id) : findTabla(id); if (!it) return;
+  S.sel = { kind, id, col: kind === 'tabla' ? 0 : undefined };
+  if (it.pagina !== S.pageNo) { S.pageNo = it.pagina; renderAll(); } else renderAll(false);
+  if (scroll) { const wrap = $('#stageWrap'), top = it.y * S.zoom - wrap.clientHeight / 3, left = it.x * S.zoom - wrap.clientWidth / 3; wrap.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: 'smooth' }); }
+}
+function deleteSelected() {
+  const it = selected(); if (!it) return;
+  mutate(() => { if (S.sel.kind === 'campo') S.map.campos = S.map.campos.filter(c => c !== it); else S.map.tablas = S.map.tablas.filter(t => t !== it); S.sel = null; });
+}
+function duplicateSelected() {
+  const it = selected(); if (!it || S.sel.kind !== 'campo') return;
+  mutate(() => { const n = JSON.parse(JSON.stringify(it)); n.id = it.id + '_copia'; n.y = it.y + it.alto + 2; n.origen = 'manual'; n.revisado = false; S.map.campos.push(n); S.sel = { kind: 'campo', id: n.id }; });
+}
+function nextPending(dir = 1) {
+  const items = listItems();
+  if (!items.some(o => !o.it.revisado)) { toast('No quedan elementos pendientes'); return; }
+  let idx = S.sel ? items.findIndex(o => o.kind === S.sel.kind && o.it.id === S.sel.id) : -1;
+  if (idx < 0) idx = dir > 0 ? -1 : 0;
+  for (let step = 1; step <= items.length; step++) {
+    const o = items[((idx + dir * step) % items.length + items.length) % items.length];
+    if (!o.it.revisado) { selectItem(o.kind, o.it.id, true); return; }
+  }
+}
+function bulkRename() {
+  if (!S.map) return;
+  const items = listItems(); if (!items.length) return;
+  const find = prompt('Buscar en los nombres de la lista (' + items.length + ' elementos a la vista):'); if (!find) return;
+  const rep = prompt('Reemplazar "' + find + '" por:', ''); if (rep === null) return;
+  const hits = items.filter(o => o.it.id.includes(find));
+  if (!hits.length) { toast('Ningún nombre contiene "' + find + '"'); return; }
+  if (!confirm('Se cambiará el nombre de ' + hits.length + ' elementos. ¿Continuar?')) return;
+  mutate(() => { hits.forEach(o => { const old = o.it.id; o.it.id = old.split(find).join(rep); if (S.sel && S.sel.kind === o.kind && S.sel.id === old) S.sel.id = o.it.id; }); });
+}
+function nudge(dx, dy) {
+  const it = selected(); if (!it) return;
+  mutate(() => {
+    if (S.sel.kind === 'campo') { it.x += dx; it.y += dy; if (it.lineas) it.lineas.forEach(l => { l.x += dx; l.y += dy; }); }
+    else { it.columnas.forEach(c => c.x += dx); it.filas.forEach(f => f.y += dy); refitTable(it); }
+  });
+}
+
+// ───────────────────────── Ratón sobre el PDF ─────────────────────────
+let drag = null;
+function pt(e) { const r = $('#stage').getBoundingClientRect(); return { x: (e.clientX - r.left) / S.zoom, y: (e.clientY - r.top) / S.zoom }; }
+$('#stage').addEventListener('pointerdown', e => {
+  if (!S.map || e.button !== 0) return;
+  const p = pt(e);
+  if (S.tool !== 'select') { drag = { mode: 'draw', x0: p.x, y0: p.y, rect: el('div', { id: 'rubber' }) }; $('#overlay').append(drag.rect); $('#stage').setPointerCapture(e.pointerId); e.preventDefault(); return; }
+  const handle = e.target.closest('.h'), box = e.target.closest('.box'), tab = e.target.closest('.tab'), cl = e.target.closest('.cl'), rw = e.target.closest('.rw');
+  if (handle && box) { const c = findCampo(box.dataset.id); drag = { mode: 'resize', h: handle.dataset.h, c, start: p, orig: { x: c.x, y: c.y, w: c.ancho, hh: c.alto, ln: c.lineas ? JSON.parse(JSON.stringify(c.lineas)) : null }, before: snap(), moved: false }; $('#stage').setPointerCapture(e.pointerId); e.preventDefault(); return; }
+  if (box) { selectItem('campo', box.dataset.id); const c = findCampo(box.dataset.id); drag = { mode: 'move', c, start: p, orig: { x: c.x, y: c.y, ln: c.lineas ? JSON.parse(JSON.stringify(c.lineas)) : null }, before: snap(), moved: false }; $('#stage').setPointerCapture(e.pointerId); e.preventDefault(); return; }
+  if (tab) { const t = findTabla(tab.dataset.grab); selectItem('tabla', t.id); drag = { mode: 'movetable', t, start: p, orig: { cols: t.columnas.map(c => c.x), rows: t.filas.map(f => f.y) }, before: snap(), moved: false }; $('#stage').setPointerCapture(e.pointerId); e.preventDefault(); return; }
+  if (cl || rw) { const tid = (cl || rw).dataset.tid; const t = findTabla(tid); S.sel = { kind: 'tabla', id: tid, col: cl ? +cl.dataset.col : (S.sel && S.sel.id === tid ? S.sel.col : 0) }; renderAll(false); return; }
+  S.sel = null; renderAll(false);
+});
+$('#stage').addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = pt(e);
+  if (drag.mode === 'draw') {
+    const x = Math.min(drag.x0, p.x), y = Math.min(drag.y0, p.y), w = Math.abs(p.x - drag.x0), h = Math.abs(p.y - drag.y0);
+    Object.assign(drag.rect.style, { left: px(x), top: px(y), width: px(w), height: px(h) }); return;
+  }
+  const dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+  if (!drag.moved && Math.hypot(dx, dy) * S.zoom < 3) return;
+  drag.moved = true;
+  if (drag.mode === 'move') {
+    const c = drag.c; c.x = round(drag.orig.x + dx); c.y = round(drag.orig.y + dy);
+    if (c.lineas) c.lineas.forEach((l, i) => { l.x = drag.orig.ln[i].x + (c.x - drag.orig.x); l.y = drag.orig.ln[i].y + (c.y - drag.orig.y); });
+  } else if (drag.mode === 'resize') {
+    const c = drag.c, o = drag.orig, h = drag.h; let x = o.x, y = o.y, w = o.w, hh = o.hh;
+    if (h.includes('e')) w = Math.max(2, o.w + dx); if (h.includes('s')) hh = Math.max(2, o.hh + dy);
+    if (h.includes('w')) { w = Math.max(2, o.w - dx); x = o.x + o.w - w; } if (h.includes('n')) { hh = Math.max(2, o.hh - dy); y = o.y + o.hh - hh; }
+    c.x = round(x); c.y = round(y); c.ancho = round(w); c.alto = round(hh);
+  } else if (drag.mode === 'movetable') {
+    const t = drag.t, ddx = round(dx), ddy = round(dy);
+    t.columnas.forEach((c, i) => c.x = drag.orig.cols[i] + ddx); t.filas.forEach((f, i) => f.y = drag.orig.rows[i] + ddy); refitTable(t);
+  }
+  drawOverlay();
+});
+$('#stage').addEventListener('pointerup', e => {
+  if (!drag) return; const d = drag; drag = null;
+  if (d.mode === 'draw') {
+    d.rect.remove(); const p = pt(e);
+    const x = round(Math.min(d.x0, p.x)), y = round(Math.min(d.y0, p.y)), w = round(Math.abs(p.x - d.x0)), h = round(Math.abs(p.y - d.y0));
+    const tool = S.tool; setTool('select');
+    if (w < 4 || h < 4) return;
+    if (tool === 'campo') mutate(() => {
+      let n = 1; while (findCampo('campo_' + n)) n++;
+      S.map.campos.push({ id: 'campo_' + n, etiqueta: '', tipo: 'texto', pagina: S.pageNo, x, y, ancho: w, alto: h, alineacion: 'centro', tamanoFuente: Math.max(6, Math.min(10, +(h * 0.62).toFixed(1))), fuente: '', origen: 'manual', confianza: 1, revisado: false });
+      S.sel = { kind: 'campo', id: 'campo_' + n };
+    });
+    else {
+      const ans = prompt('¿Cuántas columnas y filas? (ej. 4,10)', '4,10'); if (!ans) return;
+      const [nc, nr] = ans.split(/[,x; ]+/).map(v => parseInt(v, 10)); if (!(nc > 0 && nr > 0)) return;
+      mutate(() => {
+        let n = 1; while (findTabla('tabla_' + n)) n++;
+        const t = { id: 'tabla_' + n, etiqueta: '', pagina: S.pageNo, x, y, ancho: w, alto: h, origen: 'manual', revisado: false,
+          columnas: Array.from({ length: nc }, (_, i) => ({ id: 'columna_' + (i + 1), etiqueta: '', tipo: 'texto', x: x + i * w / nc, ancho: w / nc, alineacion: 'centro', tamanoFuente: 8, fuente: '' })),
+          filas: Array.from({ length: nr }, (_, i) => ({ y: y + i * h / nr, alto: h / nr })) };
+        S.map.tablas.push(t); S.sel = { kind: 'tabla', id: t.id, col: 0 };
+      });
+    }
+    return;
+  }
+  if (d.moved) { pushUndo(d.before); computeDups(); markDirty(); }
+  renderAll(false);
+});
+
+// ───────────────────────── Teclado ─────────────────────────
+document.addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { if (typing) return; e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { if (typing) return; e.preventDefault(); redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { if (typing) return; e.preventDefault(); duplicateSelected(); return; }
+  if (e.key === 'Enter' && typing && document.activeElement.tagName === 'INPUT' && document.activeElement.id !== 'filter') { document.activeElement.blur(); return; }
+  if (typing || !S.map) return;
+  const step = e.shiftKey ? 2 : 0.5;
+  if (e.key === 'Enter') { e.preventDefault(); const it = selected(); if (it && !it.revisado) mutate(() => { it.revisado = true; }); nextPending(e.shiftKey ? -1 : 1); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); nudge(-step, 0); } else if (e.key === 'ArrowRight') { e.preventDefault(); nudge(step, 0); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); nudge(0, -step); } else if (e.key === 'ArrowDown') { e.preventDefault(); nudge(0, step); }
+  else if (e.key.toLowerCase() === 'r') { const it = selected(); if (it) mutate(() => { it.revisado = !it.revisado; }); }
+  else if (e.key.toLowerCase() === 'n') setTool(S.tool === 'campo' ? 'select' : 'campo');
+  else if (e.key.toLowerCase() === 't') setTool(S.tool === 'tabla' ? 'select' : 'tabla');
+  else if (e.key === 'Escape') { setTool('select'); S.sel = null; renderAll(false); }
+});
+
+// ───────────────────────── Barra y render general ─────────────────────────
+function setTool(t) { S.tool = t; $('#toolCampo').classList.toggle('on', t === 'campo'); $('#toolTabla').classList.toggle('on', t === 'tabla'); document.body.classList.toggle('drawing', t !== 'select'); }
+function updateBar() {
+  $('#title').textContent = S.map ? S.map.codigo + ' · ' + (S.map.nombre || '') : 'Mapeo de formatos';
+  $('#status').textContent = S.map ? (S.dirty ? '● cambios sin guardar' : '✓ guardado') : '';
+  $('#zoomLbl').textContent = Math.round(S.zoom * 100) + '%';
+  const pages = S.map ? S.map.paginas.length : 0; $('#pager').style.display = pages > 1 ? '' : 'none'; $('#pgNo').textContent = S.pageNo; $('#pgTot').textContent = pages;
+  $('#btnUndo').disabled = !S.undo.length; $('#btnRedo').disabled = !S.redo.length; $('#btnSave').disabled = !S.map;
+  document.title = (S.dirty ? '● ' : '') + (S.map ? S.map.codigo + ' · ' : '') + 'Mapeo de formatos';
+}
+function updateDatalist() {
+  const keys = new Set(KNOWN_KEYS);
+  if (S.map) { S.map.campos.forEach(c => c.fuente && keys.add(c.fuente)); S.map.tablas.forEach(t => t.columnas.forEach(c => c.fuente && keys.add(c.fuente))); }
+  $('#fuentes').replaceChildren(...[...keys].sort().map(k => el('option', { value: k })));
+}
+async function renderAll(pdfToo = true) {
+  updateBar(); updateDatalist();
+  if (pdfToo) await renderPdfPage(); else { const info = pageInfo(); if (info) { $('#stage').style.width = info.ancho * S.zoom + 'px'; $('#stage').style.height = info.alto * S.zoom + 'px'; } }
+  drawOverlay();
+  if (!(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && $('#props').contains(document.activeElement))) renderProps();
+  renderList();
+}
+
+$('#btnPdf').onclick = () => $('#filePdf').click();
+$('#btnMap').onclick = () => $('#fileMap').click();
+$('#filePdf').onchange = e => { if (e.target.files[0]) handleFiles([e.target.files[0]]); e.target.value = ''; };
+$('#fileMap').onchange = e => { if (e.target.files[0]) handleFiles([e.target.files[0]]); e.target.value = ''; };
+$('#btnSave').onclick = save; $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
+$('#toolCampo').onclick = () => setTool(S.tool === 'campo' ? 'select' : 'campo');
+$('#toolTabla').onclick = () => setTool(S.tool === 'tabla' ? 'select' : 'tabla');
+$('#btnNames').onclick = e => { document.body.classList.toggle('names'); e.currentTarget.classList.toggle('on', document.body.classList.contains('names')); };
+$('#btnPreview').onclick = e => { S.preview = !S.preview; e.currentTarget.classList.toggle('on', S.preview); drawOverlay(); };
+$('#zoomIn').onclick = () => { S.zoom = Math.min(4, S.zoom * 1.15); renderAll(); };
+$('#zoomOut').onclick = () => { S.zoom = Math.max(0.4, S.zoom / 1.15); renderAll(); };
+$('#pgPrev').onclick = () => { if (S.pageNo > 1) { S.pageNo--; renderAll(); } };
+$('#pgNext').onclick = () => { if (S.map && S.pageNo < S.map.paginas.length) { S.pageNo++; renderAll(); } };
+$('#filter').oninput = renderList; $('#onlyPending').onchange = renderList;
+$('#btnNext').onclick = () => nextPending(1);
+$('#btnRename').onclick = bulkRename;
+$('#btnAllOk').onclick = () => { if (!S.map) return; const items = listItems().filter(o => !o.it.revisado); if (!items.length) return; if (confirm('¿Marcar como revisados los ' + items.length + ' elementos de la lista?')) mutate(() => items.forEach(o => { o.it.revisado = true; })); };
+$('#stageWrap').addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); S.zoom = Math.max(0.4, Math.min(4, S.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1))); renderAll(); }, { passive: false });
+['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); document.body.classList.add('drop'); }));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop' || e.target === document.documentElement) document.body.classList.remove('drop'); }));
+document.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) handleFiles([...e.dataTransfer.files]); });
+window.addEventListener('beforeunload', e => { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+setTool('select'); updateBar(); renderAll(); initRepoList();
+const qs = new URLSearchParams(location.search);
+if (qs.get('pdf')) loadFromUrls(qs.get('pdf'), qs.get('mapa')).catch(err => toast('No se pudo abrir: ' + err.message, 6000));
+</script>
+</body>
+</html>
