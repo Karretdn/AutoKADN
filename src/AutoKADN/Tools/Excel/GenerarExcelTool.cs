@@ -199,6 +199,67 @@ public sealed class GenerarExcelTool
         catch (Exception ex) { editor.WriteMessage("\nError generando Excel: " + ex.Message + "\n"); }
     }
 
+    // Consolidado de TODO el proyecto (sin separar por UC) para el informe final de obra civil: mismos escaneos
+    // que el Excel de legalización. El material de prueba va aparte del del proyecto.
+    internal static ProjectSummary BuildProjectSummary(Database database)
+    {
+        var summary = new ProjectSummary();
+        // Además del total, se guarda por anillo ("ANILLO n" / "TRONCAL") para el formato de totales de tubería.
+        Dictionary<UcKey, double> ucPipeTotals = ScanUcs(database, (layout, uc, ml) => { summary.AddRingPipe(RingKey(layout), uc, ml); summary.AddRingCota(RingKey(layout), uc, ml); });
+        Dictionary<UcKey, Dictionary<MaterialKey, double>> project = ScanAccessories(database);
+        MergeMaterialQuantities(project, ScanSpiral(database, (layout, uc, ml) => { summary.AddRingPipe(RingKey(layout), uc, ml); summary.AddRingSpiral(RingKey(layout), uc, ml); }));
+        MergeMaterialQuantities(project, ConvertUcTotalsToPipeMaterials(ucPipeTotals));
+        Dictionary<UcKey, Dictionary<MaterialKey, double>> tests = ScanMaterialTest(database, (layout, uc, ml) => summary.AddRingPipe(RingKey(layout), uc, ml));
+        ScanActivities(database, (layout, label, uc, ml) =>
+        {
+            summary.AddRingActivity(RingKey(layout), label, ml);
+            // Camisa y cruce con topo no se excavan: se restan del ML de excavación de ese anillo, diámetro y terreno.
+            string normalized = label.Trim().ToUpperInvariant();
+            if (normalized == "CAMISA" || normalized == "CRUCE CON TOPO") summary.AddRingExcluded(RingKey(layout), uc, ml);
+        });
+
+        foreach (KeyValuePair<UcKey, Dictionary<MaterialKey, double>> uc in project)
+            foreach (KeyValuePair<MaterialKey, double> material in uc.Value) summary.AddProject(material.Key.Description, material.Key.Diameter, material.Value);
+        foreach (KeyValuePair<UcKey, Dictionary<MaterialKey, double>> uc in tests)
+            foreach (KeyValuePair<MaterialKey, double> material in uc.Value) summary.AddTest(material.Key.Description, material.Key.Diameter, material.Value);
+        CountRings(database, summary);
+        return summary;
+    }
+
+    // "ANILLO 3 UC" / "ANILLO 3 DETALLE" -> "ANILLO 3"; "TRONCAL UC" -> "TRONCAL".
+    private static string RingKey(string layoutName)
+    {
+        return Regex.Replace(layoutName.Trim(), @"\s+(UC|DETALLE)$", string.Empty, RegexOptions.IgnoreCase).ToUpperInvariant();
+    }
+
+    // Anillos = layouts "ANILLO n DETALLE"; por diámetro = layouts "ANILLO n UC" que traen cotas de ese diámetro.
+    private static void CountRings(Database database, ProjectSummary summary)
+    {
+        using (Transaction transaction = database.TransactionManager.StartTransaction())
+        {
+            DBDictionary layouts = (DBDictionary)transaction.GetObject(database.LayoutDictionaryId, OpenMode.ForRead);
+            foreach (DBDictionaryEntry entry in layouts)
+            {
+                Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
+                if (layout == null) continue;
+                string name = layout.LayoutName.Trim();
+                if (Regex.IsMatch(name, @"^ANILLO\s+\d+\s+DETALLE$", RegexOptions.IgnoreCase)) { summary.RingDetailLayouts++; continue; }
+                if (!Regex.IsMatch(name, @"^ANILLO\s+\d+\s+UC$", RegexOptions.IgnoreCase)) continue;
+                var diameters = new HashSet<string>();
+                BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                foreach (ObjectId objectId in space)
+                {
+                    Dimension dimension = transaction.GetObject(objectId, OpenMode.ForRead) as Dimension;
+                    if (dimension == null) continue;
+                    string diameter = GetUcDiameter(dimension.Layer);
+                    if (diameter != null) diameters.Add(diameter);
+                }
+                foreach (string diameter in diameters) summary.AddRing(diameter);
+            }
+            transaction.Commit();
+        }
+    }
+
     private static string SelectTemplatePath(Editor editor)
     {
         PromptOpenFileOptions options = new PromptOpenFileOptions("\nSeleccione la plantilla Excel base: ") { Filter = "Excel (*.xlsx)|*.xlsx", DialogCaption = "Seleccionar plantilla Excel base", PreferCommandLine = false };
@@ -208,7 +269,7 @@ public sealed class GenerarExcelTool
         return File.Exists(path) ? Path.GetFullPath(path) : null;
     }
 
-    private static Dictionary<UcKey, double> ScanUcs(Database database)
+    private static Dictionary<UcKey, double> ScanUcs(Database database, Action<string, UcKey, double> onValue = null)
     {
         var totals = new Dictionary<UcKey, double>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -233,6 +294,7 @@ public sealed class GenerarExcelTool
                     double current;
                     totals.TryGetValue(uc, out current);
                     totals[uc] = current + Math.Abs(value);
+                    if (onValue != null) onValue(layout.LayoutName.Trim(), uc, Math.Abs(value));
                 }
             }
             transaction.Commit();
@@ -301,7 +363,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanSpiral(Database database)
+    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanSpiral(Database database, Action<string, UcKey, double> onPipe = null)
     {
         var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -343,7 +405,11 @@ public sealed class GenerarExcelTool
                     if (string.IsNullOrWhiteSpace(surface)) continue;
                     UcKey uc = new UcKey("3/4", surface);
                     MaterialSpec material;
-                    if (pipe > 0.0 && TryGetMaterialSpec("TUBERIA", "3/4", out material)) AddMaterialQuantity(result, uc, material, "ML", Math.Abs(pipe));
+                    if (pipe > 0.0 && TryGetMaterialSpec("TUBERIA", "3/4", out material))
+                    {
+                        AddMaterialQuantity(result, uc, material, "ML", Math.Abs(pipe));
+                        if (onPipe != null) onPipe(layout.LayoutName.Trim(), uc, Math.Abs(pipe));
+                    }
                     if (unions > 0.0 && TryGetMaterialSpec("UNION", "3/4", out material)) AddMaterialQuantity(result, uc, material, "UND", Math.Abs(unions));
                     if (tees > 0.0 && TryGetMaterialSpec("TEE", "3/4", out material)) AddMaterialQuantity(result, uc, material, "UND", Math.Abs(tees));
                     // VALVULA y SILLETA del ESPIRAL NO se suman aquí: ya se cuentan como material físico
@@ -356,7 +422,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<UcKey, ActivityAgg> ScanActivities(Database database)
+    private static Dictionary<UcKey, ActivityAgg> ScanActivities(Database database, Action<string, string, UcKey, double> onActivity = null)
     {
         var result = new Dictionary<UcKey, ActivityAgg>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -402,6 +468,7 @@ public sealed class GenerarExcelTool
                         ActivityAgg agg;
                         if (!result.TryGetValue(key, out agg)) { agg = new ActivityAgg(); result[key] = agg; }
                         agg.Add(label, Math.Abs(quantity));
+                        if (onActivity != null) onActivity(layout.LayoutName.Trim(), label, key, Math.Abs(quantity));
                     }
                 }
             }
@@ -410,7 +477,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanMaterialTest(Database database)
+    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanMaterialTest(Database database, Action<string, UcKey, double> onPipe = null)
     {
         var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -445,7 +512,12 @@ public sealed class GenerarExcelTool
                         if (TryGetMaterialSpec(description, diameter, out material))
                         {
                             string normalizedUcDiameter = NormalizeDiameter(ucDiameter);
-                            if (normalizedUcDiameter == "1/2" || normalizedUcDiameter == "3/4") AddMaterialQuantity(result, new UcKey(normalizedUcDiameter, NormalizeSurface(surface)), material, unit, Math.Abs(quantity));
+                            if (normalizedUcDiameter == "1/2" || normalizedUcDiameter == "3/4")
+                            {
+                                AddMaterialQuantity(result, new UcKey(normalizedUcDiameter, NormalizeSurface(surface)), material, unit, Math.Abs(quantity));
+                                if (onPipe != null && string.Equals(material.Description, "TUBERIA", StringComparison.OrdinalIgnoreCase))
+                                    onPipe(layout.LayoutName.Trim(), new UcKey(normalizedUcDiameter, NormalizeSurface(surface)), Math.Abs(quantity));
+                            }
                         }
                         index += 6;
                     }
