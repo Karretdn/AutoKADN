@@ -12,20 +12,23 @@ namespace AutoKADN.Tools.Layouts;
 // fijo de la plantilla (coordenadas de papel): en el UC queda 9.75 más arriba que en el DETALLE,
 // así que el clon es solo un desplazamiento vertical. Solo en el clon (el DETALLE no se toca):
 // las cotas de longitud (COTA_x) pasan a cotas UC (capa UC_x + XData UC_SURFACE con terreno por
-// defecto) y las demás cotas (magenta, etc.) y lo que lleva XData AUTOKADN (bloques Mat, material
-// de prueba, espiral, actividades) no se copian: eso vive únicamente en DETALLE.
+// defecto) y las demás cotas (magenta, etc.) y lo que lleva XData AUTOKADN (material de prueba,
+// espiral, actividades) no se copian: eso vive únicamente en DETALLE. De los bloques de la capa Mat
+// solo se clonan tapones, válvulas y silletas, sin XData (solo valor visual: en el UC no se cuentan).
 public sealed class ClonarUcTool
 {
     private const string DefaultSurface = "ZONA VERDE";
-    private const double FrameMinX = 4.50;
-    private const double FrameMaxX = 210.99;
-    private const double DetalleFrameMinY = 92.22;
-    private const double DetalleFrameMaxY = 224.02;
-    private const double UcFrameMinY = 101.97;
-    private const double UcFrameMaxY = 233.77;
+    internal const double FrameMinX = 4.50;
+    internal const double FrameMaxX = 210.99;
+    internal const double DetalleFrameMinY = 92.22;
+    internal const double DetalleFrameMaxY = 224.02;
+    internal const double UcFrameMinY = 101.97;
+    internal const double UcFrameMaxY = 233.77;
     // Los bordes del marco quedan justo en el límite; el margen los deja fuera de la selección.
     private const double FrameInset = 0.05;
     private const string XDataAppName = "AUTOKADN";
+    private const string MaterialBlocksLayer = "Mat";
+    private static readonly string[] VisualMaterialNames = { "TAPON", "VALVULA", "SILLETA" };
 
     private static readonly string[] TitleBlockLayers = { "MARQUILLA", "Logo", "Textos" };
     private static readonly Regex DetailPattern = new Regex(@"^(?:ANILLO\s+(\d+)|(TRONCAL))\s+DETALLE$", RegexOptions.IgnoreCase);
@@ -77,6 +80,7 @@ public sealed class ClonarUcTool
         var toClone = new ObjectIdCollection();
         var ucLayerBySource = new Dictionary<ObjectId, ObjectId>();
         var missingUcLayers = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visualBlocks = new HashSet<ObjectId>();
         int omitted = 0;
         foreach (ObjectId id in source)
         {
@@ -89,6 +93,15 @@ public sealed class ClonarUcTool
                 if (ucLayerName is null) { omitted++; continue; }
                 if (!layerTable.Has(ucLayerName)) { missingUcLayers.Add(ucLayerName); continue; }
                 ucLayerBySource[id] = layerTable[ucLayerName];
+                toClone.Add(id);
+                continue;
+            }
+
+            // Bloques de material (capa Mat): solo tapones, válvulas y silletas, y únicamente como dibujo.
+            if (entity is BlockReference block && string.Equals(block.Layer, MaterialBlocksLayer, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!IsVisualMaterialBlock(transaction, block)) { omitted++; continue; }
+                visualBlocks.Add(id);
                 toClone.Add(id);
                 continue;
             }
@@ -135,6 +148,12 @@ public sealed class ClonarUcTool
             clone.TransformBy(move);
             cloned++;
 
+            if (visualBlocks.Contains(pair.Key))
+            {
+                // Solo valor visual: sin XData el clon no se cuenta como material en el UC.
+                clone.XData = new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName));
+            }
+
             if (clone is Dimension dimension && ucLayerBySource.TryGetValue(pair.Key, out ObjectId ucLayerId))
             {
                 dimension.LayerId = ucLayerId;
@@ -171,9 +190,13 @@ public sealed class ClonarUcTool
         return int.Parse(detail.Groups[1].Value) == int.Parse(uc.Groups[1].Value);
     }
 
+    // El rectángulo del área de dibujo (polilínea cerrada que coincide con el marco) es parte del formato:
+    // su extensión es el marco entero, no algo dibujado dentro.
+    private const double FrameMatchTolerance = 0.5;
+
     // Un objeto está "dentro del marco" si el centro de su extensión cae dentro (los bordes del marco
-    // y el membrete quedan fuera) y no es el viewport general ni parte del membrete.
-    private static bool IsInsideFrame(Entity entity, double frameMinY, double frameMaxY)
+    // y el membrete quedan fuera) y no es el viewport general, parte del membrete ni el rectángulo del marco.
+    internal static bool IsInsideFrame(Entity entity, double frameMinY, double frameMaxY)
     {
         if (entity is Viewport) return false;
         if (Array.Exists(TitleBlockLayers, x => string.Equals(x, entity.Layer, StringComparison.OrdinalIgnoreCase))) return false;
@@ -181,6 +204,12 @@ public sealed class ClonarUcTool
         Extents3d extents;
         try { extents = entity.GeometricExtents; }
         catch (Autodesk.AutoCAD.Runtime.Exception) { return false; }
+
+        bool isFrameRectangle = Math.Abs(extents.MinPoint.X - FrameMinX) <= FrameMatchTolerance
+            && Math.Abs(extents.MaxPoint.X - FrameMaxX) <= FrameMatchTolerance
+            && Math.Abs(extents.MinPoint.Y - frameMinY) <= FrameMatchTolerance
+            && Math.Abs(extents.MaxPoint.Y - frameMaxY) <= FrameMatchTolerance;
+        if (isFrameRectangle) return false;
 
         double centerX = (extents.MinPoint.X + extents.MaxPoint.X) / 2.0;
         double centerY = (extents.MinPoint.Y + extents.MaxPoint.Y) / 2.0;
@@ -198,7 +227,29 @@ public sealed class ClonarUcTool
         return Naming.UcLayerDiameters.ContainsKey(ucLayerName) ? ucLayerName : null;
     }
 
-    private static bool HasDetalleXData(Entity entity)
+    // Tapón, válvula o silleta (el nombre de la definición del bloque, sin acentos ni mayúsculas).
+    private static bool IsVisualMaterialBlock(Transaction transaction, BlockReference block)
+    {
+        ObjectId definitionId = block.BlockTableRecord;
+        if (block.IsDynamicBlock && !block.DynamicBlockTableRecord.IsNull) definitionId = block.DynamicBlockTableRecord;
+        if (transaction.GetObject(definitionId, OpenMode.ForRead) is not BlockTableRecord definition) return false;
+
+        string name = RemoveDiacritics(definition.Name).ToUpperInvariant();
+        return Array.Exists(VisualMaterialNames, x => name.Contains(x));
+    }
+
+    private static string RemoveDiacritics(string text)
+    {
+        string decomposed = text.Normalize(System.Text.NormalizationForm.FormD);
+        var builder = new System.Text.StringBuilder(decomposed.Length);
+        foreach (char c in decomposed)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark) builder.Append(c);
+        }
+        return builder.ToString();
+    }
+
+    internal static bool HasDetalleXData(Entity entity)
     {
         using ResultBuffer? xdata = entity.GetXDataForApplication(XDataAppName);
         return xdata is not null;
