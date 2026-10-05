@@ -1,0 +1,1012 @@
+{
+  "version": 1,
+  "codigo": "FT-O-117",
+  "nombre": "FT-O-117 INFORME FINAL OBRAL CIVIL",
+  "archivoPdf": "FT-O-117 INFORME FINAL OBRAL CIVIL.pdf",
+  "generado": "2026-10-05T11:44:17",
+  "notas": [
+    "Página 1: el PDF no trae texto real; los rótulos se leyeron con OCR y pueden tener errores."
+  ],
+  "paginas": [
+    {
+      "numero": 1,
+      "ancho": 612,
+      "alto": 792
+    }
+  ],
+  "campos": [
+    {
+      "id": "interventor",
+      "etiqueta": "INTERVENTOR",
+      "tipo": "texto",
+      "pagina": 1,
+      "x": 225.49,
+      "y": 86.2,
+      "ancho": 296.05,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "interventor",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "no_orden_de_trabajo",
+      "etiqueta": "No. ORDEN DE TRABAJO",
+      "tipo": "texto",
+      "pagina": 1,
+      "x": 225.49,
+      "y": 98.53,
+      "ancho": 127.43,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "orden",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "localidad",
+      "etiqueta": "LOCALIDAD",
+      "tipo": "texto",
+      "pagina": 1,
+      "x": 409.34,
+      "y": 98.53,
+      "ancho": 112.19,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "localidad",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "direccion",
+      "etiqueta": "DIRECCIÓN",
+      "tipo": "texto",
+      "pagina": 1,
+      "x": 225.49,
+      "y": 110.86,
+      "ancho": 296.05,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "proyecto",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "fecha_de_inicio_obra",
+      "etiqueta": "FECHA DE INICIO OBRA",
+      "tipo": "fecha",
+      "pagina": 1,
+      "x": 225.49,
+      "y": 123.19,
+      "ancho": 88.09,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "fechaInicioObra",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "fecha_final_obra",
+      "etiqueta": "FECHA FINAL OBRA",
+      "tipo": "fecha",
+      "pagina": 1,
+      "x": 409.34,
+      "y": 123.19,
+      "ancho": 112.19,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "fechaFinalObra",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "fecha_recibo_de_obra",
+      "etiqueta": "FECHA RECIBO DE OBRA",
+      "tipo": "fecha",
+      "pagina": 1,
+      "x": 225.49,
+      "y": 135.52,
+      "ancho": 88.09,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "fechaFinalObra",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "contratista",
+      "etiqueta": "CONTRATISTA",
+      "tipo": "texto",
+      "pagina": 1,
+      "x": 409.34,
+      "y": 135.52,
+      "ancho": 112.19,
+      "alto": 12.33,
+      "alineacion": "centro",
+      "tamanoFuente": 7.6,
+      "fuente": "=ORLANDO DONADO Y CIA",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "numero_de_anillos.total",
+      "etiqueta": "NÚMERO DE ANILLOS › CANTIDAD",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 176.14,
+      "ancho": 56.43,
+      "alto": 23.5,
+      "alineacion": "centro",
+      "tamanoFuente": 10,
+      "fuente": "anillos.total",
+      "origen": "auto",
+      "confianza": 0.7,
+      "revisado": false
+    },
+    {
+      "id": "tuberia_de_anillos.total",
+      "etiqueta": "TUBERÍA DE ANILLOS › CANTIDAD",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 199.64,
+      "ancho": 56.43,
+      "alto": 23.49,
+      "alineacion": "centro",
+      "tamanoFuente": 10,
+      "fuente": "tuberia.anillos.total",
+      "origen": "auto",
+      "confianza": 0.7,
+      "revisado": false
+    },
+    {
+      "id": "tuberia_de_troncal.total",
+      "etiqueta": "TUBERÍA DE TRONCAL › CANTIDAD",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 223.12,
+      "ancho": 56.43,
+      "alto": 22.06,
+      "alineacion": "centro",
+      "tamanoFuente": 10,
+      "fuente": "tuberia.troncal.total",
+      "origen": "auto",
+      "confianza": 0.7,
+      "revisado": false
+    },
+    {
+      "id": "de_polivalvulas.cantidad",
+      "etiqueta": "DE POLIVALVULAS › CANTIDAD",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 245.19,
+      "ancho": 56.43,
+      "alto": 11.68,
+      "alineacion": "centro",
+      "tamanoFuente": 7.2,
+      "fuente": "polivalvulas.total",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "de_polivalvulas.diametro",
+      "etiqueta": "DE POLIVALVULAS › Diámetro del accesorio (Ø)",
+      "tipo": "texto",
+      "pagina": 1,
+      "x": 409.34,
+      "y": 245.19,
+      "ancho": 56.3,
+      "alto": 11.68,
+      "alineacion": "centro",
+      "tamanoFuente": 7.2,
+      "fuente": "polivalvulas[0].diametro",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false,
+      "prefijo": "Ø"
+    },
+    {
+      "id": "de_polivalvulas.d.cantidad",
+      "etiqueta": "DE POLIVALVULAS › Ø › CANTIDAD",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 465.64,
+      "y": 245.19,
+      "ancho": 55.9,
+      "alto": 11.68,
+      "alineacion": "centro",
+      "tamanoFuente": 7.2,
+      "fuente": "polivalvulas[0].cantidad",
+      "origen": "auto",
+      "confianza": 0.8,
+      "revisado": false
+    },
+    {
+      "id": "anillos_realizados.total",
+      "etiqueta": "ANILLOS REALIZADOS › TOTAL",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 465.64,
+      "y": 294.12,
+      "ancho": 55.9,
+      "alto": 32.57,
+      "alineacion": "centro",
+      "tamanoFuente": 10,
+      "fuente": "anillos.total",
+      "origen": "auto",
+      "confianza": 0.7,
+      "revisado": false
+    },
+    {
+      "id": "tub_de_anillos_tendida.total",
+      "etiqueta": "TUB. DE ANILLOS TENDIDA › TOTAL",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 465.64,
+      "y": 326.7,
+      "ancho": 55.9,
+      "alto": 32.71,
+      "alineacion": "centro",
+      "tamanoFuente": 10,
+      "fuente": "tuberia.anillos.total",
+      "origen": "auto",
+      "confianza": 0.7,
+      "revisado": false
+    },
+    {
+      "id": "tub_troncal_tendida.total",
+      "etiqueta": "TUB. TRONCAL TENDIDA › TOTAL",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 465.64,
+      "y": 359.4,
+      "ancho": 55.9,
+      "alto": 32.71,
+      "alineacion": "centro",
+      "tamanoFuente": 10,
+      "fuente": "tuberia.troncal.total",
+      "origen": "auto",
+      "confianza": 0.7,
+      "revisado": false
+    },
+    {
+      "id": "de_polivalvulas.total",
+      "etiqueta": "DE POLIVALVULAS › TOTAL",
+      "tipo": "numero",
+      "pagina": 1,
+      "x": 465.64,
+      "y": 392.11,
+      "ancho": 55.9,
+      "alto": 35.17,
+      "alineacion": "centro",
+      "tamanoFuente": 10,
+      "fuente": "polivalvulas.total",
+      "origen": "auto",
+      "confianza": 0.7,
+      "revisado": false
+    }
+  ],
+  "tablas": [
+    {
+      "id": "numero_de_anillos",
+      "etiqueta": "NÚMERO DE ANILLOS",
+      "pagina": 1,
+      "x": 465.64,
+      "y": 176.14,
+      "ancho": 55.89999999999998,
+      "alto": 23.49000000000001,
+      "columnas": [
+        {
+          "id": "cantidad",
+          "etiqueta": "CANTIDAD",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 7.3,
+          "fuente": "anillos.fijo[].cantidad"
+        }
+      ],
+      "filas": [
+        {
+          "y": 176.14,
+          "alto": 11.81
+        },
+        {
+          "y": 187.95,
+          "alto": 11.68
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "tuberia_de_anillos",
+      "etiqueta": "TUBERÍA DE ANILLOS",
+      "pagina": 1,
+      "x": 465.64,
+      "y": 199.64,
+      "ancho": 55.89999999999998,
+      "alto": 23.49000000000001,
+      "columnas": [
+        {
+          "id": "cantidad",
+          "etiqueta": "CANTIDAD",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "tuberia.anillos.fijo[].cantidad"
+        }
+      ],
+      "filas": [
+        {
+          "y": 199.64,
+          "alto": 11.68
+        },
+        {
+          "y": 211.32,
+          "alto": 11.81
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "tuberia_de_troncal",
+      "etiqueta": "TUBERÍA DE TRONCAL",
+      "pagina": 1,
+      "x": 409.34,
+      "y": 223.12,
+      "ancho": 112.19999999999999,
+      "alto": 22.069999999999993,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "tuberia.troncal[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "cantidad",
+          "etiqueta": "CANTIDAD",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "tuberia.troncal[].cantidad"
+        }
+      ],
+      "filas": [
+        {
+          "y": 223.12,
+          "alto": 11.68
+        },
+        {
+          "y": 234.81,
+          "alto": 10.38
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "anillos_realizados",
+      "etiqueta": "ANILLOS REALIZADOS",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 294.12,
+      "ancho": 112.71999999999997,
+      "alto": 32.56999999999999,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 6.8,
+          "fuente": "anillos.realizados[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "cantidad_tendida",
+          "etiqueta": "CANTIDAD TENDIDA",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 6.8,
+          "fuente": "anillos.realizados[].cantidad"
+        }
+      ],
+      "filas": [
+        {
+          "y": 294.12,
+          "alto": 10.9
+        },
+        {
+          "y": 305.03,
+          "alto": 10.9
+        },
+        {
+          "y": 315.92,
+          "alto": 10.77
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "tub_de_anillos_tendida",
+      "etiqueta": "TUB. DE ANILLOS TENDIDA",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 326.7,
+      "ancho": 112.71999999999997,
+      "alto": 32.70999999999998,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 6.8,
+          "fuente": "tuberia.anillos[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "cantidad_tendida",
+          "etiqueta": "CANTIDAD TENDIDA",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 6.8,
+          "fuente": "tuberia.anillos[].cantidad"
+        }
+      ],
+      "filas": [
+        {
+          "y": 326.7,
+          "alto": 10.91
+        },
+        {
+          "y": 337.6,
+          "alto": 10.9
+        },
+        {
+          "y": 348.51,
+          "alto": 10.9
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "tub_troncal_tendida",
+      "etiqueta": "TUB. TRONCAL TENDIDA",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 359.4,
+      "ancho": 112.71999999999997,
+      "alto": 32.72000000000003,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 6.8,
+          "fuente": "tuberia.troncal[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "cantidad_tendida",
+          "etiqueta": "CANTIDAD TENDIDA",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 6.8,
+          "fuente": "tuberia.troncal[].cantidad"
+        }
+      ],
+      "filas": [
+        {
+          "y": 359.4,
+          "alto": 10.91
+        },
+        {
+          "y": 370.31,
+          "alto": 10.9
+        },
+        {
+          "y": 381.21,
+          "alto": 10.91
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "de_polivalvulas",
+      "etiqueta": "DE POLIVALVULAS",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 392.11,
+      "ancho": 112.71999999999997,
+      "alto": 35.18000000000001,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "polivalvulas[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "cantidad_tendida",
+          "etiqueta": "CANTIDAD TENDIDA",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "polivalvulas[].cantidad"
+        }
+      ],
+      "filas": [
+        {
+          "y": 392.11,
+          "alto": 11.68
+        },
+        {
+          "y": 403.8,
+          "alto": 11.68
+        },
+        {
+          "y": 415.48,
+          "alto": 11.81
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "union_polietileno",
+      "etiqueta": "UNIÓN POLIETILENO",
+      "pagina": 1,
+      "x": 257.28,
+      "y": 438.19,
+      "ancho": 264.26,
+      "alto": 34.25999999999999,
+      "columnas": [
+        {
+          "id": "pruebas.diametro",
+          "etiqueta": "PRUEBAS › Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 257.28,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "pruebas.union[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "pruebas.cantidad",
+          "etiqueta": "PRUEBAS › Cantidad",
+          "tipo": "numero",
+          "x": 313.58,
+          "ancho": 39.34,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "pruebas.union[].cantidad"
+        },
+        {
+          "id": "proyecto.diametro",
+          "etiqueta": "PROYECTO › Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "accesorios.union[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "proyecto.cantidad",
+          "etiqueta": "PROYECTO › Cantidad",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "accesorios.union[].cantidad"
+        },
+        {
+          "id": "total",
+          "etiqueta": "TOTAL",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "accesorios.union[].total"
+        }
+      ],
+      "filas": [
+        {
+          "y": 438.19,
+          "alto": 10.77
+        },
+        {
+          "y": 448.96,
+          "alto": 11.81
+        },
+        {
+          "y": 460.77,
+          "alto": 11.68
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "tee_polietileno",
+      "etiqueta": "TEE POLIETILENO",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 472.46,
+      "ancho": 168.61999999999995,
+      "alto": 35.170000000000016,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.tee[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "proyecto.cantidad",
+          "etiqueta": "PROYECTO › Cantidad",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.tee[].cantidad"
+        },
+        {
+          "id": "total",
+          "etiqueta": "TOTAL",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.tee[].total"
+        }
+      ],
+      "filas": [
+        {
+          "y": 472.46,
+          "alto": 11.68
+        },
+        {
+          "y": 484.14,
+          "alto": 11.68
+        },
+        {
+          "y": 495.82,
+          "alto": 11.81
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "tapon_polietileno",
+      "etiqueta": "TAPÓN POLIETILENO",
+      "pagina": 1,
+      "x": 257.28,
+      "y": 518.53,
+      "ancho": 264.26,
+      "alto": 32.58000000000004,
+      "columnas": [
+        {
+          "id": "pruebas.diametro",
+          "etiqueta": "PRUEBAS › Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 257.28,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "pruebas.tapon[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "pruebas.cantidad",
+          "etiqueta": "PRUEBAS › Cantidad",
+          "tipo": "numero",
+          "x": 313.58,
+          "ancho": 39.34,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "pruebas.tapon[].cantidad"
+        },
+        {
+          "id": "proyecto.diametro",
+          "etiqueta": "PROYECTO › Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "accesorios.tapon[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "proyecto.cantidad",
+          "etiqueta": "PROYECTO › Cantidad",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "accesorios.tapon[].cantidad"
+        },
+        {
+          "id": "total",
+          "etiqueta": "TOTAL",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 6.7,
+          "fuente": "accesorios.tapon[].total"
+        }
+      ],
+      "filas": [
+        {
+          "y": 518.53,
+          "alto": 10.77
+        },
+        {
+          "y": 529.3,
+          "alto": 10.9
+        },
+        {
+          "y": 540.2,
+          "alto": 10.91
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "reduccion_de_polietileno",
+      "etiqueta": "REDUCCIÓN DE POLIETILENO",
+      "pagina": 1,
+      "x": 257.28,
+      "y": 562.01,
+      "ancho": 264.26,
+      "alto": 23.360000000000014,
+      "columnas": [
+        {
+          "id": "pruebas.diametro",
+          "etiqueta": "PRUEBAS › Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 257.28,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "pruebas.reduccion[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "pruebas.cantidad",
+          "etiqueta": "PRUEBAS › Cantidad",
+          "tipo": "numero",
+          "x": 313.58,
+          "ancho": 39.34,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "pruebas.reduccion[].cantidad"
+        },
+        {
+          "id": "proyecto.diametro",
+          "etiqueta": "PROYECTO › Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.reduccion[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "proyecto.cantidad",
+          "etiqueta": "PROYECTO › Cantidad",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.reduccion[].cantidad"
+        },
+        {
+          "id": "total",
+          "etiqueta": "TOTAL",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.reduccion[].total"
+        }
+      ],
+      "filas": [
+        {
+          "y": 562.01,
+          "alto": 11.68
+        },
+        {
+          "y": 573.69,
+          "alto": 11.68
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "silleta_de_polietileno",
+      "etiqueta": "SILLETA DE POLIETILENO",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 585.37,
+      "ancho": 168.61999999999995,
+      "alto": 23.489999999999895,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 7.3,
+          "fuente": "accesorios.silleta[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "proyecto.cantidad",
+          "etiqueta": "PROYECTO › Cantidad",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 7.3,
+          "fuente": "accesorios.silleta[].cantidad"
+        },
+        {
+          "id": "total",
+          "etiqueta": "TOTAL",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 7.3,
+          "fuente": "accesorios.silleta[].total"
+        }
+      ],
+      "filas": [
+        {
+          "y": 585.37,
+          "alto": 11.81
+        },
+        {
+          "y": 597.18,
+          "alto": 11.68
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    },
+    {
+      "id": "codos",
+      "etiqueta": "CODOS",
+      "pagina": 1,
+      "x": 352.92,
+      "y": 608.86,
+      "ancho": 168.61999999999995,
+      "alto": 23.36999999999989,
+      "columnas": [
+        {
+          "id": "diametro",
+          "etiqueta": "Diámetro del accesorio",
+          "tipo": "texto",
+          "x": 352.92,
+          "ancho": 56.43,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.codos[].diametro",
+          "prefijo": "Ø"
+        },
+        {
+          "id": "proyecto.cantidad",
+          "etiqueta": "PROYECTO › Cantidad",
+          "tipo": "numero",
+          "x": 409.34,
+          "ancho": 56.3,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.codos[].cantidad"
+        },
+        {
+          "id": "total",
+          "etiqueta": "TOTAL",
+          "tipo": "numero",
+          "x": 465.64,
+          "ancho": 55.9,
+          "alineacion": "centro",
+          "tamanoFuente": 7.2,
+          "fuente": "accesorios.codos[].total"
+        }
+      ],
+      "filas": [
+        {
+          "y": 608.86,
+          "alto": 11.68
+        },
+        {
+          "y": 620.55,
+          "alto": 11.68
+        }
+      ],
+      "origen": "auto",
+      "revisado": false
+    }
+  ],
+  "modificado": "2026-10-05T16:53:09"
+}

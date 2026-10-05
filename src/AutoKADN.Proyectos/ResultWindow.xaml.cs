@@ -36,6 +36,7 @@ public partial class ResultWindow : Window
         OpenButton.IsEnabled = Directory.Exists(result.ProjectFolder);
         NewButton.Visibility = result.Success ? Visibility.Visible : Visibility.Collapsed;
         PhotosButton.Visibility = result.Success ? Visibility.Visible : Visibility.Collapsed;
+        FormatsButton.Visibility = result.Success ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>true si la persona pidió empezar otro proyecto.</summary>
@@ -43,6 +44,15 @@ public partial class ResultWindow : Window
 
     /// <summary>true si la persona quiere ir al registro fotográfico del proyecto recién creado.</summary>
     public bool OpenPhotos { get; private set; }
+
+    /// <summary>true si la persona quiere generar los formatos de interventoría del proyecto recién creado.</summary>
+    public bool OpenFormats { get; private set; }
+
+    private void OnFormats(object sender, RoutedEventArgs e)
+    {
+        OpenFormats = true;
+        Close();
+    }
 
     private void OnPhotos(object sender, RoutedEventArgs e)
     {

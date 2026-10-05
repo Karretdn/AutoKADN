@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using AutoKADN.Proyectos.Services;
+using AutoKADN.Proyectos.Services.Formatos;
 using AutoKADN.Proyectos.ViewModels;
 using Microsoft.Win32;
 
@@ -48,6 +49,48 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void OnFormatsClick(object sender, RoutedEventArgs e) => RunFormats(null);
+
+    // Genera los formatos de interventoría uno por uno: cada uno pregunta dónde guardarlo y, si se cancela, se omite.
+    private void RunFormats(string? projectFolder)
+    {
+        projectFolder ??= FolderPicker.Pick(this, "Carpeta del proyecto (la que contiene PLANOS)", _settings.RootFolder);
+        if (projectFolder is null) return;
+
+        // Si eligieron la propia carpeta PLANOS, el proyecto es la de arriba.
+        string trimmed = projectFolder.TrimEnd('\\', '/');
+        if (string.Equals(Path.GetFileName(trimmed), "PLANOS", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(trimmed) is string up)
+            projectFolder = up;
+
+        if (FormatSource.LocateFile(projectFolder, ProjectDataFile.FileName) is null)
+        {
+            MessageBoxResult answer = MessageBox.Show(this,
+                "En esta carpeta no está " + ProjectDataFile.FileName + " (los proyectos creados antes de esta función no lo tienen):\n" + projectFolder +
+                "\n\n¿Generar los formatos de todas formas?\nLa orden y el proyecto se toman del nombre de la carpeta y el interventor de la carpeta superior; " +
+                "las fechas y demás datos quedan en blanco.",
+                "AutoKADN", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return;
+        }
+
+        List<FormatOutcome> outcomes = InterventoriaGenerator.Run(projectFolder, _settings.ResourcesFolder, AskFormatPath);
+        new FormatsResultWindow(outcomes, projectFolder) { Owner = this }.ShowDialog();
+    }
+
+    private string? AskFormatPath(string suggestedName, string projectFolder)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Guardar formato - " + Path.GetFileNameWithoutExtension(suggestedName),
+            Filter = "PDF (*.pdf)|*.pdf",
+            FileName = suggestedName,
+            InitialDirectory = projectFolder,
+            AddExtension = true,
+            DefaultExt = ".pdf",
+            OverwritePrompt = true,
+        };
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+    }
+
     private void OnPickPdfClick(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Title = "Orden de trabajo", Filter = "Orden de trabajo (*.pdf)|*.pdf", CheckFileExists = true };
@@ -90,6 +133,7 @@ public partial class MainWindow : Window
         {
             _viewModel.ResetForNewProject();
             if (window.OpenPhotos) OpenPhotos(Path.Combine(result.ProjectFolder, "FOTOS"));
+            else if (window.OpenFormats) RunFormats(result.ProjectFolder);
             else if (window.StartNew) OnPickPdfClick(this, new RoutedEventArgs());
         }
         else _viewModel.ReloadEnvironment();

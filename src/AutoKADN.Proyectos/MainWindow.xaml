@@ -57,6 +57,12 @@
                         <TextBlock Text="Carpetas, soportes, fotos y plano a partir de la orden de trabajo" Style="{StaticResource Muted}"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+                        <Button Click="OnFormatsClick" Margin="0,0,8,0" ToolTip="Generar los formatos de interventoría (FT-O-108, 117, 119 y FT-T-127) de un proyecto">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="14" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Interventoría" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                         <Button Click="OnPhotosClick" Margin="0,0,8,0" ToolTip="Armar el registro fotográfico de un proyecto">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="14" Margin="0,0,7,0" VerticalAlignment="Center"/>

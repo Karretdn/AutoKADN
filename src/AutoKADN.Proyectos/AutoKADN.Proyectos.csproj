@@ -12,7 +12,18 @@
 
   <ItemGroup>
     <PackageReference Include="PdfPig" Version="0.1.11" />
+    <PackageReference Include="PDFsharp-WPF" Version="6.2.4" />
   </ItemGroup>
+
+  <!-- El modelo del mapa de formatos se comparte con la herramienta de mapeo (AutoKADN.Mapeo): un solo formato de JSON. -->
+  <ItemGroup>
+    <Compile Include="..\AutoKADN.Mapeo\Model\MapaFormato.cs" Link="Services\Formatos\MapaFormato.cs" />
+  </ItemGroup>
+
+  <!-- La copia de los formatos en la salida debe ser idéntica a Recursos\Formatos: así no quedan PDF ni mapas de formatos ya borrados. -->
+  <Target Name="LimpiarFormatosSalida" BeforeTargets="BeforeBuild">
+    <RemoveDir Directories="$(OutDir)Recursos\Formatos" />
+  </Target>
 
   <!-- Archivos base (plantillas y roles): viajan junto al ejecutable en la carpeta Recursos. -->
   <ItemGroup>
