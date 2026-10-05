@@ -122,7 +122,7 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | `ft127.paginas[]` | una hoja del FT-T-127: `terreno1..4`, `d1..d16`, `registros[]` (`fecha`, `plano`, `c1..c16`), `t1..t16`; la primera hoja trae además `consolidado_1_2 … consolidado_6`, `consolidado_total` y `observaciones` |
 
 ### 5.2 Qué sabe hacer la app con un dato (campo `fuente` del mapa)
-- Clave simple (`orden`) → un valor. Con formato: `fechaGasificado|dia`, `|mes|titulo`, `|anio2`, `interventor|sincodigo`, `|codigo`, `|marca` (X si el número es mayor que cero), `|mayus`, `|minus`. Texto fijo o con claves: `=ORLANDO DONADO Y CIA`, `=ID-{idProyecto}`. Tipos de celda: `texto`, `numero`, `fecha` (dd/MM/aaaa), `check` (true/1/si/x), `multilinea` (varios renglones, respeta saltos de línea).
+- Clave simple (`orden`) → un valor. Con formato: `fechaGasificado|dia`, `|mes|titulo`, `|anio2`, `interventor|sincodigo`, `|codigo`, `|marca` (X si el número es mayor que cero), `|mayus`, `|minus`. Texto fijo o con claves: `=TEXTO FIJO`, `=ID-{idProyecto}`. Tipos de celda: `texto`, `numero`, `fecha` (dd/MM/aaaa), `check` (true/1/si/x), `multilinea` (varios renglones, respeta saltos de línea).
 - `lista[].campo` → una fila por elemento de la lista; `lista[0].campo` → el elemento 0.
 - `paginaPorLista` → repite la hoja del formato una vez por elemento de una lista.
 - Texto girado (`rotacion`: 90 se lee de abajo hacia arriba).
@@ -134,12 +134,13 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | FT-O-117 Informe final | conectado: encabezado (`interventor`, `orden`, `localidad`, `proyecto`, fechas) + `resumen_obra.json`; sin dato: contratista |
 | FT-T-127 Totales de tubería | conectado a `ft127.paginas`; firmas y SUBTOTAL vacíos |
 | FT-O-108 Control de excavación | conectado a `ft108.paginas`; la fecha queda vacía (como en los formatos ya diligenciados), firmas y SUBTOTAL vacíos |
-| FT-O-119 Acta de puesta en servicio | conectado: fecha de gasificado (día, mes y año), interventor, supervisor como representante del contratista (empresa contratista fija: `ORLANDO DONADO Y CIA`), proyecto como dirección, localidad, departamento, orden y la observación estándar con el ID del proyecto; una X en anillos y otra en troncal cuando el proyecto los tiene (`anillos.total` y `tuberia.troncal.total` mayores que cero); en la línea de firma del Consorcio, `NOMBRE - código` |
+| FT-O-119 Acta de puesta en servicio | conectado: fecha de gasificado (día, mes y año), interventor, supervisor como representante del contratista y la empresa contratista (clave `contratista`, pendiente de definir de dónde sale), proyecto como dirección, localidad, departamento, orden y la observación estándar con el ID del proyecto; una X en anillos y otra en troncal cuando el proyecto los tiene (`anillos.total` y `tuberia.troncal.total` mayores que cero); en la línea de firma del Consorcio, `NOMBRE - código` |
 
 ---
 
 ## 6. Datos que hoy no existen en ninguna etapa
-- Cédulas de los firmantes. La empresa contratista (`ORLANDO DONADO Y CIA`) no viaja en ningún JSON: va como texto fijo en el mapa del FT-O-117 y del FT-O-119.
+- Cédulas de los firmantes.
+- Nombre de la empresa contratista: las celdas del FT-O-117 y del FT-O-119 ya están conectadas a la clave `contratista`, pero ningún archivo la trae todavía (pendiente: de dónde se obtiene); mientras tanto salen en blanco.
 - Fecha de cada excavación por anillo/troncal (el FT-O-108 la deja vacía).
 - Fecha de recibo de obra propia (hoy se toma la fecha final de obra).
 - Dirección (hoy se usa el nombre del proyecto).

@@ -418,7 +418,7 @@ function propsCampo(p, c) {
     field('Texto previo', textInput(c.prefijo || '', v => mutate(() => { c.prefijo = v || undefined; }))),
     field('Giro del texto', selectInput(['0', '90'], String(c.rotacion || 0), v => mutate(() => { c.rotacion = v === '0' ? undefined : Number(v); }))),
     field('Conectar con', textInput(c.fuente, set('fuente'), { list: 'fuentes' })),
-    el('div', { class: 'hint' }, 'Una clave (orden), con formato (fechaGasificado|dia, |mes|titulo, |anio2, interventor|sincodigo, anillos.total|marca = X si es mayor que cero) o un texto con claves: =ID-{idProyecto} (sin claves es un valor fijo: =O.D.P.).'),
+    el('div', { class: 'hint' }, 'Una clave (orden), con formato (fechaGasificado|dia, |mes|titulo, |anio2, interventor|sincodigo, anillos.total|marca = X si es mayor que cero) o un texto con claves: =ID-{idProyecto} (sin claves es un valor fijo: =TEXTO FIJO).'),
   );
   const g = el('div', { class: 'grid4' });
   for (const [k, l] of [['x', 'X'], ['y', 'Y'], ['ancho', 'Ancho'], ['alto', 'Alto']]) g.append(el('div', {}, el('span', {}, l), numInput(c[k], v => mutate(() => { c[k] = v; }))));

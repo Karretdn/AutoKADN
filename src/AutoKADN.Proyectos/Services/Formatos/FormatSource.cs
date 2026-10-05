@@ -147,7 +147,7 @@ public sealed class FormatSource
     /// Resuelve lo que se escribe en «Conectar con»: una clave (<c>orden</c>), una clave con formatos
     /// (<c>fechaGasificado|dia</c>, <c>interventor|sincodigo</c>, <c>fechaGasificado|mes|titulo</c>), un elemento de
     /// lista (<c>polivalvulas[0].cantidad</c>) o un texto con claves entre llaves precedido de «=»
-    /// (<c>=ID-{idProyecto}</c>; si el texto no lleva claves es un valor fijo, ej. <c>=O.D.P.</c>).
+    /// (<c>=ID-{idProyecto}</c>; si el texto no lleva claves es un valor fijo, ej. <c>=TEXTO FIJO</c>).
     /// Devuelve null si falta algún dato.
     /// </summary>
     public string? Resolve(string? fuente)
