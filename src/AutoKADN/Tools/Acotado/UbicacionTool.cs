@@ -1,3 +1,4 @@
+using AutoKADN.Core;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
@@ -14,7 +15,6 @@ public sealed class UbicacionTool
 {
     private const double PointTolerance = 1e-5;
     private const double GeometryMatchTolerance = 1e-4;
-    private const double OverallDimensionScale = 0.05;
     private const short NearestObjectSnap = 512;
     private const short MagentaColorIndex = 6;
     private const string LayerName = "COTAS MAGENTA";
@@ -283,7 +283,7 @@ public sealed class UbicacionTool
             string.Empty,
             database.Dimstyle)
         {
-            Dimscale = OverallDimensionScale,
+            Dimscale = Tamanos.Load().Cotas,
             Dimtad = 0,
             Dimjust = 0,
             Dimtih = true,

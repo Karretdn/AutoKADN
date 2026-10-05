@@ -1,3 +1,4 @@
+using AutoKADN.Core;
 using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -10,7 +11,6 @@ namespace AutoKADN.Tools.Anotaciones;
 
 public sealed class AnotacionesTool
 {
-    private const double TextHeight = 2.40;
     private const double TextOffset = 1.00;
     private const string MaterialsLayer = "Mat";
     private const string XDataAppName = "AUTOKADN";
@@ -460,7 +460,7 @@ public sealed class AnotacionesTool
         AttachmentPoint attachment = direction.X < -Tolerance.Global.EqualPoint ? AttachmentPoint.TopRight : AttachmentPoint.TopLeft;
         var mtext = new MText
         {
-            Location = textPoint, Contents = text, TextHeight = TextHeight, Attachment = attachment,
+            Location = textPoint, Contents = text, TextHeight = Tamanos.Load().Anotaciones, Attachment = attachment,
             Rotation = 0.0, ColorIndex = 256,
             Layer = spiralData is not null ? GetOrCreateLayer(database, transaction, MaterialsLayer) : GetCurrentLayerName(database, transaction)
         };

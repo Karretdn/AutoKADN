@@ -9,7 +9,6 @@ namespace AutoKADN.Tools.Anotaciones;
 public sealed class LimiteTool
 {
     private const double OffsetFromLine = 2.00;
-    private const double TextHeight = 2.40;
     private const short NearestObjectSnap = 512;
     private const double GeometryMatchTolerance = 1e-6;
     private const double VertexMatchTolerance = 2.00;
@@ -138,8 +137,10 @@ public sealed class LimiteTool
         {
             BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(document.Database.CurrentSpaceId, OpenMode.ForWrite);
             string layerName = forcedLayer ?? ((LayerTableRecord)transaction.GetObject(document.Database.Clayer, OpenMode.ForRead)).Name;
-            var text = new DBText { TextString = content, Height = TextHeight, Layer = layerName, ColorIndex = 256, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = initialPosition, Position = initialPosition, Rotation = rotation };
-            currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); textId = text.ObjectId; transaction.Commit();
+            var text = new DBText { TextString = content, Height = Tamanos.Load().Limites, Layer = layerName, ColorIndex = 256, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = initialPosition, Position = initialPosition, Rotation = rotation };
+            currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); textId = text.ObjectId;
+            SizeTags.Tag(text, document.Database, transaction, Tamanos.KindLimite);
+            transaction.Commit();
         }
         editor.Regen();
         editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar el texto. ESC o clic derecho cancela.\n");
@@ -163,8 +164,10 @@ public sealed class LimiteTool
         {
             BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(document.Database.CurrentSpaceId, OpenMode.ForWrite);
             string layerName = EnsureMagentaLayer(document.Database, transaction);
-            var text = new DBText { TextString = content, Height = TextHeight, Layer = layerName, ColorIndex = 256, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = initialPosition, Position = initialPosition, Rotation = rotation };
-            currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); textId = text.ObjectId; transaction.Commit();
+            var text = new DBText { TextString = content, Height = Tamanos.Load().Limites, Layer = layerName, ColorIndex = 256, HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = initialPosition, Position = initialPosition, Rotation = rotation };
+            currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); textId = text.ObjectId;
+            SizeTags.Tag(text, document.Database, transaction, Tamanos.KindLimite);
+            transaction.Commit();
         }
         editor.Regen();
         editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar el texto. ESC o clic derecho cancela.\n");

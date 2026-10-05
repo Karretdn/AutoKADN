@@ -1,3 +1,4 @@
+using AutoKADN.Core;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
@@ -7,7 +8,6 @@ namespace AutoKADN.Tools.Acotado;
 public sealed class CotaTool
 {
     private const double OffsetFromLine = 5.50;
-    private const double OverallDimensionScale = 0.05;
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
 
@@ -243,7 +243,7 @@ public sealed class CotaTool
             string.Empty,
             database.Dimstyle)
         {
-            Dimscale = OverallDimensionScale,
+            Dimscale = Tamanos.Load().Cotas,
             Dimtad = 0,
             Dimjust = 0,
             Dimtih = true,

@@ -10,7 +10,6 @@ public sealed class TextCreationService
 {
     private const double LineSearchTolerance = 20.0;
     private const double ParallelAngleTolerance = 5.0 * Math.PI / 180.0;
-    private const double NomenclaturaTextHeight = 2.40;
 
     public void CreateText(Point3d position, string content, double height = 1.45)
     {
@@ -23,21 +22,25 @@ public sealed class TextCreationService
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true); transaction.Commit();
     }
 
-    public bool CreateTextWithJig(Point3d initialPosition, string content, double height = NomenclaturaTextHeight)
+    // kind: Tamanos.KindVial o Tamanos.KindPredial. El tamaño sale de la ventana "Tamaños" y el texto queda marcado
+    // para poder cambiarle el tamaño después.
+    public bool CreateTextWithJig(Point3d initialPosition, string content, string kind)
     {
         Point3d centerPosition = ObtenerCentroEntreLineas(initialPosition) ?? initialPosition;
-        return CreateTextWithJigAtFixedCenter(centerPosition, content, height);
+        return CreateTextWithJigAtFixedCenter(centerPosition, content, kind);
     }
 
-    public bool CreateTextWithJigAtFixedCenter(Point3d centerPosition, string content, double height = NomenclaturaTextHeight)
+    public bool CreateTextWithJigAtFixedCenter(Point3d centerPosition, string content, string kind)
     {
         Document? document = Application.DocumentManager.MdiActiveDocument;
         if (document is null || string.IsNullOrWhiteSpace(content)) return false;
         Database database = document.Database; Editor editor = document.Editor;
+        double height = Tamanos.HeightFor(Tamanos.Load(), kind);
         using Transaction transaction = database.TransactionManager.StartTransaction();
         BlockTableRecord currentSpace = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForWrite);
         var text = new DBText { TextString = content.Trim(), Height = height, Layer = GetCurrentLayerName(database, transaction), HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid, AlignmentPoint = centerPosition, Position = centerPosition, Rotation = 0.0 };
         currentSpace.AppendEntity(text); transaction.AddNewlyCreatedDBObject(text, true);
+        SizeTags.Tag(text, database, transaction, kind);
         var jig = new NomenclaturaTextJig(text, centerPosition, RotationStandard.IsOrthoEnabled());
         object originalOrthoMode = Application.GetSystemVariable("ORTHOMODE");
         object originalShortcutMenu = Application.GetSystemVariable("SHORTCUTMENU");

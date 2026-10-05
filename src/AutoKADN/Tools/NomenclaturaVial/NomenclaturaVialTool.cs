@@ -32,7 +32,7 @@ public sealed class NomenclaturaVialTool
                 string? numero = ObtenerNumero(editor); if (numero is null) break;
                 string? pavimento = ObtenerPavimento(editor); if (pavimento is null) break;
                 string content = $"{tipo} {numero} - {pavimento}";
-                if (!_textCreationService.CreateTextWithJig(position, content)) break;
+                if (!_textCreationService.CreateTextWithJig(position, content, Tamanos.KindVial)) break;
                 editor.WriteMessage($"\nTexto creado: {content}\n");
                 break;
             }

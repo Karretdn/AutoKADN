@@ -39,7 +39,7 @@ public sealed class NomenclaturaPredialTool
             return;
         }
         Point3d center = ObtenerCentroPredial(editor, clickPoint) ?? clickPoint;
-        if (!_textCreationService.CreateTextWithJigAtFixedCenter(center, content))
+        if (!_textCreationService.CreateTextWithJigAtFixedCenter(center, content, Tamanos.KindPredial))
         {
             editor.WriteMessage("\n[KARP_NOMPRED] Herramienta cancelada.\n");
             return;
