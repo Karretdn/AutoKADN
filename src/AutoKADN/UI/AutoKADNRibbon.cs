@@ -2,6 +2,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.Windows;
+using AutoKADN.Tools.Dibujo;
 
 namespace AutoKADN.UI;
 
@@ -52,6 +53,20 @@ public sealed class AutoKADNRibbon
 
         tab.Panels.Add(panel);
 
+        var drawSource = new RibbonPanelSource { Title = "Dibujo" };
+        var drawPanel = new RibbonPanel { Source = drawSource };
+        drawSource.Items.Add(CreateButton("LINEARAPIDA", "Línea rápida", "LINEARAPIDA", CreateLineaRapidaIcon()));
+        drawSource.Items.Add(CreateMultiSelectToggle());
+        tab.Panels.Add(drawPanel);
+
+        var planSource = new RibbonPanelSource { Title = "Plano" };
+        var planPanel = new RibbonPanel { Source = planSource };
+        planSource.Items.Add(CreateButton("RELLENARDATOS", "Rellenar datos", "RELLENARDATOS", CreateRellenarDatosIcon()));
+        planSource.Items.Add(CreateButton("NUEVOANILLO", "Nuevo anillo", "NUEVOANILLO", CreateNuevoAnilloIcon()));
+        planSource.Items.Add(CreateButton("TAMANOS", "Tamaños", "TAMANOS", CreateTamanosIcon()));
+        planSource.Items.Add(CreateButton("RESUMENOBRA", "Resumen obra", "RESUMENOBRA", CreateResumenObraIcon()));
+        tab.Panels.Add(planPanel);
+
         var debugSource = new RibbonPanelSource { Title = "DEBUG" };
         var debugPanel = new RibbonPanel { Source = debugSource };
         debugSource.Items.Add(CreateButton("DEBUGDETALLES", "Debug Detalles", "DEBUGDETALLES", CreateDebugIcon()));
@@ -68,6 +83,92 @@ public sealed class AutoKADNRibbon
         Orientation = System.Windows.Controls.Orientation.Vertical, Size = RibbonItemSize.Large,
         LargeImage = icon, CommandHandler = new RibbonCommandHandler(command)
     };
+
+    // Interruptor persistente (como F8 con el ortogonal): mientras esté activo, LINEARAPIDA fija un quiebre por clic.
+    private static RibbonToggleButton CreateMultiSelectToggle()
+    {
+        var toggle = new RibbonToggleButton
+        {
+            Id = "AutoKADN_LINEARAPIDA_MULTI", Text = "Selección múltiple", ShowText = true, ShowImage = true,
+            Orientation = System.Windows.Controls.Orientation.Vertical, Size = RibbonItemSize.Large,
+            LargeImage = CreateSeleccionMultipleIcon(), IsChecked = LineaRapidaSettings.SeleccionMultiple,
+            ToolTip = "Línea rápida: cada clic fija un quiebre y la polilínea sigue. Enter, Espacio o clic derecho terminan."
+        };
+        toggle.CheckStateChanged += (_, _) => LineaRapidaSettings.SeleccionMultiple = toggle.IsChecked;
+        return toggle;
+    }
+
+    private static DrawingImage CreateRellenarDatosIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(6, 4, 28, 32));
+        dc.DrawLine(p, new System.Windows.Point(11, 13), new System.Windows.Point(20, 13));
+        dc.DrawLine(p, new System.Windows.Point(11, 20), new System.Windows.Point(20, 20));
+        dc.DrawLine(p, new System.Windows.Point(11, 27), new System.Windows.Point(17, 27));
+        dc.DrawLine(p, new System.Windows.Point(22, 25), new System.Windows.Point(26, 29));
+        dc.DrawLine(p, new System.Windows.Point(26, 29), new System.Windows.Point(32, 19));
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateResumenObraIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(6, 4, 28, 32));
+        dc.DrawLine(p, new System.Windows.Point(11, 12), new System.Windows.Point(29, 12));
+        dc.DrawLine(p, new System.Windows.Point(11, 19), new System.Windows.Point(29, 19));
+        dc.DrawLine(p, new System.Windows.Point(11, 26), new System.Windows.Point(22, 26));
+        dc.DrawLine(p, new System.Windows.Point(25, 24), new System.Windows.Point(29, 28));
+        dc.DrawLine(p, new System.Windows.Point(29, 24), new System.Windows.Point(25, 28));
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateTamanosIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(5, 22, 12, 12));   // pequeño
+        dc.DrawRectangle(null, p, new System.Windows.Rect(17, 6, 18, 28));   // grande
+        dc.DrawLine(p, new System.Windows.Point(5, 12), new System.Windows.Point(13, 12));
+        dc.DrawLine(p, new System.Windows.Point(10, 7), new System.Windows.Point(13, 12));
+        dc.DrawLine(p, new System.Windows.Point(10, 17), new System.Windows.Point(13, 12));
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateNuevoAnilloIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(4, 10, 22, 26));
+        dc.DrawLine(p, new System.Windows.Point(10, 10), new System.Windows.Point(10, 4));
+        dc.DrawLine(p, new System.Windows.Point(10, 4), new System.Windows.Point(32, 4));
+        dc.DrawLine(p, new System.Windows.Point(32, 4), new System.Windows.Point(32, 26));
+        dc.DrawLine(p, new System.Windows.Point(26, 26), new System.Windows.Point(32, 26));
+        dc.DrawLine(p, new System.Windows.Point(15, 17), new System.Windows.Point(15, 29));
+        dc.DrawLine(p, new System.Windows.Point(9, 23), new System.Windows.Point(21, 23));
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateLineaRapidaIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(4, 4, 32, 32));
+        dc.DrawLine(p, new System.Windows.Point(10, 20), new System.Windows.Point(36, 20));
+        dc.DrawLine(p, new System.Windows.Point(30, 15), new System.Windows.Point(36, 20));
+        dc.DrawLine(p, new System.Windows.Point(30, 25), new System.Windows.Point(36, 20));
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(10, 20), 3.0, 3.0);
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateSeleccionMultipleIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawLine(p, new System.Windows.Point(5, 34), new System.Windows.Point(5, 22));
+        dc.DrawLine(p, new System.Windows.Point(5, 22), new System.Windows.Point(18, 22));
+        dc.DrawLine(p, new System.Windows.Point(18, 22), new System.Windows.Point(18, 9));
+        dc.DrawLine(p, new System.Windows.Point(18, 9), new System.Windows.Point(35, 9));
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(5, 22), 2.8, 2.8);
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(18, 22), 2.8, 2.8);
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(18, 9), 2.8, 2.8);
+        return new DrawingImage(g);
+    }
 
     private static DrawingImage CreateDebugIcon()
     {

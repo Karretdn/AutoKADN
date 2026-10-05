@@ -4,8 +4,10 @@ using AutoKADN.Tools.Anotaciones;
 using AutoKADN.Tools.Acotado;
 using AutoKADN.Tools.Bloques;
 using AutoKADN.Tools.Debug;
+using AutoKADN.Tools.Dibujo;
 using AutoKADN.Tools.Excel;
 using AutoKADN.Tools.Layouts;
+using AutoKADN.Tools.Medidas;
 using AutoKADN.Tools.NomenclaturaPredial;
 using AutoKADN.Tools.NomenclaturaVial;
 
@@ -35,6 +37,11 @@ public class NomenclaturaVialCommand
     [CommandMethod("RESUMENUC", CommandFlags.Modal)] public void ResumenUC() => new ResumenUCTool().Run();
     [CommandMethod("MATERIALPRUEBA", CommandFlags.Modal)] public void MaterialPrueba() => new MaterialPruebaTool().Run();
     [CommandMethod("CLONARUC", CommandFlags.Modal)] public void ClonarUc() => new ClonarUcTool().Run();
+    [CommandMethod("LINEARAPIDA", CommandFlags.Modal)] public void LineaRapida() => new LineaRapidaTool().Run();
+    [CommandMethod("RELLENARDATOS", CommandFlags.Modal)] public void RellenarDatos() => new RellenarDatosTool().Run();
+    [CommandMethod("NUEVOANILLO", CommandFlags.Modal)] public void NuevoAnillo() => new NuevoAnilloTool().Run();
+    [CommandMethod("TAMANOS", CommandFlags.Modal)] public void Tamanos() => new TamanosTool().Run();
+    [CommandMethod("RESUMENOBRA", CommandFlags.Modal)] public void ResumenObra() => new ResumenObraTool().Run();
     [CommandMethod("GENERAREXCEL", CommandFlags.Modal)] public void GenerarExcel() => new GenerarExcelTool().Run();
     [CommandMethod("DEBUGDETALLES", CommandFlags.Modal)] public void DebugDetalles() => new DebugDetallesTool().Run();
 }
