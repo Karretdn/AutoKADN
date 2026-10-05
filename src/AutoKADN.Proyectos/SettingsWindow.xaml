@@ -1,0 +1,51 @@
+<Window x:Class="AutoKADN.Proyectos.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Rutas" Width="620" SizeToContent="Height" ResizeMode="NoResize"
+        Background="{StaticResource PageBackground}" FontFamily="Segoe UI"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <StackPanel Margin="22,18,22,18">
+        <TextBlock Text="Rutas" Style="{StaticResource PageTitle}"/>
+        <TextBlock Style="{StaticResource Muted}" Margin="0,2,0,14"
+                   Text="Se configuran una sola vez. Los proyectos siempre se crean dentro de la carpeta raíz."/>
+
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Carpeta raíz de proyectos" Style="{StaticResource CardTitle}" Margin="0,0,0,2"/>
+                <TextBlock Style="{StaticResource Muted}" Margin="0,0,0,8"
+                           Text="Donde están las carpetas de los interventores, por ejemplo 1. OBRA CIVIL."/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="RootBox" TextChanged="OnChanged"/>
+                    <Button Grid.Column="1" Content="Cambiar…" Margin="8,0,0,0" Click="OnPickRoot"/>
+                </Grid>
+                <TextBlock x:Name="RootStatus" FontSize="12" Margin="2,6,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Archivos base" Style="{StaticResource CardTitle}" Margin="0,0,0,2"/>
+                <TextBlock Style="{StaticResource Muted}" Margin="0,0,0,8"
+                           Text="Plantillas y roles.xlsx. Por defecto son los que vienen con la app (carpeta Recursos)."/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="ResourcesBox" TextChanged="OnChanged"/>
+                    <Button Grid.Column="1" Content="Cambiar…" Margin="8,0,0,0" Click="OnPickResources"/>
+                </Grid>
+                <TextBlock x:Name="ResourcesStatus" FontSize="12" Margin="2,8,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancelar" Margin="0,0,8,0" Click="OnCancel"/>
+            <Button x:Name="SaveButton" Content="Guardar" Style="{StaticResource PrimaryButton}" Click="OnSave"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

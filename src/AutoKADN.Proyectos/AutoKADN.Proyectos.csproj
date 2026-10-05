@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AutoKADN.Proyectos</RootNamespace>
+    <AssemblyName>AutoKADN.Proyectos</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.11" />
+  </ItemGroup>
+
+  <!-- Archivos base (plantillas y roles): viajan junto al ejecutable en la carpeta Recursos. -->
+  <ItemGroup>
+    <None Include="Recursos\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

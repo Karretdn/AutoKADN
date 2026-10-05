@@ -1,0 +1,102 @@
+<Window x:Class="AutoKADN.Proyectos.PhotosWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AutoKADN · Registro fotográfico" Width="800" Height="780" MinWidth="620" MinHeight="520"
+        Background="{StaticResource PageBackground}" FontFamily="Segoe UI"
+        WindowStartupLocation="CenterOwner" AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop">
+
+    <Window.Resources>
+        <Style x:Key="MiniButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <DataTemplate x:Key="PhotoCard">
+            <Border Width="168" Margin="0,0,10,10" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="6">
+                <StackPanel>
+                    <Grid Height="132">
+                        <Border Background="#F3F4F6" CornerRadius="5"/>
+                        <Image Source="{Binding Thumbnail}" Stretch="Uniform" Margin="2"/>
+                        <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4" Background="{StaticResource Accent}" CornerRadius="10" MinWidth="22" Padding="6,1">
+                            <TextBlock Text="{Binding Number}" Foreground="White" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                        </Border>
+                    </Grid>
+                    <TextBlock Text="{Binding Name}" FontSize="11" Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding Name}" Margin="2,5,2,5"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="&#xE76B;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource MiniButton}" HorizontalAlignment="Left"
+                                ToolTip="Mover antes" Click="OnMoveBefore"/>
+                        <Button Grid.Column="1" Content="&#xE711;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource MiniButton}"
+                                ToolTip="Quitar de la lista (no borra la foto)" Click="OnRemove"/>
+                        <Button Grid.Column="2" Content="&#xE76C;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource MiniButton}" HorizontalAlignment="Right"
+                                ToolTip="Mover después" Click="OnMoveAfter"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="20,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock Text="{Binding Summary}" FontSize="14" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding Progress}" Style="{StaticResource Muted}"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="Generar Excel" Style="{StaticResource PrimaryButton}"
+                        IsEnabled="{Binding CanGenerate}" Click="OnGenerate"/>
+            </Grid>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="22,18,22,10">
+                <TextBlock Text="Registro fotográfico" Style="{StaticResource PageTitle}"/>
+                <TextBlock Style="{StaticResource Muted}" Margin="0,2,0,14"
+                           Text="Hasta 9 fotos por página; con más fotos se agregan páginas en el mismo Excel. Las fotos llenan su espacio: si no tienen la proporción, se recortan un poco desde el centro y se estiran lo mínimo."/>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Carpeta de fotos" Style="{StaticResource CardTitle}" Margin="0,0,0,8"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding FolderLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding FolderLabel}" Margin="2,0,12,0"/>
+                            <Button Grid.Column="1" Content="Elegir carpeta…" Click="OnPickFolder"/>
+                        </Grid>
+                        <TextBlock Style="{StaticResource Muted}" Margin="2,8,0,0"
+                                   Text="Normalmente es la carpeta FOTOS del proyecto. También puedes arrastrarla hasta aquí. El Excel se guarda en esa misma carpeta."/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Fotos" Style="{StaticResource CardTitle}"/>
+                        <TextBlock Text="Se ordenan por nombre. Usa las flechas para cambiar el orden o la X para quitar una."
+                                   Style="{StaticResource Muted}" Margin="0,-6,0,10"/>
+                        <ItemsControl ItemsSource="{Binding Items}" ItemTemplate="{StaticResource PhotoCard}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

@@ -1,0 +1,35 @@
+<UserControl x:Class="AutoKADN.Proyectos.Controls.DateField"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBox x:Name="Input" Width="118" MaxLength="12" ToolTip="Escribe 2509, 250926 o 25/09/2026. También: hoy, ayer."
+                 GotKeyboardFocus="OnInputFocus" PreviewMouseLeftButtonDown="OnInputMouseDown"
+                 KeyDown="OnInputKeyDown" LostKeyboardFocus="OnInputLostFocus"/>
+
+        <Button x:Name="CalendarButton" Grid.Column="1" Margin="6,0,0,0" Padding="9,0" Click="OnCalendarClick" ToolTip="Elegir en el calendario">
+            <TextBlock Text="&#xE787;" FontFamily="Segoe MDL2 Assets" FontSize="15" VerticalAlignment="Center"/>
+        </Button>
+
+        <TextBlock x:Name="Caption" Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis"/>
+
+        <Popup x:Name="CalendarPopup" PlacementTarget="{Binding ElementName=CalendarButton}" Placement="Bottom"
+               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+            <Border Margin="0,4,10,12" Padding="8" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.2"/>
+                </Border.Effect>
+                <StackPanel>
+                    <Calendar x:Name="Cal" BorderThickness="0" SelectedDatesChanged="OnCalendarSelected"
+                              GotMouseCapture="OnCalendarMouseCapture"/>
+                    <Button Content="Hoy" Margin="0,6,0,0" Padding="10,5" HorizontalAlignment="Stretch" Click="OnTodayClick"/>
+                </StackPanel>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>
