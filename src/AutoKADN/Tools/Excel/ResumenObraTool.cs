@@ -18,6 +18,8 @@ public sealed class ProjectSummary
 {
     // Layouts "ANILLO n DETALLE".
     public int RingDetailLayouts;
+    // Empresa contratista, leída del cajetín del primer plano de detalles ("" si no se encontró). Ver ContratistaReader.
+    public string Contractor = string.Empty;
     // Anillos (layouts "ANILLO n UC") que traen cotas de cada diámetro (1/2, 3/4).
     public readonly Dictionary<string, int> RingsByDiameter = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
     // Material del proyecto y de prueba por "DESCRIPCION|DIAMETRO" (tubería en ML, el resto en unidades).
@@ -138,12 +140,20 @@ public sealed class ResumenObraTool
             }
 
             ProjectSummary summary = GenerarExcelTool.BuildProjectSummary(database);
+            // El contratista es un dato aparte: si no se puede leer, el resto del resumen sale igual.
+            var contractor = new ContractorReading();
+            try { contractor = ContratistaReader.Read(database); }
+            catch (Exception ex) { contractor.Problem = "no se pudo leer (" + ex.Message + ")"; }
+            summary.Contractor = contractor.Name;
             string json = BuildJson(summary, ReadGasificado(drawingPath));
             string target = Path.Combine(ProjectRoot(drawingPath), FileName);
             File.WriteAllText(target, json, new UTF8Encoding(false));
 
             editor.WriteMessage("\n[RESUMENOBRA] " + target + "\n");
             editor.WriteMessage("  Anillos (layouts DETALLE): " + summary.RingDetailLayouts + "\n");
+            editor.WriteMessage(contractor.Name.Length > 0
+                ? "  Contratista: " + contractor.Name + " (de " + contractor.Layout + ")\n"
+                : "  Contratista: " + contractor.Problem + "; no se escribió en el resumen.\n");
             foreach (string diameter in RingDiameters)
                 editor.WriteMessage("  Tubería anillos " + diameter + "\": " + Ml(Pipe(summary, diameter)) + " ML\n");
             foreach (string diameter in TroncalDiameters)
@@ -210,6 +220,8 @@ public sealed class ResumenObraTool
         props.Add(Prop("version", "1"));
         props.Add(Prop("generado", DateTime.Now.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture)));
         props.Add(Prop("anillos.total", s.RingDetailLayouts.ToString(CultureInfo.InvariantCulture)));
+        // Sin contratista no se escribe la clave: así los formatos lo reportan como dato que falta en vez de dejarlo vacío a propósito.
+        if (!string.IsNullOrEmpty(s.Contractor)) props.Add(Prop("contratista", s.Contractor));
 
         props.Add(List("anillos.realizados", RingDiameters.Where(d => s.RingsByDiameter.ContainsKey(d))
             .Select(d => Item("diametro", Label(d), "cantidad", s.RingsByDiameter[d].ToString(CultureInfo.InvariantCulture)))));

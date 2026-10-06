@@ -49,7 +49,8 @@ omite y sigue con el siguiente. Rellena el PDF base con los valores de `resumen_
 - Campos sueltos con `fuente: "polivalvulas[0].cantidad"` → el campo del elemento 0 de esa lista.
 - Celdas sin `fuente`, o con una clave sin dato, quedan en blanco.
 
-`RESUMENOBRA` (plugin) escribe `resumen_obra.json` con: `anillos.total`, `anillos.realizados[]`, `tuberia.anillos[]`,
+`RESUMENOBRA` (plugin) escribe `resumen_obra.json` con: `anillos.total`, `contratista` (la empresa que está arriba de
+«PLANO DE DETALLES» en el primer plano de detalles, hasta el primer punto), `anillos.realizados[]`, `tuberia.anillos[]`,
 `tuberia.troncal[]`, `polivalvulas[]`, `accesorios.<tipo>[]` (diametro, cantidad del proyecto, pruebas, total) y
 `pruebas.<tipo>[]`, para union, tee, tapon, reduccion, silleta y codos. Las listas `anillos.fijo[]` y
 `tuberia.anillos.fijo[]` traen siempre 1/2" y 3/4" (en ese orden, cantidad vacía si no hay) para las filas con

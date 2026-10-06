@@ -111,6 +111,7 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | Clave | Contenido |
 |---|---|
 | `anillos.total` | layouts `ANILLO n DETALLE` |
+| `contratista` | empresa contratista: el texto que está justo arriba de «PLANO DE DETALLES» en el cajetín del primer plano de detalles (se lee en el orden de las pestañas), solo hasta el primer punto y sin LTDA (ej. «NOMBRE & CIA.»). Si no se encuentra, la clave no se escribe y los formatos la reportan como dato que falta |
 | `anillos.realizados[]` | anillos por diámetro (1/2, 3/4): `diametro`, `cantidad` |
 | `anillos.fijo[]` | siempre 1/2" y 3/4" (cantidad vacía si no hay) |
 | `tuberia.anillos[]`, `tuberia.anillos.fijo[]`, `tuberia.anillos.total` | ML de tubería de anillos por diámetro |
@@ -131,16 +132,15 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 ### 5.3 Formatos y sus datos
 | Formato | Estado |
 |---|---|
-| FT-O-117 Informe final | conectado: encabezado (`interventor`, `orden`, `localidad`, `proyecto`, fechas) + `resumen_obra.json`; sin dato: contratista |
+| FT-O-117 Informe final | conectado: encabezado (`interventor`, `orden`, `localidad`, `proyecto`, fechas), contratista (`contratista`, del plano) + `resumen_obra.json` |
 | FT-T-127 Totales de tubería | conectado a `ft127.paginas`; firmas y SUBTOTAL vacíos |
 | FT-O-108 Control de excavación | conectado a `ft108.paginas`; la fecha queda vacía (como en los formatos ya diligenciados), firmas y SUBTOTAL vacíos |
-| FT-O-119 Acta de puesta en servicio | conectado: fecha de gasificado (día, mes y año), interventor, supervisor como representante del contratista y la empresa contratista (clave `contratista`, pendiente de definir de dónde sale), proyecto como dirección, localidad, departamento, orden y la observación estándar con el ID del proyecto; una X en anillos y otra en troncal cuando el proyecto los tiene (`anillos.total` y `tuberia.troncal.total` mayores que cero); en la línea de firma del Consorcio, `NOMBRE - código` |
+| FT-O-119 Acta de puesta en servicio | conectado: fecha de gasificado (día, mes y año), interventor, supervisor como representante del contratista y la empresa contratista (clave `contratista`, del plano de detalles), proyecto como dirección, localidad, departamento, orden y la observación estándar con el ID del proyecto; una X en anillos y otra en troncal cuando el proyecto los tiene (`anillos.total` y `tuberia.troncal.total` mayores que cero); en la línea de firma del Consorcio, `NOMBRE - código` |
 
 ---
 
 ## 6. Datos que hoy no existen en ninguna etapa
 - Cédulas de los firmantes.
-- Nombre de la empresa contratista: las celdas del FT-O-117 y del FT-O-119 ya están conectadas a la clave `contratista`, pero ningún archivo la trae todavía (pendiente: de dónde se obtiene); mientras tanto salen en blanco.
 - Fecha de cada excavación por anillo/troncal (el FT-O-108 la deja vacía).
 - Fecha de recibo de obra propia (hoy se toma la fecha final de obra).
 - Dirección (hoy se usa el nombre del proyecto).
