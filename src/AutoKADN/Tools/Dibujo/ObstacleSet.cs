@@ -5,8 +5,8 @@ using Autodesk.AutoCAD.Runtime;
 namespace AutoKADN.Tools.Dibujo;
 
 /// <summary>
-/// Copia liviana (solo XY) de las curvas visibles del espacio actual. Permite lanzar rayos y buscar la
-/// curva bajo el cursor en cada movimiento del mouse sin abrir objetos de la base de datos.
+/// Copia liviana (solo XY) de las curvas visibles del espacio actual. Permite lanzar rayos en cada
+/// movimiento del mouse sin abrir objetos de la base de datos.
 /// Líneas y tramos rectos de polilíneas se guardan como segmentos (cálculo analítico); arcos, círculos,
 /// elipses y splines como copias sueltas de la entidad, que se liberan en Dispose.
 /// </summary>
@@ -31,19 +31,6 @@ internal sealed class ObstacleSet : IDisposable
     {
         public Curve Curve;
         public double MinX, MinY, MaxX, MaxY;
-    }
-
-    /// <summary>Referencia a un obstáculo (segmento o curva) para reutilizarlo como objetivo.</summary>
-    public readonly struct Ref
-    {
-        public Ref(bool isCurve, int index)
-        {
-            IsCurve = isCurve;
-            Index = index;
-        }
-
-        public bool IsCurve { get; }
-        public int Index { get; }
     }
 
     private readonly List<Segment> _segments = new List<Segment>();
@@ -130,55 +117,6 @@ internal sealed class ObstacleSet : IDisposable
             }
         }
         if (!found) t = 0.0;
-        return found;
-    }
-
-    /// <summary>Choque del rayo con un obstáculo concreto (aunque haya otros más cerca).</summary>
-    public bool TryRayTarget(Ref target, Point3d origin, Vector3d direction, out double t)
-    {
-        if (target.IsCurve) return RayCurve(_curves[target.Index], origin, direction, RayLength(origin), out t);
-        return RaySegment(origin.X, origin.Y, direction.X, direction.Y, _segments[target.Index], out t);
-    }
-
-    public bool TryFindNear(Point3d point, double tolerance, out Ref target) => TryClosest(point, tolerance, out target, out _);
-
-    /// <summary>Obstáculo más cercano al punto (dentro de la tolerancia) y el punto de ese obstáculo más próximo.</summary>
-    public bool TryClosest(Point3d point, double tolerance, out Ref target, out Point3d closest)
-    {
-        target = default;
-        closest = point;
-        double best = tolerance;
-        bool found = false;
-
-        for (int i = 0; i < _segments.Count; i++)
-        {
-            ClosestOnSegment(_segments[i], point.X, point.Y, out double cx, out double cy);
-            double distance = Math.Sqrt((cx - point.X) * (cx - point.X) + (cy - point.Y) * (cy - point.Y));
-            if (distance > best) continue;
-            best = distance;
-            found = true;
-            target = new Ref(false, i);
-            closest = new Point3d(cx, cy, point.Z);
-        }
-
-        for (int i = 0; i < _curves.Count; i++)
-        {
-            CurveObstacle obstacle = _curves[i];
-            if (point.X < obstacle.MinX - best || point.X > obstacle.MaxX + best ||
-                point.Y < obstacle.MinY - best || point.Y > obstacle.MaxY + best) continue;
-
-            Point3d onCurve;
-            try { onCurve = obstacle.Curve.GetClosestPointTo(point, Vector3d.ZAxis, false); }
-            catch { continue; }
-
-            double distance = Math.Sqrt((onCurve.X - point.X) * (onCurve.X - point.X) + (onCurve.Y - point.Y) * (onCurve.Y - point.Y));
-            if (distance > best) continue;
-            best = distance;
-            found = true;
-            target = new Ref(true, i);
-            closest = new Point3d(onCurve.X, onCurve.Y, point.Z);
-        }
-
         return found;
     }
 
@@ -396,16 +334,5 @@ internal sealed class ObstacleSet : IDisposable
         if (t1 > tMin) tMin = t1;
         if (t2 < tMax) tMax = t2;
         return tMin <= tMax;
-    }
-
-    private static void ClosestOnSegment(Segment s, double px, double py, out double cx, out double cy)
-    {
-        double vx = s.Bx - s.Ax, vy = s.By - s.Ay;
-        double lengthSquared = vx * vx + vy * vy;
-        double u = lengthSquared > 0.0 ? ((px - s.Ax) * vx + (py - s.Ay) * vy) / lengthSquared : 0.0;
-        if (u < 0.0) u = 0.0;
-        else if (u > 1.0) u = 1.0;
-        cx = s.Ax + u * vx;
-        cy = s.Ay + u * vy;
     }
 }

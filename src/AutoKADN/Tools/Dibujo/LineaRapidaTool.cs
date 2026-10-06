@@ -10,22 +10,23 @@ namespace AutoKADN.Tools.Dibujo;
 /// <summary>Modo compartido entre el botón de la cinta y el comando.</summary>
 public static class LineaRapidaSettings
 {
-    /// <summary>true: cada clic izquierdo fija un quiebre y la polilínea sigue; false: un solo tramo por polilínea.</summary>
+    /// <summary>true: punto a punto, cada clic izquierdo fija un vértice y la polilínea sigue; false: un solo tramo por polilínea.</summary>
     public static bool SeleccionMultiple { get; set; }
 }
 
-// Dibujo rápido de polilíneas: se hace clic en un punto (normalmente sobre una línea), el mouse elige la
-// dirección y el tramo se extiende solo hasta el primer choque con otra línea (o el borde del rectángulo).
-// ORTHOMODE activo: la dirección se ajusta a los ejes. Desactivado: dirección libre hacia el cursor.
-// Modo simple:   clic fija el tramo y pide otro punto de inicio; Enter, Espacio o clic derecho fijan y terminan.
-// Modo múltiple: clic fija un quiebre y sigue desde ahí; con el cursor sobre una línea el tramo choca contra
-//                esa línea aunque haya otras antes; Enter, Espacio o clic derecho fijan el tramo y terminan.
+// Dibujo rápido de polilíneas.
+// Modo simple:   se hace clic en un punto (normalmente sobre una línea), el mouse elige la dirección y el tramo
+//                se extiende solo hasta el primer choque con otra línea (o el borde del rectángulo). ORTHOMODE
+//                activo: la dirección se ajusta a los ejes; desactivado: dirección libre hacia el cursor. Clic fija
+//                el tramo y pide otro punto de inicio; Enter, Espacio o clic derecho fijan y terminan.
+// Modo múltiple: punto a punto, como una polilínea normal: cada clic fija un vértice justo donde se hace clic
+//                (el ortogonal, el polar y los snaps los aplica AutoCAD respecto al vértice anterior). Enter,
+//                Espacio o clic derecho terminan con los puntos ya fijados.
 // ESC cancela la polilínea en curso.
 public sealed class LineaRapidaTool
 {
     private const short NearestObjectSnap = 512;
     private const int ObjectSnapSuppressed = 16384;
-    private const double CollinearTolerance = 1e-9;
 
     private enum BuildResult { Continue, Exit }
 
@@ -60,8 +61,9 @@ public sealed class LineaRapidaTool
                     Matrix3d ucs = editor.CurrentUserCoordinateSystem;
                     Point3d start = startResult.Value.TransformBy(ucs);
 
-                    // La dirección la da el cursor libre: sin snaps mientras se muestra el preview.
-                    AcadApplication.SetSystemVariable("OSMODE", (short)0);
+                    // Simple: la dirección la da el cursor libre (sin snaps mientras se muestra el preview).
+                    // Múltiple: punto a punto, con los snaps que el usuario tenga activos.
+                    AcadApplication.SetSystemVariable("OSMODE", multiple ? originalOsMode : (short)0);
                     if (BuildPolyline(editor, database, obstacles, start, ucs, ref created) == BuildResult.Exit) break;
                 }
             }
@@ -95,8 +97,9 @@ public sealed class LineaRapidaTool
 
             if (jig.EnterPressed)
             {
-                // Enter, Espacio o clic derecho: lo que se ve en el preview queda como último tramo.
-                if (jig.HasSegment) AddVertex(obstacles, vertices, jig.EndPoint);
+                // Enter, Espacio o clic derecho. Simple: lo que se ve en el preview queda como último tramo.
+                // Múltiple: la polilínea termina en el último punto fijado (el tramo que sigue al cursor no cuenta).
+                if (!multiple && jig.HasSegment) AddVertex(obstacles, vertices, jig.EndPoint);
                 if (Commit(editor, database, vertices)) created++;
                 return BuildResult.Exit;
             }
@@ -111,7 +114,7 @@ public sealed class LineaRapidaTool
             if (!jig.HasSegment) continue; // clic sin dirección todavía: se ignora
 
             AddVertex(obstacles, vertices, jig.EndPoint);
-            if (multiple) continue; // quiebre fijado: la polilínea sigue desde aquí
+            if (multiple) continue; // punto fijado: la polilínea sigue desde aquí
 
             if (Commit(editor, database, vertices)) created++;
             return BuildResult.Continue;
@@ -126,7 +129,7 @@ public sealed class LineaRapidaTool
 
     private static bool Commit(Editor editor, Database database, List<Point3d> vertices)
     {
-        List<Point3d> points = Simplify(vertices);
+        List<Point3d> points = RemoveRepeated(vertices);
         if (points.Count < 2) return false;
 
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -145,63 +148,35 @@ public sealed class LineaRapidaTool
         return true;
     }
 
-    // Quita vértices repetidos y los intermedios que quedan alineados con el mismo sentido
-    // (p. ej. un quiebre fijado sobre una línea que se atraviesa sin cambiar de dirección).
-    private static List<Point3d> Simplify(List<Point3d> vertices)
+    // Quita los vértices repetidos (clics en el mismo punto); el resto queda tal como se fijó, punto a punto.
+    private static List<Point3d> RemoveRepeated(List<Point3d> vertices)
     {
         var result = new List<Point3d>();
         foreach (Point3d point in vertices)
         {
             if (result.Count > 0 && result[result.Count - 1].DistanceTo(point) <= ObstacleSet.MinHit) continue;
-            while (result.Count >= 2 && IsStraightThrough(result[result.Count - 2], result[result.Count - 1], point))
-                result.RemoveAt(result.Count - 1);
             result.Add(point);
         }
         return result;
     }
 
-    private static bool IsStraightThrough(Point3d a, Point3d b, Point3d c)
+    // Tamaño de un píxel en unidades de dibujo (para la cruz del preview del modo simple).
+    private static double ReadUnitsPerPixel()
     {
-        double abx = b.X - a.X, aby = b.Y - a.Y, bcx = c.X - b.X, bcy = c.Y - b.Y;
-        double scale = Math.Sqrt(abx * abx + aby * aby) * Math.Sqrt(bcx * bcx + bcy * bcy);
-        if (scale <= 0.0) return false;
-        double cross = abx * bcy - aby * bcx;
-        double dot = abx * bcx + aby * bcy;
-        return dot > 0.0 && Math.Abs(cross) <= CollinearTolerance * scale;
-    }
-
-    // Tamaño de un píxel en unidades de dibujo y tolerancia para "tocar" una línea (APERTURE).
-    private readonly struct ViewScale
-    {
-        private ViewScale(double unitsPerPixel, double hoverTolerance)
+        try
         {
-            UnitsPerPixel = unitsPerPixel;
-            HoverTolerance = hoverTolerance;
+            double viewSize = Convert.ToDouble(AcadApplication.GetSystemVariable("VIEWSIZE"));
+            object screen = AcadApplication.GetSystemVariable("SCREENSIZE");
+            if (screen is Point2d size && size.Y > 0.0 && viewSize > 0.0) return viewSize / size.Y;
         }
-
-        public double UnitsPerPixel { get; }
-        public double HoverTolerance { get; }
-
-        public static ViewScale Read()
-        {
-            double unitsPerPixel = 1.0;
-            double aperture = 10.0;
-            try
-            {
-                double viewSize = Convert.ToDouble(AcadApplication.GetSystemVariable("VIEWSIZE"));
-                object screen = AcadApplication.GetSystemVariable("SCREENSIZE");
-                if (screen is Point2d size && size.Y > 0.0 && viewSize > 0.0) unitsPerPixel = viewSize / size.Y;
-                aperture = Math.Max(Convert.ToDouble(AcadApplication.GetSystemVariable("APERTURE")), 5.0);
-            }
-            catch { /* se usan valores por defecto */ }
-            return new ViewScale(unitsPerPixel, aperture * unitsPerPixel);
-        }
+        catch { /* se usa 1 */ }
+        return 1.0;
     }
 
     private sealed class QuickLineJig : DrawJig
     {
         private const string SimpleMessage = "\nDirección con el mouse. Clic: fijar y seguir. Enter, Espacio o clic derecho: fijar y terminar: ";
-        private const string MultipleMessage = "\nClic: fijar quiebre. Enter, Espacio o clic derecho: fijar el tramo y terminar: ";
+        private const string MultipleMessage = "\nSiguiente punto (Enter, Espacio o clic derecho para terminar): ";
 
         private readonly ObstacleSet _obstacles;
         private readonly List<Point3d> _vertices;
@@ -234,6 +209,13 @@ public sealed class LineaRapidaTool
             {
                 UserInputControls = UserInputControls.Accept3dCoordinates | UserInputControls.NullResponseAccepted
             };
+            if (_multiple)
+            {
+                // Punto a punto: AutoCAD aplica el ortogonal, el polar y los snaps respecto al último vértice (la base del jig).
+                options.UserInputControls |= UserInputControls.GovernedByOrthoMode;
+                options.UseBasePoint = true;
+                options.BasePoint = _anchor.TransformBy(_ucs.Inverse()); // la base va en el UCS actual, como los puntos que devuelve
+            }
             PromptPointResult result = prompts.AcquirePoint(options);
             if (result.Status == PromptStatus.None)
             {
@@ -264,15 +246,18 @@ public sealed class LineaRapidaTool
             if (!HasSegment) return true;
 
             geometry.WorldLine(_anchor, EndPoint);
+            if (_multiple) return true; // punto a punto: el tramo llega hasta el cursor, no hay punto de choque que marcar
+
             double r = _pixel * 5.0; // cruz en el punto donde choca
             geometry.WorldLine(new Point3d(EndPoint.X - r, EndPoint.Y - r, EndPoint.Z), new Point3d(EndPoint.X + r, EndPoint.Y + r, EndPoint.Z));
             geometry.WorldLine(new Point3d(EndPoint.X - r, EndPoint.Y + r, EndPoint.Z), new Point3d(EndPoint.X + r, EndPoint.Y - r, EndPoint.Z));
             return true;
         }
 
-        // Dirección: ejes del UCS más cercanos al cursor con ORTHOMODE activo; libre hacia el cursor si no.
-        // El tramo llega hasta el primer choque. En modo múltiple, si el cursor toca una línea y el rayo
-        // la alcanza, el tramo choca contra esa línea aunque haya otras antes.
+        // Múltiple (punto a punto): el vértice queda justo donde se hace clic; el ortogonal, el polar y los snaps ya
+        // los aplicó AutoCAD respecto al vértice anterior.
+        // Simple: dirección = ejes del UCS más cercanos al cursor con ORTHOMODE activo, libre hacia el cursor si no;
+        // el tramo llega hasta el primer choque.
         private void Resolve(Point3d cursor)
         {
             HasSegment = false;
@@ -281,33 +266,18 @@ public sealed class LineaRapidaTool
             var toCursor = new Vector3d(cursor.X - _anchor.X, cursor.Y - _anchor.Y, 0.0);
             if (toCursor.Length <= ObstacleSet.MinHit) return;
 
-            ViewScale scale = ViewScale.Read();
-            _pixel = scale.UnitsPerPixel;
+            if (_multiple)
+            {
+                EndPoint = new Point3d(cursor.X, cursor.Y, _anchor.Z);
+                HasSegment = true;
+                return;
+            }
 
+            _pixel = ReadUnitsPerPixel();
             Vector3d[] candidates = RotationStandard.IsOrthoEnabled() ? OrthoCandidates(toCursor) : new[] { toCursor.GetNormal() };
             Vector3d direction = candidates[0];
-            double distance = 0.0;
-            bool hit = false;
-
-            if (_multiple && _obstacles.TryFindNear(cursor, scale.HoverTolerance, out ObstacleSet.Ref target))
-            {
-                foreach (Vector3d candidate in candidates)
-                {
-                    if (candidate.DotProduct(toCursor) <= ObstacleSet.MinHit) continue; // solo hacia donde apunta el cursor
-                    if (!_obstacles.TryRayTarget(target, _anchor, candidate, out double targetDistance)) continue;
-                    direction = candidate;
-                    distance = targetDistance;
-                    hit = true;
-                    break;
-                }
-            }
-
-            if (!hit)
-            {
-                direction = candidates[0];
-                hit = _obstacles.TryRayFirst(_anchor, direction, out distance);
-                if (!hit) distance = Math.Max(toCursor.DotProduct(direction), 0.0); // sin nada que chocar: hasta el cursor
-            }
+            bool hit = _obstacles.TryRayFirst(_anchor, direction, out double distance);
+            if (!hit) distance = Math.Max(toCursor.DotProduct(direction), 0.0); // sin nada que chocar: hasta el cursor
 
             if (distance <= ObstacleSet.MinHit) return;
             EndPoint = new Point3d(_anchor.X + direction.X * distance, _anchor.Y + direction.Y * distance, _anchor.Z);

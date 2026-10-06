@@ -84,7 +84,7 @@ public sealed class AutoKADNRibbon
         LargeImage = icon, CommandHandler = new RibbonCommandHandler(command)
     };
 
-    // Interruptor persistente (como F8 con el ortogonal): mientras esté activo, LINEARAPIDA fija un quiebre por clic.
+    // Interruptor persistente (como F8 con el ortogonal): mientras esté activo, LINEARAPIDA va punto a punto (un vértice por clic).
     private static RibbonToggleButton CreateMultiSelectToggle()
     {
         var toggle = new RibbonToggleButton
@@ -92,7 +92,7 @@ public sealed class AutoKADNRibbon
             Id = "AutoKADN_LINEARAPIDA_MULTI", Text = "Selección múltiple", ShowText = true, ShowImage = true,
             Orientation = System.Windows.Controls.Orientation.Vertical, Size = RibbonItemSize.Large,
             LargeImage = CreateSeleccionMultipleIcon(), IsChecked = LineaRapidaSettings.SeleccionMultiple,
-            ToolTip = "Línea rápida: cada clic fija un quiebre y la polilínea sigue. Enter, Espacio o clic derecho terminan."
+            ToolTip = "Línea rápida punto a punto: cada clic fija un vértice donde haces clic (respeta ortogonal y snaps) y la polilínea sigue. Enter, Espacio o clic derecho terminan."
         };
         toggle.CheckStateChanged += (_, _) => LineaRapidaSettings.SeleccionMultiple = toggle.IsChecked;
         return toggle;
