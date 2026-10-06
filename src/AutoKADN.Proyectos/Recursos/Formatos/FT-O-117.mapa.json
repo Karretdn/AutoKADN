@@ -25,7 +25,7 @@
       "ancho": 296.05,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "interventor",
       "origen": "auto",
       "confianza": 0.8,
@@ -41,7 +41,7 @@
       "ancho": 127.43,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "orden",
       "origen": "auto",
       "confianza": 0.8,
@@ -57,7 +57,7 @@
       "ancho": 112.19,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "localidad",
       "origen": "auto",
       "confianza": 0.8,
@@ -73,7 +73,7 @@
       "ancho": 296.05,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "proyecto",
       "origen": "auto",
       "confianza": 0.8,
@@ -89,7 +89,7 @@
       "ancho": 88.09,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "fechaInicioObra",
       "origen": "auto",
       "confianza": 0.8,
@@ -105,7 +105,7 @@
       "ancho": 112.19,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "fechaFinalObra",
       "origen": "auto",
       "confianza": 0.8,
@@ -121,7 +121,7 @@
       "ancho": 88.09,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "fechaFinalObra",
       "origen": "auto",
       "confianza": 0.8,
@@ -137,7 +137,7 @@
       "ancho": 112.19,
       "alto": 12.33,
       "alineacion": "centro",
-      "tamanoFuente": 7.6,
+      "tamanoFuente": 8.6,
       "fuente": "contratista",
       "origen": "auto",
       "confianza": 0.8,
@@ -153,7 +153,7 @@
       "ancho": 56.43,
       "alto": 23.5,
       "alineacion": "centro",
-      "tamanoFuente": 10,
+      "tamanoFuente": 11,
       "fuente": "anillos.total",
       "origen": "auto",
       "confianza": 0.7,
@@ -169,7 +169,7 @@
       "ancho": 56.43,
       "alto": 23.49,
       "alineacion": "centro",
-      "tamanoFuente": 10,
+      "tamanoFuente": 11,
       "fuente": "tuberia.anillos.total",
       "origen": "auto",
       "confianza": 0.7,
@@ -185,7 +185,7 @@
       "ancho": 56.43,
       "alto": 22.06,
       "alineacion": "centro",
-      "tamanoFuente": 10,
+      "tamanoFuente": 11,
       "fuente": "tuberia.troncal.total",
       "origen": "auto",
       "confianza": 0.7,
@@ -201,7 +201,7 @@
       "ancho": 56.43,
       "alto": 11.68,
       "alineacion": "centro",
-      "tamanoFuente": 7.2,
+      "tamanoFuente": 8.2,
       "fuente": "polivalvulas.total",
       "origen": "auto",
       "confianza": 0.8,
@@ -217,7 +217,7 @@
       "ancho": 56.3,
       "alto": 11.68,
       "alineacion": "centro",
-      "tamanoFuente": 7.2,
+      "tamanoFuente": 8.2,
       "fuente": "polivalvulas[0].diametro",
       "origen": "auto",
       "confianza": 0.8,
@@ -234,7 +234,7 @@
       "ancho": 55.9,
       "alto": 11.68,
       "alineacion": "centro",
-      "tamanoFuente": 7.2,
+      "tamanoFuente": 8.2,
       "fuente": "polivalvulas[0].cantidad",
       "origen": "auto",
       "confianza": 0.8,
@@ -250,7 +250,7 @@
       "ancho": 55.9,
       "alto": 32.57,
       "alineacion": "centro",
-      "tamanoFuente": 10,
+      "tamanoFuente": 11,
       "fuente": "anillos.total",
       "origen": "auto",
       "confianza": 0.7,
@@ -266,7 +266,7 @@
       "ancho": 55.9,
       "alto": 32.71,
       "alineacion": "centro",
-      "tamanoFuente": 10,
+      "tamanoFuente": 11,
       "fuente": "tuberia.anillos.total",
       "origen": "auto",
       "confianza": 0.7,
@@ -282,7 +282,7 @@
       "ancho": 55.9,
       "alto": 32.71,
       "alineacion": "centro",
-      "tamanoFuente": 10,
+      "tamanoFuente": 11,
       "fuente": "tuberia.troncal.total",
       "origen": "auto",
       "confianza": 0.7,
@@ -298,7 +298,7 @@
       "ancho": 55.9,
       "alto": 35.17,
       "alineacion": "centro",
-      "tamanoFuente": 10,
+      "tamanoFuente": 11,
       "fuente": "polivalvulas.total",
       "origen": "auto",
       "confianza": 0.7,
@@ -322,7 +322,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 7.3,
+          "tamanoFuente": 8.3,
           "fuente": "anillos.fijo[].cantidad"
         }
       ],
@@ -355,7 +355,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "tuberia.anillos.fijo[].cantidad"
         }
       ],
@@ -388,7 +388,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "tuberia.troncal[].diametro",
           "prefijo": "Ø"
         },
@@ -399,7 +399,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "tuberia.troncal[].cantidad"
         }
       ],
@@ -432,7 +432,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 6.8,
+          "tamanoFuente": 7.8,
           "fuente": "anillos.realizados[].diametro",
           "prefijo": "Ø"
         },
@@ -443,7 +443,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 6.8,
+          "tamanoFuente": 7.8,
           "fuente": "anillos.realizados[].cantidad"
         }
       ],
@@ -480,7 +480,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 6.8,
+          "tamanoFuente": 7.8,
           "fuente": "tuberia.anillos[].diametro",
           "prefijo": "Ø"
         },
@@ -491,7 +491,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 6.8,
+          "tamanoFuente": 7.8,
           "fuente": "tuberia.anillos[].cantidad"
         }
       ],
@@ -528,7 +528,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 6.8,
+          "tamanoFuente": 7.8,
           "fuente": "tuberia.troncal[].diametro",
           "prefijo": "Ø"
         },
@@ -539,7 +539,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 6.8,
+          "tamanoFuente": 7.8,
           "fuente": "tuberia.troncal[].cantidad"
         }
       ],
@@ -576,7 +576,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "polivalvulas[].diametro",
           "prefijo": "Ø"
         },
@@ -587,7 +587,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "polivalvulas[].cantidad"
         }
       ],
@@ -624,7 +624,7 @@
           "x": 257.28,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "pruebas.union[].diametro",
           "prefijo": "Ø"
         },
@@ -635,7 +635,7 @@
           "x": 313.58,
           "ancho": 39.34,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "pruebas.union[].cantidad"
         },
         {
@@ -645,7 +645,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "accesorios.union[].diametro",
           "prefijo": "Ø"
         },
@@ -656,7 +656,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "accesorios.union[].cantidad"
         },
         {
@@ -666,7 +666,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "accesorios.union[].total"
         }
       ],
@@ -703,7 +703,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.tee[].diametro",
           "prefijo": "Ø"
         },
@@ -714,7 +714,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.tee[].cantidad"
         },
         {
@@ -724,7 +724,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.tee[].total"
         }
       ],
@@ -761,7 +761,7 @@
           "x": 257.28,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "pruebas.tapon[].diametro",
           "prefijo": "Ø"
         },
@@ -772,7 +772,7 @@
           "x": 313.58,
           "ancho": 39.34,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "pruebas.tapon[].cantidad"
         },
         {
@@ -782,7 +782,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "accesorios.tapon[].diametro",
           "prefijo": "Ø"
         },
@@ -793,7 +793,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "accesorios.tapon[].cantidad"
         },
         {
@@ -803,7 +803,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 6.7,
+          "tamanoFuente": 7.7,
           "fuente": "accesorios.tapon[].total"
         }
       ],
@@ -840,7 +840,7 @@
           "x": 257.28,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "pruebas.reduccion[].diametro",
           "prefijo": "Ø"
         },
@@ -851,7 +851,7 @@
           "x": 313.58,
           "ancho": 39.34,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "pruebas.reduccion[].cantidad"
         },
         {
@@ -861,7 +861,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.reduccion[].diametro",
           "prefijo": "Ø"
         },
@@ -872,7 +872,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.reduccion[].cantidad"
         },
         {
@@ -882,7 +882,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.reduccion[].total"
         }
       ],
@@ -915,7 +915,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 7.3,
+          "tamanoFuente": 8.3,
           "fuente": "accesorios.silleta[].diametro",
           "prefijo": "Ø"
         },
@@ -926,7 +926,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 7.3,
+          "tamanoFuente": 8.3,
           "fuente": "accesorios.silleta[].cantidad"
         },
         {
@@ -936,7 +936,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 7.3,
+          "tamanoFuente": 8.3,
           "fuente": "accesorios.silleta[].total"
         }
       ],
@@ -969,7 +969,7 @@
           "x": 352.92,
           "ancho": 56.43,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.codos[].diametro",
           "prefijo": "Ø"
         },
@@ -980,7 +980,7 @@
           "x": 409.34,
           "ancho": 56.3,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.codos[].cantidad"
         },
         {
@@ -990,7 +990,7 @@
           "x": 465.64,
           "ancho": 55.9,
           "alineacion": "centro",
-          "tamanoFuente": 7.2,
+          "tamanoFuente": 8.2,
           "fuente": "accesorios.codos[].total"
         }
       ],
