@@ -57,6 +57,7 @@ public sealed class AutoKADNRibbon
         var drawPanel = new RibbonPanel { Source = drawSource };
         drawSource.Items.Add(CreateButton("LINEARAPIDA", "Línea rápida", "LINEARAPIDA", CreateLineaRapidaIcon()));
         drawSource.Items.Add(CreateMultiSelectToggle());
+        drawSource.Items.Add(CreateButton("CALCAR", "Importar imagen/PDF", "CALCAR", CreateCalcarIcon()));
         tab.Panels.Add(drawPanel);
 
         var planSource = new RibbonPanelSource { Title = "Plano" };
@@ -154,6 +155,18 @@ public sealed class AutoKADNRibbon
         dc.DrawLine(p, new System.Windows.Point(30, 15), new System.Windows.Point(36, 20));
         dc.DrawLine(p, new System.Windows.Point(30, 25), new System.Windows.Point(36, 20));
         dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(10, 20), 3.0, 3.0);
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateCalcarIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(4, 6, 32, 28));                                   // la imagen
+        dc.DrawLine(p, new System.Windows.Point(4, 29), new System.Windows.Point(14, 19));                  // montaña
+        dc.DrawLine(p, new System.Windows.Point(14, 19), new System.Windows.Point(21, 26));
+        dc.DrawLine(p, new System.Windows.Point(21, 26), new System.Windows.Point(27, 20));
+        dc.DrawLine(p, new System.Windows.Point(27, 20), new System.Windows.Point(36, 29));
+        dc.DrawEllipse(Brushes.White, null, new System.Windows.Point(28, 13), 2.8, 2.8);                    // sol
         return new DrawingImage(g);
     }
 
