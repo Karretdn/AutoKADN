@@ -28,6 +28,9 @@ public sealed class DebugDetallesTool
     private const string VigaConcretoCode = "100006013";
     private const string EmpedradoCode = "100006010";
     private const string CruceTopoCode = "100005403";
+    // Cruce de arroyo a cielo abierto (UC especial): anillo para 1/2" y 3/4"; troncal para 2", 3", 4" y 6".
+    private const string CruceArroyoRingCode = "100005407";
+    private const string CruceArroyoTroncalCode = "100005408";
 
     // Cruce con Topo por diámetro troncal (2/3/4/6) — para 1/2"/3/4" se sigue usando CruceTopoCode.
     private static readonly Dictionary<string, string> CruceTopoCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -179,6 +182,7 @@ public sealed class DebugDetallesTool
                 ActivityAgg activity = snapshot.ActivityByGroup.TryGetValue(key, out ActivityAgg act) ? act : null;
                 AddUnidadConstructivaSection(key.Surface, key.Diameter, found, length, materials, spiral, activity);
             }
+            AddCruceArroyoSection(snapshot.ActivityByGroup);
 
             if (snapshot.Rows.Count == 0 && ucTotals.Count == 0 && snapshot.SpiralByGroup.Count == 0)
             {
@@ -186,13 +190,58 @@ public sealed class DebugDetallesTool
             }
         }
 
+        // Sección de la UC especial "ESPECIAL CRUCE SUBFLUVIAL POLIETILENO": lo que saldrá en su propio Excel con los
+        // metros de CRUCE DE ARROYO anotados en los layouts DETALLE (ya descontados de sus UC normales arriba).
+        private void AddCruceArroyoSection(Dictionary<UcGroupKey, ActivityAgg> activityByGroup)
+        {
+            var byDiameter = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<UcGroupKey, ActivityAgg> item in activityByGroup)
+            {
+                if (item.Value.CruceArroyo <= 0.0) continue;
+                byDiameter.TryGetValue(item.Key.Diameter, out double current);
+                byDiameter[item.Key.Diameter] = current + item.Value.CruceArroyo;
+            }
+            if (byDiameter.Count == 0) return;
+
+            double ring = 0.0, troncal = 0.0;
+            foreach (KeyValuePair<string, double> item in byDiameter)
+            {
+                if (Array.IndexOf(TroncalDiameters, item.Key) >= 0) troncal += item.Value; else ring += item.Value;
+            }
+            string Ml(double value) => value.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML";
+
+            var headerBorder = new Border { Background = new SolidColorBrush(Color.FromRgb(20, 90, 40)), Padding = new Thickness(12, 6, 12, 6), CornerRadius = new CornerRadius(4) };
+            headerBorder.Child = new TextBlock { Text = "UNIDAD CONSTRUCTIVA ESPECIAL: " + CruceArroyoUcName + " = " + Ml(ring + troncal), Foreground = Brushes.White, FontSize = 14, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
+
+            var rows = new List<ActivityRow>();
+            if (ring > 0.0) rows.Add(new ActivityRow(CruceArroyoRingCode, "CRUCE DE ARROYO ANILLO", Ml(ring), "Tuberías de 1/2\" y 3/4\""));
+            if (troncal > 0.0) rows.Add(new ActivityRow(CruceArroyoTroncalCode, "CRUCE DE ARROYO TRONCAL", Ml(troncal), "Tuberías de 2\", 3\", 4\" y 6\""));
+            rows.Add(new ActivityRow(PlanosAsBuiltCode, "PLANOS AS-BUILT", Ml(ring + troncal), "= todo el cruce de arroyo"));
+            foreach (KeyValuePair<string, double> item in byDiameter.OrderBy(x => Array.IndexOf(new[] { "1/2", "3/4", "2", "3", "4", "6" }, x.Key)))
+                rows.Add(new ActivityRow("(material)", "TUBERIA " + item.Key + "\"", Ml(item.Value), "Misma cantidad del cruce"));
+
+            var grid = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, CanUserDeleteRows = false, Height = Math.Min(260, Math.Max(60, rows.Count * 24 + 36)), RowHeight = 22, Margin = new Thickness(0, 4, 0, 6), ItemsSource = rows };
+            grid.Columns.Add(new DataGridTextColumn { Header = "CODIGO", Binding = new System.Windows.Data.Binding(nameof(ActivityRow.Codigo)), Width = new DataGridLength(130) });
+            grid.Columns.Add(new DataGridTextColumn { Header = "DESCRIPCION", Binding = new System.Windows.Data.Binding(nameof(ActivityRow.Descripcion)), Width = new DataGridLength(220) });
+            grid.Columns.Add(new DataGridTextColumn { Header = "CANTIDAD", Binding = new System.Windows.Data.Binding(nameof(ActivityRow.Cantidad)), Width = new DataGridLength(110) });
+            grid.Columns.Add(new DataGridTextColumn { Header = "NOTA", Binding = new System.Windows.Data.Binding(nameof(ActivityRow.Nota)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+
+            var expander = new Expander { Header = headerBorder, Content = grid, IsExpanded = true, Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(0, 4, 0, 0) };
+            _ucExpanders.Add(expander);
+            _content.Children.Add(expander);
+        }
+
         private void AddUnidadConstructivaSection(string surface, string diameter, bool found, double length, List<DebugRow> materials, SpiralAgg spiral, ActivityAgg activity)
         {
             double spiralPipe = spiral?.Pipe ?? 0.0;
-            double pipeTotal = (found ? length : 0.0) + spiralPipe;
+            // Los metros de CRUCE DE ARROYO salen de esta UC (van en la UC especial): aquí queda solo el resto.
+            double cruceArroyo = found ? Math.Min(activity?.CruceArroyo ?? 0.0, length) : 0.0;
+            double ucLength = length - cruceArroyo;
+            double pipeTotal = (found ? ucLength : 0.0) + spiralPipe;
 
             string headerText = found
-                ? "UNIDAD CONSTRUCTIVA: " + surface + " " + diameter + "\" = " + length.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML"
+                ? "UNIDAD CONSTRUCTIVA: " + surface + " " + diameter + "\" = " + ucLength.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML"
+                    + (cruceArroyo > 0 ? " (UC " + length.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " − " + cruceArroyo.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " CRUCE DE ARROYO)" : string.Empty)
                     + (spiralPipe > 0 ? " (+ " + spiralPipe.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML ESPIRAL)" : string.Empty)
                 : "FALTA INGRESAR UC — " + surface + " " + diameter + "\"";
 
@@ -239,7 +288,7 @@ public sealed class DebugDetallesTool
             grid.Columns.Add(new DataGridTextColumn { Header = "LAYOUT", Binding = new System.Windows.Data.Binding(nameof(UcMaterialRow.Layout)), Width = new DataGridLength(190) });
             body.Children.Add(grid);
 
-            AddActividadesSection(body, surface, diameter, found, length, pipeTotal, activity);
+            AddActividadesSection(body, surface, diameter, found, ucLength, pipeTotal, activity, cruceArroyo);
 
             var expander = new Expander
             {
@@ -253,7 +302,8 @@ public sealed class DebugDetallesTool
             _content.Children.Add(expander);
         }
 
-        private void AddActividadesSection(Panel target, string surface, string diameter, bool found, double length, double pipeTotal, ActivityAgg activity)
+        // `length` ya viene sin los metros de CRUCE DE ARROYO (cruceArroyo), que salen de esta UC.
+        private void AddActividadesSection(Panel target, string surface, string diameter, bool found, double length, double pipeTotal, ActivityAgg activity, double cruceArroyo)
         {
             double camisa = activity?.Camisa ?? 0.0;
             double cruceTopo = activity?.CruceTopo ?? 0.0;
@@ -273,7 +323,7 @@ public sealed class DebugDetallesTool
                 string canalizacionLabel = isTroncal ? "CANALIZACION TRONCAL" : "CANALIZACION ANILLO";
                 string canalizacionNota = (camisa > 0 || cruceTopo > 0)
                     ? "UC (" + length.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + ") − CAMISA (" + camisa.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + ") − CRUCE TOPO (" + cruceTopo.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + ")"
-                    : "UC";
+                    : (cruceArroyo > 0 ? "UC sin cruce de arroyo" : "UC");
                 rows.Add(new ActivityRow(canalizacionCode, canalizacionLabel, canalizacion.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", canalizacionNota));
                 rows.Add(new ActivityRow(PlanosAsBuiltCode, "PLANOS AS-BUILT", pipeTotal.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", "= TUBERIA (UC + ESPIRAL)"));
                 if (TendidoTermofusionCodeByDiameter.TryGetValue(diameter, out string tendidoCode))
@@ -291,6 +341,8 @@ public sealed class DebugDetallesTool
             if (vigaConcreto > 0) rows.Add(new ActivityRow(VigaConcretoCode, "VIGA EN CONCRETO", vigaConcreto.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? string.Empty : "Sin UC: no se generará"));
             if (empedradoMl > 0) rows.Add(new ActivityRow(EmpedradoCode, "EMPEDRADO", (empedradoMl * EmpedradoFactor).ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " m²", (found ? string.Empty : "Sin UC: no se generará. ") + empedradoMl.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML × 0.4"));
             if (camisa > 0) rows.Add(new ActivityRow("(sin línea propia)", "CAMISA", camisa.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? "Solo resta en Canalización" : "Sin UC: no resta nada"));
+            double cruceArroyoAnnotated = activity?.CruceArroyo ?? 0.0;
+            if (cruceArroyoAnnotated > 0) rows.Add(new ActivityRow("(UC especial)", "CRUCE DE ARROYO", cruceArroyoAnnotated.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture) + " ML", found ? "Se resta de esta UC (tubería, canalización, tendido y as-built); va en " + CruceArroyoUcName : "Sin UC: no resta nada; va en " + CruceArroyoUcName));
 
             if (rows.Count == 0) return;
 
@@ -687,6 +739,7 @@ public sealed class DebugDetallesTool
         public double CruceTopo;
         public double Empedrado;
         public double VigaConcreto;
+        public double CruceArroyo;
         public HashSet<string> Layouts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public void Add(string label, double quantity)
@@ -697,6 +750,7 @@ public sealed class DebugDetallesTool
             else if (normalized == "CRUCE CON TOPO") CruceTopo += quantity;
             else if (normalized == "EMPEDRADO") Empedrado += quantity;
             else if (normalized == "VIGA EN CONCRETO") VigaConcreto += quantity;
+            else if (normalized == CruceArroyoLabel) CruceArroyo += quantity;
         }
     }
 }

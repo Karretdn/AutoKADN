@@ -43,6 +43,9 @@ public sealed class GenerarExcelTool
     private const string VigaConcretoCode = "100006013";
     private const string EmpedradoCode = "100006010";
     private const string CruceTopoCode = "100005403";
+    // Cruce de arroyo a cielo abierto (UC especial): anillo para 1/2" y 3/4"; troncal para 2", 3", 4" y 6".
+    private const string CruceArroyoRingCode = "100005407";
+    private const string CruceArroyoTroncalCode = "100005408";
 
     // Cruce con Topo por diámetro troncal (2/3/4/6) — para 1/2"/3/4" se sigue usando CruceTopoCode.
     private static readonly Dictionary<string, string> CruceTopoCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -149,16 +152,23 @@ public sealed class GenerarExcelTool
             MergeMaterialQuantities(materialQuantities, ScanSpiral(database));
             Dictionary<UcKey, Dictionary<MaterialKey, double>> materialTestQuantities = ScanMaterialTest(database);
             MergeMaterialQuantities(materialQuantities, materialTestQuantities);
+            // Cruce de arroyo: sus metros salen de la UC normal (tubería, canalización, tendido y as-built) y pasan a la UC
+            // especial. Va antes de convertir los metros a TUBERIA para que todo se calcule ya sin ellos.
+            Dictionary<UcKey, ActivityAgg> activityAggs = ScanActivities(database);
+            MoveCruceArroyoToOwnUc(editor, ucPipeTotals, activityAggs);
             MergeMaterialQuantities(materialQuantities, ConvertUcTotalsToPipeMaterials(ucPipeTotals));
             // Las UC a procesar son la unión entre las que tienen cota real (ScanUcs) y las que solo
             // aparecen por material de prueba/accesorios/espiral, para que estas últimas también se generen.
-            List<UcKey> detectedUcs = ucPipeTotals.Keys.Union(materialQuantities.Keys)
+            List<UcKey> allUcs = ucPipeTotals.Keys.Union(materialQuantities.Keys)
                 .OrderBy(x => GetSurfaceOrder(x.Surface)).ThenBy(x => DiameterOrder(x.Diameter)).ToList();
-            if (detectedUcs.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC' ni materiales de prueba.\n"); return; }
-            Dictionary<UcKey, ActivityAgg> activityAggs = ScanActivities(database);
+            if (allUcs.Count == 0) { editor.WriteMessage("\nNo se encontraron UC válidas en los layouts 'ANILLO X UC' ni materiales de prueba.\n"); return; }
+            // Las UC "CRUCE DE ARROYO" (una por diámetro) no tienen formato propio cada una: salen juntas en un solo Excel, al final.
+            List<UcKey> detectedUcs = allUcs.Where(x => !IsCruceArroyo(x)).ToList();
+            List<UcKey> arroyoUcs = allUcs.Where(x => IsCruceArroyo(x)).ToList();
+            DropUcsEmptiedByCruceArroyo(editor, detectedUcs, ucPipeTotals, materialQuantities, activityAggs);
             string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(templatePath));
             int generated = 0;
-            editor.WriteMessage("\nUC detectadas: " + detectedUcs.Count + ". Se procesarán una por una.\n");
+            editor.WriteMessage("\nUC detectadas: " + detectedUcs.Count + (arroyoUcs.Count > 0 ? " (más la UC especial " + CruceArroyoUcName + ")" : string.Empty) + ". Se procesarán una por una.\n");
             foreach (UcKey uc in detectedUcs)
             {
                 string suggestedPath = Path.Combine(outputDirectory, GetSuggestedFileName(uc));
@@ -194,9 +204,115 @@ public sealed class GenerarExcelTool
                     editor.WriteMessage("\nERROR en " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ": " + ucEx.Message + ". Se omitió esta UC y se continuará con la siguiente.\n");
                 }
             }
-            editor.WriteMessage("\nProceso terminado. Se generaron " + generated + " de " + detectedUcs.Count + " formato(s) Excel.\n");
+            int expected = detectedUcs.Count;
+            if (arroyoUcs.Count > 0)
+            {
+                expected++;
+                if (GenerateCruceArroyoExcel(editor, templatePath, outputDirectory, arroyoUcs, ucPipeTotals, materialQuantities)) generated++;
+            }
+            editor.WriteMessage("\nProceso terminado. Se generaron " + generated + " de " + expected + " formato(s) Excel.\n");
         }
         catch (Exception ex) { editor.WriteMessage("\nError generando Excel: " + ex.Message + "\n"); }
+    }
+
+    // CRUCE DE ARROYO: los metros anotados salen de la UC donde se anotaron (diámetro + terreno) y se suman a la UC
+    // aparte "CRUCE DE ARROYO" del mismo diámetro. Las cotas del dibujo no se tocan: solo los cálculos. Lo anotado manda:
+    // si supera lo que hay en la UC, ésta queda en cero (no negativa) y se avisa.
+    private static void MoveCruceArroyoToOwnUc(Editor editor, Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, ActivityAgg> activityAggs)
+    {
+        foreach (KeyValuePair<UcKey, ActivityAgg> item in activityAggs.ToList())
+        {
+            double meters = item.Value.CruceArroyo;
+            if (meters <= 0.0) continue;
+            UcKey uc = item.Key;
+            double current;
+            if (!ucPipeTotals.TryGetValue(uc, out current))
+            {
+                editor.WriteMessage("\nCRUCE DE ARROYO de " + FormatMl(meters) + " ML en " + uc.Diameter + " Pulg. - " + uc.Surface + ": no hay cotas UC de ese diámetro y terreno; no se descontó de ninguna UC.\n");
+            }
+            else
+            {
+                if (meters > current + 1e-6)
+                    editor.WriteMessage("\nCRUCE DE ARROYO de " + FormatMl(meters) + " ML en " + uc.Diameter + " Pulg. - " + uc.Surface + ": supera los " + FormatMl(current) + " ML de cotas de esa UC; queda en cero.\n");
+                ucPipeTotals[uc] = Math.Max(0.0, current - meters);
+            }
+            UcKey arroyo = new UcKey(uc.Diameter, CruceArroyoSurface);
+            double previous; ucPipeTotals.TryGetValue(arroyo, out previous);
+            ucPipeTotals[arroyo] = previous + meters;
+        }
+    }
+
+    // Una UC cuyos metros quedaron todos en el cruce de arroyo, sin materiales ni otras actividades, no genera formato
+    // propio (saldría vacío): sus datos están en el Excel de la UC especial.
+    private static void DropUcsEmptiedByCruceArroyo(Editor editor, List<UcKey> ucs, Dictionary<UcKey, double> ucPipeTotals,
+        Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities, Dictionary<UcKey, ActivityAgg> activityAggs)
+    {
+        foreach (UcKey uc in ucs.ToList())
+        {
+            double remaining; ActivityAgg agg;
+            if (!ucPipeTotals.TryGetValue(uc, out remaining) || remaining > 1e-6) continue;
+            if (!activityAggs.TryGetValue(uc, out agg) || agg.CruceArroyo <= 0.0) continue;
+            if (agg.Camisa > 0.0 || agg.Pantalla > 0.0 || agg.CruceTopo > 0.0 || agg.Empedrado > 0.0 || agg.VigaConcreto > 0.0) continue;
+            Dictionary<MaterialKey, double> materials;
+            if (materialQuantities.TryGetValue(uc, out materials) && materials.Values.Any(x => x > 0.0)) continue;
+            ucs.Remove(uc);
+            editor.WriteMessage("\nUC " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ": todos sus metros están en el cruce de arroyo; no genera formato propio (va en " + CruceArroyoUcName + ").\n");
+        }
+    }
+
+    // Excel de la UC especial "ESPECIAL CRUCE SUBFLUVIAL POLIETILENO": un solo formato con todos los diámetros.
+    // Actividades: cruce de arroyo anillo (1/2" y 3/4") y troncal (2", 3", 4" y 6"), y planos as-built (todo el cruce).
+    // Materiales: la TUBERIA de cada diámetro. Devuelve false si se omitió o falló.
+    private static bool GenerateCruceArroyoExcel(Editor editor, string templatePath, string outputDirectory, List<UcKey> arroyoUcs,
+        Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities)
+    {
+        string suggestedPath = Path.Combine(outputDirectory, CruceArroyoUcName + ".xlsx");
+        PromptSaveFileOptions saveOptions = new PromptSaveFileOptions("\nGuardar Excel para " + CruceArroyoUcName + ": ") { Filter = "Excel (*.xlsx)|*.xlsx", DialogCaption = "Guardar formato - " + CruceArroyoUcName, InitialFileName = suggestedPath };
+        PromptFileNameResult saveResult = editor.GetFileNameForSave(saveOptions);
+        if (saveResult.Status != PromptStatus.OK) { editor.WriteMessage("\nSe omitió " + CruceArroyoUcName + ".\n"); return false; }
+        string outputPath = EnsureXlsxExtension(saveResult.StringResult);
+        if (string.Equals(Path.GetFullPath(outputPath), Path.GetFullPath(templatePath), StringComparison.OrdinalIgnoreCase)) { editor.WriteMessage("\nNo se puede sobrescribir la plantilla original. Se omitió " + CruceArroyoUcName + ".\n"); return false; }
+        if (File.Exists(outputPath)) File.Delete(outputPath);
+        File.Copy(templatePath, outputPath, true);
+        try
+        {
+            FillCruceArroyoExcel(outputPath, arroyoUcs, ucPipeTotals, materialQuantities);
+            editor.WriteMessage("Excel generado: " + outputPath + "\n");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            editor.WriteMessage("\nERROR en " + CruceArroyoUcName + ": " + ex.Message + ". Se omitió este formato.\n");
+            return false;
+        }
+    }
+
+    // Llena la copia de la plantilla: la opción de la UC especial, la TUBERIA de cada diámetro y las actividades.
+    internal static void FillCruceArroyoExcel(string outputPath, List<UcKey> arroyoUcs,
+        Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities)
+    {
+        double ring = 0.0, troncal = 0.0;
+        var materials = new Dictionary<MaterialKey, double>();
+        foreach (UcKey uc in arroyoUcs)
+        {
+            double meters; ucPipeTotals.TryGetValue(uc, out meters);
+            if (Array.IndexOf(TroncalDiameters, uc.Diameter) >= 0) troncal += meters; else ring += meters;
+            Dictionary<MaterialKey, double> perUc;
+            if (!materialQuantities.TryGetValue(uc, out perUc)) continue;
+            foreach (KeyValuePair<MaterialKey, double> material in perUc)
+            {
+                double existing; materials.TryGetValue(material.Key, out existing);
+                materials[material.Key] = existing + material.Value;
+            }
+        }
+
+        string activity = SetActivitySelection(outputPath, default(UcKey), CruceArroyoUcName);
+        SetMaterialQuantities(outputPath, activity, materials);
+        var activityQuantities = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (ring > 0.0) activityQuantities[CruceArroyoRingCode] = ring;
+        if (troncal > 0.0) activityQuantities[CruceArroyoTroncalCode] = troncal;
+        activityQuantities[PlanosAsBuiltCode] = ring + troncal;
+        SetActivityQuantities(outputPath, activity, activityQuantities);
     }
 
     // Consolidado de TODO el proyecto (sin separar por UC) para el informe final de obra civil: mismos escaneos
@@ -216,6 +332,8 @@ public sealed class GenerarExcelTool
             // Camisa y cruce con topo no se excavan: se restan del ML de excavación de ese anillo, diámetro y terreno.
             string normalized = label.Trim().ToUpperInvariant();
             if (normalized == "CAMISA" || normalized == "CRUCE CON TOPO") summary.AddRingExcluded(RingKey(layout), uc, ml);
+            // Cruce de arroyo: sale de su UC y pasa a ser un terreno aparte en los formatos (tubería y excavación).
+            if (IsCruceArroyoLabel(label)) summary.MoveToCruceArroyo(RingKey(layout), uc, ml);
         });
 
         foreach (KeyValuePair<UcKey, Dictionary<MaterialKey, double>> uc in project)
@@ -670,7 +788,9 @@ public sealed class GenerarExcelTool
         return match.Success && double.TryParse(match.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
-    private static string SetActivitySelection(string path, UcKey uc)
+    // exactActivity: nombre exacto de la opción del desplegable (UC especial, como CruceArroyoUcName); si es null se
+    // busca la opción de la UC normal (diámetro + terreno).
+    private static string SetActivitySelection(string path, UcKey uc, string exactActivity = null)
     {
         using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Update, false))
@@ -692,8 +812,14 @@ public sealed class GenerarExcelTool
             string worksheetPath = ResolveZipPath("xl/workbook.xml", (string)relationship.Attribute("Target"));
             ZipArchiveEntry worksheetEntry = archive.GetEntry(worksheetPath);
             if (worksheetEntry == null) throw new InvalidDataException("No se encontró la hoja XML.");
-            string activity = FindDropdownActivity(archive, workbook, workbookRels, mainNs, relNs, packageRelNs, uc);
-            if (activity == null) throw new InvalidDataException("No existe una opción ACTIVIDAD compatible con " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ".");
+            string activity = exactActivity == null
+                ? FindDropdownActivity(archive, workbook, workbookRels, mainNs, relNs, packageRelNs, uc)
+                : FindDropdownActivityByName(archive, workbook, workbookRels, mainNs, relNs, packageRelNs, exactActivity);
+            if (activity == null)
+            {
+                if (exactActivity != null) throw new InvalidDataException("No existe la opción ACTIVIDAD «" + exactActivity + "» en la plantilla.");
+                throw new InvalidDataException("No existe una opción ACTIVIDAD compatible con " + uc.Diameter + " Pulg. - " + ToDisplaySurface(uc.Surface) + ".");
+            }
             XElement worksheet = LoadXml(worksheetEntry);
             XElement sheetData = worksheet.Element(mainNs + "sheetData");
             if (sheetData == null) throw new InvalidDataException("La hoja no contiene sheetData.");
@@ -874,6 +1000,9 @@ public sealed class GenerarExcelTool
         {
             lines.Add("SE RESTAN " + FormatMl(espiralPipe) + "ML EN CANALIZACION DE ESPIRAL DE VALVULA.");
         }
+
+        double cruceArroyo = agg == null ? 0.0 : agg.CruceArroyo;
+        if (cruceArroyo > 0.0) lines.Add("SE RESTAN " + FormatMl(cruceArroyo) + "ML DE TRAMO QUE PASA POR CRUCE DE ARROYO.");
 
         double empedradoMl = agg == null ? 0.0 : agg.Empedrado;
         if (empedradoMl > 0.0)
@@ -1147,6 +1276,46 @@ public sealed class GenerarExcelTool
         return null;
     }
 
+    // Opción del desplegable ACTIVIDAD cuyo texto es exactamente `name` (ignora mayúsculas, espacios y signos), para las
+    // UC especiales que no se buscan por diámetro y terreno. Devuelve el texto tal cual está en la celda, o null.
+    private static string FindDropdownActivityByName(ZipArchive archive, XElement workbook, XElement workbookRels, XNamespace mainNs, XNamespace relNs, XNamespace packageRelNs, string name)
+    {
+        XElement definedNames = workbook.Element(mainNs + "definedNames");
+        XElement definedName = definedNames == null ? null : definedNames.Elements(mainNs + "definedName").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), ActivityDefinedName, StringComparison.OrdinalIgnoreCase));
+        if (definedName == null) throw new InvalidDataException("No se encontró el nombre definido 'ACTIVIDAD'.");
+        Match match = Regex.Match(definedName.Value.Trim(), @"^'?((?:[^']|'')+)'?!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$", RegexOptions.IgnoreCase);
+        if (!match.Success) throw new InvalidDataException("No se pudo interpretar el rango ACTIVIDAD.");
+        string sourceSheetName = match.Groups[1].Value.Replace("''", "'");
+        string column = match.Groups[2].Value;
+        int startRow = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
+        int endRow = int.Parse(match.Groups[5].Value, CultureInfo.InvariantCulture);
+
+        XElement sheets = workbook.Element(mainNs + "sheets");
+        XElement sourceSheet = sheets == null ? null : sheets.Elements(mainNs + "sheet").FirstOrDefault(x => string.Equals((string)x.Attribute("name"), sourceSheetName, StringComparison.OrdinalIgnoreCase));
+        if (sourceSheet == null) throw new InvalidDataException("No se encontró la hoja origen de ACTIVIDAD.");
+        string sourceRelId = (string)sourceSheet.Attribute(relNs + "id");
+        XElement sourceRel = workbookRels.Elements(packageRelNs + "Relationship").FirstOrDefault(x => string.Equals((string)x.Attribute("Id"), sourceRelId, StringComparison.Ordinal));
+        if (sourceRel == null) throw new InvalidDataException("No se encontró la relación de la hoja origen de ACTIVIDAD.");
+        ZipArchiveEntry sourceEntry = archive.GetEntry(ResolveZipPath("xl/workbook.xml", (string)sourceRel.Attribute("Target")));
+        if (sourceEntry == null) throw new InvalidDataException("No se encontró la hoja origen de ACTIVIDAD.");
+        XElement sheetData = LoadXml(sourceEntry).Element(mainNs + "sheetData");
+        if (sheetData == null) return null;
+        Dictionary<int, string> sharedStrings = LoadSharedStrings(archive, mainNs);
+
+        string wanted = NormalizeActivityText(name);
+        for (int r = startRow; r <= endRow; r++)
+        {
+            string reference = column + r.ToString(CultureInfo.InvariantCulture);
+            XElement row = sheetData.Elements(mainNs + "row").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), r.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
+            if (row == null) continue;
+            XElement cell = row.Elements(mainNs + "c").FirstOrDefault(x => string.Equals((string)x.Attribute("r"), reference, StringComparison.OrdinalIgnoreCase));
+            if (cell == null) continue;
+            string value = ReadCellText(cell, mainNs, sharedStrings);
+            if (NormalizeActivityText(value) == wanted) return value;
+        }
+        return null;
+    }
+
     private static void SetWorkbookCalculationMode(ZipArchive archive, XElement workbook, XNamespace mainNs)
     {
         XElement calcPr = workbook.Element(mainNs + "calcPr"); if (calcPr == null) { calcPr = new XElement(mainNs + "calcPr"); workbook.Add(calcPr); }
@@ -1206,6 +1375,7 @@ public sealed class GenerarExcelTool
         public double CruceTopo;
         public double Empedrado;
         public double VigaConcreto;
+        public double CruceArroyo;
 
         public void Add(string label, double quantity)
         {
@@ -1215,6 +1385,7 @@ public sealed class GenerarExcelTool
             else if (normalized == "CRUCE CON TOPO") CruceTopo += quantity;
             else if (normalized == "EMPEDRADO") Empedrado += quantity;
             else if (normalized == "VIGA EN CONCRETO") VigaConcreto += quantity;
+            else if (normalized == CruceArroyoLabel) CruceArroyo += quantity;
         }
     }
 

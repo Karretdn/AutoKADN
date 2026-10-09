@@ -76,6 +76,7 @@ Escribe en cada layout: MUNICIPIO, OBRA/SECTOR/PROYECTO, INTERVENTOR, PEGADOR (=
 |---|---|
 | ESPIRAL | ML de tubería 3/4", uniones, tees, válvulas, silletas, diámetro de silleta (2x3/4, 3x3/4, 4x3/4, 6x3/4), PE.EXT (automático con silleta), terreno |
 | CAMISA · PANTALLA · CRUCE CON TOPO · EMPEDRADO · VIGA EN CONCRETO | una o varias combinaciones diámetro × terreno × ML |
+| CRUCE DE ARROYO | igual que las anteriores (el terreno es del que se resta). Se anota en el layout DETALLE y también en el UC. No es un terreno de la lista: los cálculos lo tratan como un terreno aparte «CRUCE DE ARROYO» y los metros salen de la UC donde se anotaron |
 | LIBRE | texto |
 
 Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos; del XData del espiral se suman tubería, uniones y tees.
@@ -92,7 +93,7 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | Comando | Qué resume |
 |---|---|
 | LISTABLOQUES | por layout: material, diámetro, unidad y cantidad (bloques, tubería de las cotas `COTA_…` y tubería/uniones/tees del espiral) |
-| RESUMENUC | por layout: ML por diámetro × terreno, más los metros de espiral que se sumen a una UC |
+| RESUMENUC | por layout: ML por diámetro × terreno, más los metros de espiral que se sumen a una UC; los CRUCE DE ARROYO anotados en ese layout UC se descuentan de su UC y salen en una línea aparte («… En Cruce De Arroyo») |
 | CLONARUC · NUEVOANILLO | solo estructura (copian layouts y contenido), no generan datos nuevos |
 
 ---
@@ -101,7 +102,8 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 
 - Actividad elegida de la lista ACTIVIDAD y cantidades de materiales por código (36 códigos).
 - Cantidades de actividades por código: canalización (anillo y troncal P80, por terreno), planos as-built, tendido y termofusión (2", 3", 4", 6"), cruce con topo (por diámetro), pantalla, viga en concreto y empedrado (ML × 0,4 = m²).
-- Observaciones: camisa, espiral de válvula, empedrado y material de prueba.
+- Observaciones: camisa, cruce de arroyo, espiral de válvula, empedrado y material de prueba.
+- **CRUCE DE ARROYO** (anotado en los layouts DETALLE): sus metros se restan de la UC donde se anotaron (tubería, canalización, tendido y as-built) y salen en un Excel aparte, el de la UC especial **ESPECIAL CRUCE SUBFLUVIAL POLIETILENO** (un solo formato para todos los diámetros): actividad 100005407 (anillo: 1/2" y 3/4") y 100005408 (troncal: 2", 3", 4" y 6"), planos as-built 100005412 y la TUBERIA de cada diámetro, todo con los mismos metros del cruce.
 
 ---
 
@@ -119,8 +121,8 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | `polivalvulas[]`, `polivalvulas.total` | válvulas por diámetro |
 | `accesorios.<tipo>[]` | `diametro`, `cantidad` (proyecto), `pruebas`, `total`; tipos: `union`, `tee`, `tapon`, `reduccion`, `silleta`, `codos` |
 | `pruebas.<tipo>[]` | `diametro`, `cantidad` de prueba, **en la misma fila** que `accesorios.<tipo>` |
-| `ft108.paginas[]` | una hoja del FT-O-108 (control de excavación): `terreno1..4`, `d1..d16`, `material1..16` (CALICHE), `registros[]` (`plano`, `c1..c16`), `t1..t16`; la primera hoja trae además `ucs[]` (`terreno`, `diametro`, `ml`, `m3`), `total_ml`, `total_m3` y `observaciones`. ML de excavación = cotas UC − camisa − cruce con topo (sin espiral ni pruebas); M³ = ML × 0,28 (1/2" y 3/4") o × 0,3 (2", 3", 4", 6"), truncado a 2 decimales |
-| `ft127.paginas[]` | una hoja del FT-T-127: `terreno1..4`, `d1..d16`, `registros[]` (`fecha`, `plano`, `c1..c16`), `t1..t16`; la primera hoja trae además `consolidado_1_2 … consolidado_6`, `consolidado_total` y `observaciones` |
+| `ft108.paginas[]` | una hoja del FT-O-108 (control de excavación): `terreno1..4`, `d1..d16`, `material1..16` (CALICHE), `registros[]` (`plano`, `c1..c16`), `t1..t16`; la primera hoja trae además `ucs[]` (`terreno`, `diametro`, `ml`, `m3`), `total_ml`, `total_m3` y `observaciones`. ML de excavación = cotas UC − camisa − cruce con topo (sin espiral ni pruebas); el cruce de arroyo sale de su UC y aparece como un terreno más, «CRUCE DE ARROYO», con sus propios diámetros; M³ = ML × 0,28 (1/2" y 3/4") o × 0,3 (2", 3", 4", 6"), truncado a 2 decimales |
+| `ft127.paginas[]` | una hoja del FT-T-127: `terreno1..4`, `d1..d16`, `registros[]` (`fecha`, `plano`, `c1..c16`), `t1..t16`; la primera hoja trae además `consolidado_1_2 … consolidado_6`, `consolidado_total` y `observaciones`. El cruce de arroyo sale de su UC y aparece como un terreno más, «CRUCE DE ARROYO» (el consolidado por diámetro no cambia) |
 
 ### 5.2 Qué sabe hacer la app con un dato (campo `fuente` del mapa)
 - Clave simple (`orden`) → un valor. Con formato: `fechaGasificado|dia`, `|mes|titulo`, `|anio2`, `interventor|sincodigo`, `|codigo`, `|marca` (X si el número es mayor que cero), `|mayus`, `|minus`. Texto fijo o con claves: `=TEXTO FIJO`, `=ID-{idProyecto}`. Tipos de celda: `texto`, `numero`, `fecha` (dd/MM/aaaa), `check` (true/1/si/x), `multilinea` (varios renglones, respeta saltos de línea).
@@ -172,4 +174,5 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | Planos as-built | 100005412 |
 | Tendido y termofusión | 2: 100005398 · 3: 100005399 · 4: 100005400 · 6: 100005401 |
 | Cruce con topo | 1/2, 3/4 y 2: 100005403 · 3: 100005404 · 4: 100005405 · 6: 100005406 |
+| Cruce de arroyo a cielo abierto (UC especial ESPECIAL CRUCE SUBFLUVIAL POLIETILENO) | anillo, 1/2 y 3/4: 100005407 · troncal, 2, 3, 4 y 6: 100005408 (más planos as-built 100005412 y la TUBERIA del diámetro) |
 | Pantalla · Viga en concreto · Empedrado | 100006014 · 100006013 · 100006010 |

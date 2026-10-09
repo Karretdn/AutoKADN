@@ -2,6 +2,7 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using AutoKADN.Core;
+using AutoKADN.Tools.Anotaciones;
 using static AutoKADN.Core.Naming;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -35,6 +36,7 @@ public sealed class ResumenUCTool
         Database database = document.Database;
         string layoutName = LayoutManager.Current.CurrentLayout;
         var quantities = new Dictionary<UcKey, double>();
+        var crossings = new List<KeyValuePair<UcKey, double>>();
 
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
@@ -43,7 +45,10 @@ public sealed class ResumenUCTool
             var layoutSpace = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
             foreach (ObjectId objectId in layoutSpace)
             {
-                if (transaction.GetObject(objectId, OpenMode.ForRead) is not Dimension dimension) continue;
+                DBObject entity = transaction.GetObject(objectId, OpenMode.ForRead);
+                // CRUCE DE ARROYO anotado en este layout UC: no es una cota, se descuenta más abajo.
+                if (entity is MText note) { crossings.AddRange(ActividadXData.ReadQuantities(note, CruceArroyoLabel)); continue; }
+                if (entity is not Dimension dimension) continue;
                 string? diameter = GetUcDiameter(dimension.Layer);
                 if (diameter is null) continue;
                 string? surface = GetSurface(dimension);
@@ -62,7 +67,11 @@ public sealed class ResumenUCTool
             return;
         }
 
+        ApplyCruceArroyo(editor, quantities, crossings);
+
+        // El espiral se suma a una UC normal: el CRUCE DE ARROYO (UC aparte) no se ofrece en esa lista.
         List<UcKey> availableUcs = quantities.Keys
+            .Where(x => !IsCruceArroyo(x))
             .OrderBy(x => GetSurfaceOrder(x.Surface))
             .ThenBy(x => x.Diameter, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -83,6 +92,44 @@ public sealed class ResumenUCTool
         CreateTexts(database, pointResult.Value, quantities, layoutName);
         editor.Regen();
         editor.WriteMessage($"\nResumen UC generado en el layout '{layoutName}'.\n");
+    }
+
+    // CRUCE DE ARROYO: los metros se ven en el plano como parte de su terreno, pero aquí se descuentan de esa UC
+    // (diámetro + terreno) y salen en una línea aparte "… En Cruce De Arroyo". Lo anotado manda: si supera lo que
+    // hay en la UC, ésta queda en cero y se avisa. Una UC que queda sin metros no sale en la lista.
+    private static void ApplyCruceArroyo(Editor editor, Dictionary<UcKey, double> quantities, List<KeyValuePair<UcKey, double>> crossings)
+    {
+        // Varias anotaciones sobre la misma UC se suman antes de descontar.
+        var perUc = new Dictionary<UcKey, double>();
+        foreach (KeyValuePair<UcKey, double> crossing in crossings)
+        {
+            perUc.TryGetValue(crossing.Key, out double sum);
+            perUc[crossing.Key] = sum + crossing.Value;
+        }
+
+        foreach (KeyValuePair<UcKey, double> crossing in perUc)
+        {
+            UcKey uc = crossing.Key;
+            double meters = crossing.Value;
+            if (meters <= 0.0) continue;
+
+            if (!quantities.TryGetValue(uc, out double current))
+            {
+                editor.WriteMessage($"\nCRUCE DE ARROYO de {FormatQuantity(meters)} ML en {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)}: no hay cotas UC de ese diámetro y terreno en este layout; no se descontó de ninguna UC.\n");
+            }
+            else
+            {
+                if (meters > current + 1e-6)
+                    editor.WriteMessage($"\nCRUCE DE ARROYO de {FormatQuantity(meters)} ML en {uc.Diameter} Pulg. - {ToDisplaySurface(uc.Surface)}: supera los {FormatQuantity(current)} ML de cotas de esa UC; queda en cero.\n");
+                double remaining = Math.Max(0.0, current - meters);
+                if (remaining <= 1e-6) quantities.Remove(uc); else quantities[uc] = remaining;
+            }
+
+            var arroyo = new UcKey(uc.Diameter, CruceArroyoSurface);
+            quantities.TryGetValue(arroyo, out double previous);
+            quantities[arroyo] = previous + meters;
+            editor.WriteMessage($"\nCRUCE DE ARROYO: {FormatQuantity(meters)} ML de {uc.Diameter} Pulg. pasan de {ToDisplaySurface(uc.Surface)} a su propia línea.\n");
+        }
     }
 
     // Ventana compacta (mismo estilo que la del ESPIRAL en ANOTACIONES) en vez de los prompts de

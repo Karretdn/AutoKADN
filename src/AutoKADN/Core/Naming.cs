@@ -86,6 +86,19 @@ public static class Naming
         return index < 0 ? int.MaxValue : index;
     }
 
+    // CRUCE DE ARROYO (anotación de ANOTACIONES): el tramo se ve como parte de su terreno en el plano, pero en los
+    // cálculos sale de esa UC y pasa a una UC aparte. Se modela como un terreno más ("CRUCE DE ARROYO"), con su propio
+    // Excel en la plantilla: "ESPECIAL CRUCE SUBFLUVIAL POLIETILENO".
+    public const string CruceArroyoLabel = "CRUCE DE ARROYO";
+    public const string CruceArroyoSurface = "CRUCE DE ARROYO";
+    public const string CruceArroyoUcName = "ESPECIAL CRUCE SUBFLUVIAL POLIETILENO";
+
+    public static bool IsCruceArroyoLabel(string label) =>
+        !string.IsNullOrWhiteSpace(label) && string.Equals(label.Trim(), CruceArroyoLabel, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsCruceArroyo(UcKey uc) =>
+        string.Equals(uc.Surface, CruceArroyoSurface, StringComparison.OrdinalIgnoreCase);
+
     // Texto amigable para mostrar en anotaciones/mensajes (ej. "Zona Verde"). No confundir con
     // el texto que GenerarExcelTool necesita para matchear la lista desplegable ACTIVIDAD del
     // Excel (ese es un caso especial propio de esa plantilla y se mantiene local a esa clase).
@@ -93,7 +106,7 @@ public static class Naming
     {
         "zona verde" => "Zona Verde", "anden tableta" => "Anden Tableta", "calzada concreto" => "Calzada Concreto",
         "destapado" => "Destapado", "cuneta" => "Cuneta", "anden concreto" => "Anden Concreto",
-        "asfalto" => "Asfalto", "adoquin" => "Adoquin", _ => value
+        "asfalto" => "Asfalto", "adoquin" => "Adoquin", "cruce de arroyo" => "Cruce De Arroyo", _ => value
     };
 
     private static string NormalizeWhitespace(string value)

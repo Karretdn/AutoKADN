@@ -83,6 +83,7 @@ public sealed class AnotacionesTool
         options.Keywords.Add("AKCAMISA", "CAMISA", "CAMISA", true, true);
         options.Keywords.Add("AKPANTALLA", "PANTALLA", "PANTALLA", true, true);
         options.Keywords.Add("AKCRUCETOPO", "CRUCETOPO", "CRUCE CON TOPO", true, true);
+        options.Keywords.Add("AKCRUCEARROYO", "CRUCEARROYO", "CRUCE DE ARROYO", true, true);
         options.Keywords.Add("AKEMPEDRADO", "EMPEDRADO", "EMPEDRADO", true, true);
         options.Keywords.Add("AKVIGACONCRETO", "VIGACONCRETO", "VIGA EN CONCRETO", true, true);
         options.Keywords.Add("AKLIBRE", "LIBRE", "LIBRE", true, true);
@@ -91,7 +92,7 @@ public sealed class AnotacionesTool
         return result.StringResult switch
         {
             "AKESPIRAL" => "ESPIRAL", "AKCAMISA" => "CAMISA", "AKPANTALLA" => "PANTALLA",
-            "AKCRUCETOPO" => "CRUCE_TOPO", "AKEMPEDRADO" => "EMPEDRADO",
+            "AKCRUCETOPO" => "CRUCE_TOPO", "AKCRUCEARROYO" => "CRUCE_ARROYO", "AKEMPEDRADO" => "EMPEDRADO",
             "AKVIGACONCRETO" => "VIGA_CONCRETO", "AKLIBRE" => "LIBRE", _ => null
         };
     }
@@ -107,7 +108,7 @@ public sealed class AnotacionesTool
         string label = type switch
         {
             "CAMISA" => "CAMISA", "PANTALLA" => "PANTALLA", "CRUCE_TOPO" => "CRUCE CON TOPO",
-            "EMPEDRADO" => "EMPEDRADO", "VIGA_CONCRETO" => "VIGA EN CONCRETO", _ => type
+            "CRUCE_ARROYO" => CruceArroyoLabel, "EMPEDRADO" => "EMPEDRADO", "VIGA_CONCRETO" => "VIGA EN CONCRETO", _ => type
         };
 
         activityData = ReadActivityComponents(editor, label, startPoint.DistanceTo(endPoint));

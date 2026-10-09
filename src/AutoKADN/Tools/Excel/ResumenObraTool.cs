@@ -61,6 +61,26 @@ public sealed class ProjectSummary
         double current; pipes.TryGetValue(uc, out current); pipes[uc] = current + ml;
     }
 
+    // CRUCE DE ARROYO anotado en el plano de detalle de ese anillo: esos metros salen de la UC (diámetro + terreno)
+    // en la tubería y en las cotas, y pasan a la UC "CRUCE DE ARROYO" del mismo diámetro, que los formatos tratan
+    // como un terreno más. Lo anotado manda: si supera lo que hay, la UC queda en cero (no negativa).
+    public void MoveToCruceArroyo(string ring, UcKey uc, double ml)
+    {
+        if (ml <= 0.0) return;
+        UcKey arroyo = new UcKey(uc.Diameter, Naming.CruceArroyoSurface);
+        Subtract(RingPipes, ring, uc, ml);
+        Subtract(RingCotas, ring, uc, ml);
+        AddRingPipe(ring, arroyo, ml);
+        AddRingCota(ring, arroyo, ml);
+    }
+
+    private static void Subtract(Dictionary<string, Dictionary<UcKey, double>> target, string ring, UcKey uc, double ml)
+    {
+        Dictionary<UcKey, double> perUc; double current;
+        if (!target.TryGetValue(ring, out perUc) || !perUc.TryGetValue(uc, out current)) return;
+        perUc[uc] = Math.Max(0.0, current - ml);
+    }
+
     public void AddRingSpiral(string ring, UcKey uc, double ml)
     {
         double current; RingSpiral.TryGetValue(ring, out current); RingSpiral[ring] = current + ml;
