@@ -67,6 +67,7 @@ public sealed class AutoKADNRibbon
         planSource.Items.Add(CreateButton("RECORTEANILLOS", "Recorte de anillos", "RECORTEANILLOS", CreateRecorteAnillosIcon()));
         planSource.Items.Add(CreateButton("TAMANOS", "Tamaños", "TAMANOS", CreateTamanosIcon()));
         planSource.Items.Add(CreateButton("RESUMENOBRA", "Resumen obra", "RESUMENOBRA", CreateResumenObraIcon()));
+        planSource.Items.Add(CreateButton("RESUMENPROYECTO", "Resumen proyecto", "RESUMENPROYECTO", CreateResumenProyectoIcon()));
         tab.Panels.Add(planPanel);
 
         var debugSource = new RibbonPanelSource { Title = "DEBUG" };
@@ -121,6 +122,18 @@ public sealed class AutoKADNRibbon
         dc.DrawLine(p, new System.Windows.Point(11, 26), new System.Windows.Point(22, 26));
         dc.DrawLine(p, new System.Windows.Point(25, 24), new System.Windows.Point(29, 28));
         dc.DrawLine(p, new System.Windows.Point(29, 24), new System.Windows.Point(25, 28));
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateResumenProyectoIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(5, 4, 30, 32));
+        dc.DrawLine(p, new System.Windows.Point(5, 13), new System.Windows.Point(35, 13));
+        dc.DrawLine(p, new System.Windows.Point(15, 13), new System.Windows.Point(15, 36));
+        dc.DrawLine(p, new System.Windows.Point(25, 13), new System.Windows.Point(25, 36));
+        dc.DrawLine(p, new System.Windows.Point(5, 22), new System.Windows.Point(35, 22));
+        dc.DrawLine(p, new System.Windows.Point(5, 29), new System.Windows.Point(35, 29));
         return new DrawingImage(g);
     }
 

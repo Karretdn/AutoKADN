@@ -10,6 +10,7 @@ using AutoKADN.Tools.Layouts;
 using AutoKADN.Tools.Medidas;
 using AutoKADN.Tools.NomenclaturaPredial;
 using AutoKADN.Tools.NomenclaturaVial;
+using AutoKADN.Tools.Resumen;
 
 namespace AutoKADN.Commands;
 
@@ -44,6 +45,7 @@ public class NomenclaturaVialCommand
     [CommandMethod("RECORTEANILLOS", CommandFlags.Modal)] public void RecorteAnillos() => new RecorteAnillosTool().Run();
     [CommandMethod("TAMANOS", CommandFlags.Modal)] public void Tamanos() => new TamanosTool().Run();
     [CommandMethod("RESUMENOBRA", CommandFlags.Modal)] public void ResumenObra() => new ResumenObraTool().Run();
+    [CommandMethod("RESUMENPROYECTO", CommandFlags.Modal)] public void ResumenDelProyecto() => new ResumenProyectoTool().Run();
     [CommandMethod("GENERAREXCEL", CommandFlags.Modal)] public void GenerarExcel() => new GenerarExcelTool().Run();
     [CommandMethod("DEBUGDETALLES", CommandFlags.Modal)] public void DebugDetalles() => new DebugDetallesTool().Run();
 }

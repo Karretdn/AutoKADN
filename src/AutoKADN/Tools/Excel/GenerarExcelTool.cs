@@ -38,17 +38,17 @@ public sealed class GenerarExcelTool
     private const string ActivityQuantityColumn = "G";
     private const int ActivityStartRow = 19;
     private const int ActivityEndRow = 41;
-    private const string PlanosAsBuiltCode = "100005412";
-    private const string PantallaCode = "100006014";
-    private const string VigaConcretoCode = "100006013";
-    private const string EmpedradoCode = "100006010";
-    private const string CruceTopoCode = "100005403";
+    internal const string PlanosAsBuiltCode = "100005412";
+    internal const string PantallaCode = "100006014";
+    internal const string VigaConcretoCode = "100006013";
+    internal const string EmpedradoCode = "100006010";
+    internal const string CruceTopoCode = "100005403";
     // Cruce de arroyo a cielo abierto (UC especial): anillo para 1/2" y 3/4"; troncal para 2", 3", 4" y 6".
-    private const string CruceArroyoRingCode = "100005407";
-    private const string CruceArroyoTroncalCode = "100005408";
+    internal const string CruceArroyoRingCode = "100005407";
+    internal const string CruceArroyoTroncalCode = "100005408";
 
     // Cruce con Topo por diámetro troncal (2/3/4/6) — para 1/2"/3/4" se sigue usando CruceTopoCode.
-    private static readonly Dictionary<string, string> CruceTopoCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string> CruceTopoCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["2"] = "100005403",
         ["3"] = "100005404",
@@ -58,7 +58,7 @@ public sealed class GenerarExcelTool
     private const double EmpedradoFactor = 0.4;
 
     // Canalización Anillo, solo para las UC pequeñas (1/2"/3/4").
-    private static readonly Dictionary<string, string> CanalizacionCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string> CanalizacionCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["ZONA VERDE"] = "100005377",
         ["ANDEN CONCRETO"] = "100005387",
@@ -71,7 +71,7 @@ public sealed class GenerarExcelTool
     };
 
     // Canalización Troncal - P80, para las UC troncales (2"/3"/4"/6"). No se trabaja con P100.
-    private static readonly Dictionary<string, string> CanalizacionTroncalCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string> CanalizacionTroncalCodeBySurface = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["ZONA VERDE"] = "100005388",
         ["ANDEN CONCRETO"] = "100005392",
@@ -83,7 +83,7 @@ public sealed class GenerarExcelTool
         ["DESTAPADO"] = "100006914",
     };
 
-    private static readonly string[] TroncalDiameters = { "2", "3", "4", "6" };
+    internal static readonly string[] TroncalDiameters = { "2", "3", "4", "6" };
 
     private static readonly UcSurface[] Surfaces =
     {
@@ -103,7 +103,7 @@ public sealed class GenerarExcelTool
         ["DESTAPADO"] = "DES", ["ANDEN TABLETA"] = "AT", ["CUNETA"] = "CUN", ["ASFALTO"] = "ASF"
     };
 
-    private static readonly MaterialSpec[] MaterialCatalog =
+    internal static readonly MaterialSpec[] MaterialCatalog =
     {
         new MaterialSpec("UNION", "1/2", "100003150"), new MaterialSpec("TUBERIA", "1/2", "100003135"),
         new MaterialSpec("TEE", "1/2", "100003119"), new MaterialSpec("TAPON", "1/2", "100003108"),
@@ -129,7 +129,7 @@ public sealed class GenerarExcelTool
 
     // Actividad "Tendido y Termofusión" por diámetro troncal (2/3/4/6) — mismo valor que TUBERIA/
     // Planos As-Built para esa UC, sin variar por terreno (a diferencia de Canalización Anillo).
-    private static readonly Dictionary<string, string> TendidoTermofusionCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string> TendidoTermofusionCodeByDiameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["2"] = "100005398",
         ["3"] = "100005399",
@@ -218,7 +218,7 @@ public sealed class GenerarExcelTool
     // CRUCE DE ARROYO: los metros anotados salen de la UC donde se anotaron (diámetro + terreno) y se suman a la UC
     // aparte "CRUCE DE ARROYO" del mismo diámetro. Las cotas del dibujo no se tocan: solo los cálculos. Lo anotado manda:
     // si supera lo que hay en la UC, ésta queda en cero (no negativa) y se avisa.
-    private static void MoveCruceArroyoToOwnUc(Editor editor, Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, ActivityAgg> activityAggs)
+    internal static void MoveCruceArroyoToOwnUc(Editor editor, Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, ActivityAgg> activityAggs)
     {
         foreach (KeyValuePair<UcKey, ActivityAgg> item in activityAggs.ToList())
         {
@@ -228,12 +228,12 @@ public sealed class GenerarExcelTool
             double current;
             if (!ucPipeTotals.TryGetValue(uc, out current))
             {
-                editor.WriteMessage("\nCRUCE DE ARROYO de " + FormatMl(meters) + " ML en " + uc.Diameter + " Pulg. - " + uc.Surface + ": no hay cotas UC de ese diámetro y terreno; no se descontó de ninguna UC.\n");
+                editor?.WriteMessage("\nCRUCE DE ARROYO de " + FormatMl(meters) + " ML en " + uc.Diameter + " Pulg. - " + uc.Surface + ": no hay cotas UC de ese diámetro y terreno; no se descontó de ninguna UC.\n");
             }
             else
             {
                 if (meters > current + 1e-6)
-                    editor.WriteMessage("\nCRUCE DE ARROYO de " + FormatMl(meters) + " ML en " + uc.Diameter + " Pulg. - " + uc.Surface + ": supera los " + FormatMl(current) + " ML de cotas de esa UC; queda en cero.\n");
+                    editor?.WriteMessage("\nCRUCE DE ARROYO de " + FormatMl(meters) + " ML en " + uc.Diameter + " Pulg. - " + uc.Surface + ": supera los " + FormatMl(current) + " ML de cotas de esa UC; queda en cero.\n");
                 ucPipeTotals[uc] = Math.Max(0.0, current - meters);
             }
             UcKey arroyo = new UcKey(uc.Diameter, CruceArroyoSurface);
@@ -345,7 +345,7 @@ public sealed class GenerarExcelTool
     }
 
     // "ANILLO 3 UC" / "ANILLO 3 DETALLE" -> "ANILLO 3"; "TRONCAL UC" -> "TRONCAL".
-    private static string RingKey(string layoutName)
+    internal static string RingKey(string layoutName)
     {
         return Regex.Replace(layoutName.Trim(), @"\s+(UC|DETALLE)$", string.Empty, RegexOptions.IgnoreCase).ToUpperInvariant();
     }
@@ -387,7 +387,7 @@ public sealed class GenerarExcelTool
         return File.Exists(path) ? Path.GetFullPath(path) : null;
     }
 
-    private static Dictionary<UcKey, double> ScanUcs(Database database, Action<string, UcKey, double> onValue = null)
+    internal static Dictionary<UcKey, double> ScanUcs(Database database, Action<string, UcKey, double> onValue = null, Func<string, bool> layoutFilter = null, Action<string, string, string, string> onSkipped = null)
     {
         var totals = new Dictionary<UcKey, double>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -397,6 +397,7 @@ public sealed class GenerarExcelTool
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
                 if (layout == null || !IsUcLayout(layout.LayoutName.Trim())) continue;
+                if (layoutFilter != null && !layoutFilter(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -405,9 +406,9 @@ public sealed class GenerarExcelTool
                     string diameter = GetUcDiameter(dimension.Layer);
                     if (diameter == null) continue;
                     string surface = GetSurface(transaction, dimension);
-                    if (surface == null) continue;
+                    if (surface == null) { if (onSkipped != null) onSkipped(layout.LayoutName.Trim(), diameter, dimension.DimensionText ?? string.Empty, "sin terreno"); continue; }
                     double value;
-                    if (!TryGetDisplayedDimensionValue(dimension, out value)) continue;
+                    if (!TryGetDisplayedDimensionValue(dimension, out value)) { if (onSkipped != null) onSkipped(layout.LayoutName.Trim(), diameter, dimension.DimensionText ?? string.Empty, "sin valor legible"); continue; }
                     UcKey uc = new UcKey(diameter, surface);
                     double current;
                     totals.TryGetValue(uc, out current);
@@ -420,7 +421,7 @@ public sealed class GenerarExcelTool
         return totals;
     }
 
-    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ConvertUcTotalsToPipeMaterials(Dictionary<UcKey, double> ucLengths)
+    internal static Dictionary<UcKey, Dictionary<MaterialKey, double>> ConvertUcTotalsToPipeMaterials(Dictionary<UcKey, double> ucLengths)
     {
         var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
         foreach (KeyValuePair<UcKey, double> entry in ucLengths)
@@ -433,7 +434,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanAccessories(Database database)
+    internal static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanAccessories(Database database, Func<string, bool> layoutFilter = null, Action<string, string, string, string> onSkipped = null)
     {
         var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -443,6 +444,7 @@ public sealed class GenerarExcelTool
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
                 if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
+                if (layoutFilter != null && !layoutFilter(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -467,12 +469,12 @@ public sealed class GenerarExcelTool
                         Color fallbackColor = GetEffectiveColor(transaction, blockReference);
                         surface = GetSurfaceFromColor(fallbackColor);
                     }
-                    if (surface == null) continue;
+                    if (surface == null) { if (onSkipped != null) onSkipped(layout.LayoutName.Trim(), description, blockDiameter, "sin terreno"); continue; }
 
                     MaterialSpec material;
-                    if (!TryGetMaterialSpec(description, blockDiameter, out material)) continue;
+                    if (!TryGetMaterialSpec(description, blockDiameter, out material)) { if (onSkipped != null) onSkipped(layout.LayoutName.Trim(), description, blockDiameter, "fuera del catálogo"); continue; }
                     string ucDiameter = GetUcDiameterFromMaterial(material.Diameter);
-                    if (ucDiameter == null) continue;
+                    if (ucDiameter == null) { if (onSkipped != null) onSkipped(layout.LayoutName.Trim(), description, blockDiameter, "diámetro sin UC"); continue; }
                     AddMaterialQuantity(result, new UcKey(ucDiameter, surface), material, "UND", 1.0);
                 }
             }
@@ -481,7 +483,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanSpiral(Database database, Action<string, UcKey, double> onPipe = null)
+    internal static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanSpiral(Database database, Action<string, UcKey, double> onPipe = null, Func<string, bool> layoutFilter = null)
     {
         var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -491,6 +493,7 @@ public sealed class GenerarExcelTool
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
                 if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
+                if (layoutFilter != null && !layoutFilter(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -540,7 +543,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<UcKey, ActivityAgg> ScanActivities(Database database, Action<string, string, UcKey, double> onActivity = null)
+    internal static Dictionary<UcKey, ActivityAgg> ScanActivities(Database database, Action<string, string, UcKey, double> onActivity = null, Func<string, bool> layoutFilter = null)
     {
         var result = new Dictionary<UcKey, ActivityAgg>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -550,6 +553,7 @@ public sealed class GenerarExcelTool
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
                 if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
+                if (layoutFilter != null && !layoutFilter(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -595,7 +599,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanMaterialTest(Database database, Action<string, UcKey, double> onPipe = null)
+    internal static Dictionary<UcKey, Dictionary<MaterialKey, double>> ScanMaterialTest(Database database, Action<string, UcKey, double> onPipe = null, Func<string, bool> layoutFilter = null)
     {
         var result = new Dictionary<UcKey, Dictionary<MaterialKey, double>>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
@@ -605,6 +609,7 @@ public sealed class GenerarExcelTool
             {
                 Layout layout = transaction.GetObject(entry.Value, OpenMode.ForRead) as Layout;
                 if (layout == null || !IsDetailLayout(layout.LayoutName.Trim())) continue;
+                if (layoutFilter != null && !layoutFilter(layout.LayoutName.Trim())) continue;
                 BlockTableRecord space = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId objectId in space)
                 {
@@ -667,7 +672,7 @@ public sealed class GenerarExcelTool
         double current; materials.TryGetValue(materialKey, out current); materials[materialKey] = current + quantity;
     }
 
-    private static void MergeMaterialQuantities(Dictionary<UcKey, Dictionary<MaterialKey, double>> target, Dictionary<UcKey, Dictionary<MaterialKey, double>> source)
+    internal static void MergeMaterialQuantities(Dictionary<UcKey, Dictionary<MaterialKey, double>> target, Dictionary<UcKey, Dictionary<MaterialKey, double>> source)
     {
         foreach (KeyValuePair<UcKey, Dictionary<MaterialKey, double>> ucEntry in source)
         {
@@ -680,7 +685,7 @@ public sealed class GenerarExcelTool
         }
     }
 
-    private static bool TryGetMaterialSpec(string description, string diameter, out MaterialSpec material)
+    internal static bool TryGetMaterialSpec(string description, string diameter, out MaterialSpec material)
     {
         material = null;
         string normalizedDescription = NormalizeToken(description);
@@ -748,11 +753,11 @@ public sealed class GenerarExcelTool
         return string.Empty;
     }
 
-    private static bool IsUcLayout(string name) => Regex.IsMatch(name, @"^(ANILLO\s+\d+\s+UC|TRONCAL\s+UC)$", RegexOptions.IgnoreCase);
-    private static bool IsDetailLayout(string name) => Regex.IsMatch(name, @"^(ANILLO\s+\d+\s+DETALLE|TRONCAL\s+DETALLE)$", RegexOptions.IgnoreCase);
-    private static string GetUcDiameter(string layer) => GetUcDiameterFromLayer(layer);
+    internal static bool IsUcLayout(string name) => Regex.IsMatch(name, @"^(ANILLO\s+\d+\s+UC|TRONCAL\s+UC)$", RegexOptions.IgnoreCase);
+    internal static bool IsDetailLayout(string name) => Regex.IsMatch(name, @"^(ANILLO\s+\d+\s+DETALLE|TRONCAL\s+DETALLE)$", RegexOptions.IgnoreCase);
+    internal static string GetUcDiameter(string layer) => GetUcDiameterFromLayer(layer);
 
-    private static string GetSurface(Transaction transaction, Dimension dimension)
+    internal static string GetSurface(Transaction transaction, Dimension dimension)
     {
         string surfaceFromXData = GetSurfaceFromXData(dimension);
         if (surfaceFromXData != null) return surfaceFromXData;
@@ -780,7 +785,7 @@ public sealed class GenerarExcelTool
         return null;
     }
 
-    private static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
+    internal static bool TryGetDisplayedDimensionValue(Dimension dimension, out double value)
     {
         value = 0.0;
         string text = dimension.DimensionText == null ? string.Empty : dimension.DimensionText.Trim();
@@ -935,7 +940,7 @@ public sealed class GenerarExcelTool
         return result;
     }
 
-    private static Dictionary<string, double> BuildActivityQuantities(UcKey uc, Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities, Dictionary<UcKey, ActivityAgg> activityAggs, out double pipeTotal)
+    internal static Dictionary<string, double> BuildActivityQuantities(UcKey uc, Dictionary<UcKey, double> ucPipeTotals, Dictionary<UcKey, Dictionary<MaterialKey, double>> materialQuantities, Dictionary<UcKey, ActivityAgg> activityAggs, out double pipeTotal)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         double ucLength = 0.0; ucPipeTotals.TryGetValue(uc, out ucLength);
@@ -1368,7 +1373,7 @@ public sealed class GenerarExcelTool
     private static readonly string[] DiameterOrderList = { "1/2", "3/4", "2", "3", "4", "6" };
     private static int DiameterOrder(string diameter) { int i = Array.IndexOf(DiameterOrderList, diameter); return i < 0 ? int.MaxValue : i; }
 
-    private sealed class ActivityAgg
+    internal sealed class ActivityAgg
     {
         public double Camisa;
         public double Pantalla;
@@ -1389,7 +1394,7 @@ public sealed class GenerarExcelTool
         }
     }
 
-    private sealed class MaterialSpec
+    internal sealed class MaterialSpec
     {
         public MaterialSpec(string description, string diameter, string code) { Description = description; Diameter = diameter; Code = code; }
         public string Description { get; private set; }
