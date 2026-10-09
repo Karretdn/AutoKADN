@@ -95,6 +95,7 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | LISTABLOQUES | por layout: material, diámetro, unidad y cantidad (bloques, tubería de las cotas `COTA_…` y tubería/uniones/tees del espiral) |
 | RESUMENUC | por layout: ML por diámetro × terreno, más los metros de espiral que se sumen a una UC; los CRUCE DE ARROYO anotados en ese layout UC se descuentan de su UC y salen en una línea aparte («… En Cruce De Arroyo») |
 | CLONARUC · NUEVOANILLO · RECORTEANILLOS | solo estructura (copian layouts y contenido), no generan datos nuevos. RECORTEANILLOS crea ANILLO N DETALLE y UC y copia al DETALLE, ampliado al marco, el dibujo del plano general que cae en un rectángulo; los indicadores de anillo (círculo con número y diámetro) de los anillos que se alcanzan a ver se corren dentro del marco y los textos que estorban se corren o se omiten |
+| RESUMENPROYECTO | un Excel junto al DWG con el resumen del proyecto por anillo y consolidado (ver 5.4); no escribe nada en el dibujo |
 
 ---
 
@@ -138,6 +139,21 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 | FT-T-127 Totales de tubería | conectado a `ft127.paginas`; firmas y SUBTOTAL vacíos |
 | FT-O-108 Control de excavación | conectado a `ft108.paginas`; la fecha queda vacía (como en los formatos ya diligenciados), firmas y SUBTOTAL vacíos |
 | FT-O-119 Acta de puesta en servicio | conectado: fecha de gasificado (día, mes y año), interventor, supervisor como representante del contratista y la empresa contratista (clave `contratista`, del plano de detalles), proyecto como dirección, localidad, departamento, orden y la observación estándar con el ID del proyecto; una X en anillos y otra en troncal cuando el proyecto los tiene (`anillos.total` y `tuberia.troncal.total` mayores que cero); en la línea de firma del Consorcio, `NOMBRE - código` |
+
+### 5.4 Resumen del proyecto (RESUMENPROYECTO → `RESUMEN PROYECTO - <dwg>.xlsx`, junto al DWG)
+Libro de lectura para comparar el plano con interventoría. Solo lee lo que el plano ya arroja (mismos escaneos y secuencia que GENERAREXCEL; cada anillo se calcula aparte con sus layouts DETALLE y UC, y el consolidado con todo el dibujo junto); no cambia el dibujo ni otros resultados.
+| Hoja | Contenido |
+|---|---|
+| RESUMEN | datos del cajetín y contratista, cifras principales, tubería por terreno y diámetro, principales errores y avisos, índice |
+| COMPARAR | por concepto (tubería por diámetro y por terreno, excavación y zanja, restas, accesorios, tubería por anillo): valor del plano, celda para el valor de interventoría, diferencia y estado (Coincide / Diferencia / Pendiente) con tolerancia editable |
+| ANILLOS | una fila por anillo: cotas UC, cruce de arroyo, camisa, cruce con topo, espiral, pruebas, tubería por diámetro, excavación (ML y m³), material y alertas; total, consolidado de GENERAREXCEL y diferencia |
+| UC POR ANILLO · UC CONSOLIDADO | cada diámetro × terreno por anillo y de todo el proyecto, con las restas y adiciones; el consolidado suma los anillos (fórmulas) y los compara con GENERAREXCEL |
+| ACTIVIDADES · ACTIVIDADES POR UC | cantidad por código de actividad del Excel de legalización, por anillo y por UC |
+| MATERIALES | material del proyecto y de pruebas del consolidado y su reparto por anillo |
+| VERIFICACIONES | 15 revisiones: nombres de layout, pareja DETALLE/UC, numeración, cotas sin terreno o medida, bloques fuera del catálogo, restas mayores que las cotas, anotaciones sin cotas, tubería = cotas netas + espiral + pruebas, suma de anillos = consolidado, cruce de arroyo igual en DETALLE y UC, cajetín uniforme y completo, diámetro del título = diámetro de las cotas, totales = RESUMENOBRA, contratista |
+| LEEME | cómo leer el libro y de dónde sale cada número |
+- Excavación = cotas netas − camisa − cruce con topo (sin negativos), como el FT-O-108; zanja = ML × 0,28 (1/2" y 3/4") o × 0,30 (troncal); en el consolidado se trunca a 2 decimales por UC.
+- Escalable: las hojas y las verificaciones son listas registradas, así que se pueden agregar (por ejemplo rendimientos por día) sin tocar las demás. Aún no incluye rendimientos ni días en obra.
 
 ---
 
