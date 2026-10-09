@@ -64,6 +64,7 @@ public sealed class AutoKADNRibbon
         var planPanel = new RibbonPanel { Source = planSource };
         planSource.Items.Add(CreateButton("RELLENARDATOS", "Rellenar datos", "RELLENARDATOS", CreateRellenarDatosIcon()));
         planSource.Items.Add(CreateButton("NUEVOANILLO", "Nuevo anillo", "NUEVOANILLO", CreateNuevoAnilloIcon()));
+        planSource.Items.Add(CreateButton("RECORTEANILLOS", "Recorte de anillos", "RECORTEANILLOS", CreateRecorteAnillosIcon()));
         planSource.Items.Add(CreateButton("TAMANOS", "Tamaños", "TAMANOS", CreateTamanosIcon()));
         planSource.Items.Add(CreateButton("RESUMENOBRA", "Resumen obra", "RESUMENOBRA", CreateResumenObraIcon()));
         tab.Panels.Add(planPanel);
@@ -144,6 +145,18 @@ public sealed class AutoKADNRibbon
         dc.DrawLine(p, new System.Windows.Point(26, 26), new System.Windows.Point(32, 26));
         dc.DrawLine(p, new System.Windows.Point(15, 17), new System.Windows.Point(15, 29));
         dc.DrawLine(p, new System.Windows.Point(9, 23), new System.Windows.Point(21, 23));
+        return new DrawingImage(g);
+    }
+
+    private static DrawingImage CreateRecorteAnillosIcon()
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(Brushes.White, 2.6);
+        dc.DrawRectangle(null, p, new System.Windows.Rect(3, 4, 34, 32));                                    // el plano general
+        dc.DrawRectangle(null, p, new System.Windows.Rect(14, 13, 20, 14));                                  // el recorte (proporción del marco)
+        dc.DrawLine(p, new System.Windows.Point(14, 9), new System.Windows.Point(14, 13));                   // esquinas de corte
+        dc.DrawLine(p, new System.Windows.Point(10, 13), new System.Windows.Point(14, 13));
+        dc.DrawLine(p, new System.Windows.Point(34, 31), new System.Windows.Point(34, 27));
+        dc.DrawLine(p, new System.Windows.Point(34, 31), new System.Windows.Point(38, 31));
         return new DrawingImage(g);
     }
 

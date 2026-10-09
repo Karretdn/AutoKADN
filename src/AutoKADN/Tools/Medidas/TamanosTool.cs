@@ -17,12 +17,23 @@ public sealed class TamanosTool
         Editor editor = document.Editor;
         Database database = document.Database;
 
+        // Solo se toca el layout que está abierto en este momento (o el modelo si se está en la pestaña Modelo).
+        LayoutManager layoutManager = LayoutManager.Current;
+        string layoutName = layoutManager.CurrentLayout;
+        ObjectId scope;
+        using (Transaction transaction = database.TransactionManager.StartTransaction())
+        {
+            var layout = (Layout)transaction.GetObject(layoutManager.GetLayoutId(layoutName), OpenMode.ForRead);
+            scope = layout.BlockTableRecordId;
+            transaction.Commit();
+        }
+
         TamanoValores previo = Core.Tamanos.Load();
         TamanoValores propuesta = previo.Clone();
-        double? bloquesEnDibujo = TamanosAplicador.CurrentBlockScale(database);
-        if (bloquesEnDibujo.HasValue) propuesta.Bloques = bloquesEnDibujo.Value; // se muestra el tamaño que tienen hoy
+        double? bloquesEnDibujo = TamanosAplicador.CurrentBlockScale(database, scope);
+        if (bloquesEnDibujo.HasValue) propuesta.Bloques = bloquesEnDibujo.Value; // se muestra el tamaño que tienen hoy en este layout
 
-        var dialog = new TamanosWindow(propuesta);
+        var dialog = new TamanosWindow(propuesta, layoutName);
         try { new System.Windows.Interop.WindowInteropHelper(dialog).Owner = Autodesk.AutoCAD.ApplicationServices.Application.MainWindow.Handle; } catch { }
         if (dialog.ShowDialog() != true) return;
 
@@ -30,9 +41,9 @@ public sealed class TamanosTool
         try
         {
             Core.Tamanos.Save(nuevo);
-            TamanosResultado resultado = TamanosAplicador.Aplicar(database, previo, nuevo);
+            TamanosResultado resultado = TamanosAplicador.Aplicar(database, previo, nuevo, scope);
             editor.Regen();
-            editor.WriteMessage($"\n[TAMANOS] Guardado. Actualizado en este dibujo: {resultado.Cotas} cota(s), {resultado.Bloques} bloque(s), "
+            editor.WriteMessage($"\n[TAMANOS] Guardado. Actualizado solo en el layout '{layoutName}': {resultado.Cotas} cota(s), {resultado.Bloques} bloque(s), "
                 + $"{resultado.Anotaciones} anotación(es), {resultado.Limites} límite(s), {resultado.Vial} vial, {resultado.Predial} predial.\n");
             if (resultado.Total == 0) editor.WriteMessage("[TAMANOS] No había nada que cambiar: todo ya tenía esos tamaños.\n");
         }
@@ -47,7 +58,7 @@ public sealed class TamanosTool
         private readonly System.Windows.Controls.TextBox _limites, _anotaciones, _vial, _predial, _cotas, _bloques;
         public TamanoValores Result { get; private set; } = new TamanoValores();
 
-        public TamanosWindow(TamanoValores values)
+        public TamanosWindow(TamanoValores values, string layoutName)
         {
             Title = "AutoKADN - TAMAÑOS";
             Width = 330;
@@ -81,7 +92,16 @@ public sealed class TamanosTool
             System.Windows.Controls.Grid.SetColumnSpan(buttons, 2);
             grid.Children.Add(buttons);
 
-            Content = grid;
+            // Aviso arriba: los cambios solo llegan al layout que está abierto.
+            var note = new System.Windows.Controls.TextBlock
+            {
+                Text = $"Solo cambia lo que está en el layout abierto: {layoutName}.", TextWrapping = System.Windows.TextWrapping.Wrap,
+                FontStyle = System.Windows.FontStyles.Italic, Margin = new System.Windows.Thickness(12, 10, 12, 0)
+            };
+            var panel = new System.Windows.Controls.StackPanel();
+            panel.Children.Add(note);
+            panel.Children.Add(grid);
+            Content = panel;
             _limites.Focus();
         }
 

@@ -69,7 +69,7 @@ Escribe en cada layout: MUNICIPIO, OBRA/SECTOR/PROYECTO, INTERVENTOR, PEGADOR (=
 | NOMENK · Vial | tipo (`KR`/`CL`) + número + pavimento (`T.N.`, `PAV`, `ASF`, `ADO`) → `KR 12 - ASF` |
 | NOMENK · Predial | texto libre |
 | PEGAS | N tramos, longitud de tubo y número de pega por división (solo visual, sin XData) |
-| TAMANOS | 6 valores: altura de texto de Límites, Anotaciones, Vial y Predial; escala de Cotas y de Bloques (`%APPDATA%\AutoKADN\tamanos.txt`) |
+| TAMANOS | 6 valores: altura de texto de Límites, Anotaciones, Vial y Predial; escala de Cotas y de Bloques (`%APPDATA%\AutoKADN\tamanos.txt`). Al aplicarlos solo se cambia el layout que está abierto |
 
 ### 2.3 Anotaciones (ANOTACIONES, con XData)
 | Anotación | Datos |
@@ -94,7 +94,7 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 |---|---|
 | LISTABLOQUES | por layout: material, diámetro, unidad y cantidad (bloques, tubería de las cotas `COTA_…` y tubería/uniones/tees del espiral) |
 | RESUMENUC | por layout: ML por diámetro × terreno, más los metros de espiral que se sumen a una UC; los CRUCE DE ARROYO anotados en ese layout UC se descuentan de su UC y salen en una línea aparte («… En Cruce De Arroyo») |
-| CLONARUC · NUEVOANILLO | solo estructura (copian layouts y contenido), no generan datos nuevos |
+| CLONARUC · NUEVOANILLO · RECORTEANILLOS | solo estructura (copian layouts y contenido), no generan datos nuevos. RECORTEANILLOS crea ANILLO N DETALLE y UC y copia al DETALLE, ampliado al marco, el dibujo del plano general que cae en un rectángulo; los indicadores de anillo (círculo con número y diámetro) de los anillos que se alcanzan a ver se corren dentro del marco y los textos que estorban se corren o se omiten |
 
 ---
 

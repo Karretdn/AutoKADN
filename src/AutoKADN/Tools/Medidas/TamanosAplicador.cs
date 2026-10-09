@@ -28,13 +28,16 @@ public static class TamanosAplicador
     private const double Tolerance = 1e-6;
     private static readonly Regex RingLayout = new Regex(@"^(?:ANILLO\s+\d+|TRONCAL)\s+(?:DETALLE|UC)$", RegexOptions.IgnoreCase);
 
-    /// <summary>Tamaño más común (valor absoluto de la escala) de los bloques de la capa Mat; null si no hay.</summary>
-    public static double? CurrentBlockScale(Database database)
+    /// <summary>
+    /// Tamaño más común (valor absoluto de la escala) de los bloques de la capa Mat; null si no hay.
+    /// `scope`: el espacio (modelo o papel de un layout) donde se cuentan; sin indicar, todo el dibujo.
+    /// </summary>
+    public static double? CurrentBlockScale(Database database, ObjectId scope = default)
     {
         var counts = new Dictionary<double, int>();
         using (Transaction transaction = database.TransactionManager.StartTransaction())
         {
-            foreach (BlockTableRecord space in Spaces(database, transaction))
+            foreach (BlockTableRecord space in Spaces(database, transaction, scope))
             {
                 foreach (ObjectId id in space)
                 {
@@ -50,11 +53,15 @@ public static class TamanosAplicador
         return counts.OrderByDescending(p => p.Value).First().Key;
     }
 
-    public static TamanosResultado Aplicar(Database database, TamanoValores previo, TamanoValores nuevo)
+    /// <summary>
+    /// `scope`: el espacio (modelo o papel de un layout) que se actualiza; solo ese, el resto del dibujo no se toca.
+    /// Sin indicar, todo el dibujo.
+    /// </summary>
+    public static TamanosResultado Aplicar(Database database, TamanoValores previo, TamanoValores nuevo, ObjectId scope = default)
     {
         var resultado = new TamanosResultado();
         using Transaction transaction = database.TransactionManager.StartTransaction();
-        foreach (BlockTableRecord space in Spaces(database, transaction))
+        foreach (BlockTableRecord space in Spaces(database, transaction, scope))
         {
             bool isRingLayout = IsRingLayout(transaction, space);
             foreach (ObjectId id in space)
@@ -157,9 +164,14 @@ public static class TamanosAplicador
         return transaction.GetObject(space.LayoutId, OpenMode.ForRead) is Layout layout && RingLayout.IsMatch(layout.LayoutName.Trim());
     }
 
-    // Espacio modelo y espacios papel de cada layout.
-    private static IEnumerable<BlockTableRecord> Spaces(Database database, Transaction transaction)
+    // El espacio indicado, o (sin indicar) el espacio modelo y los espacios papel de cada layout.
+    private static IEnumerable<BlockTableRecord> Spaces(Database database, Transaction transaction, ObjectId scope)
     {
+        if (!scope.IsNull)
+        {
+            yield return (BlockTableRecord)transaction.GetObject(scope, OpenMode.ForRead);
+            yield break;
+        }
         var blockTable = (BlockTable)transaction.GetObject(database.BlockTableId, OpenMode.ForRead);
         foreach (ObjectId id in blockTable)
         {

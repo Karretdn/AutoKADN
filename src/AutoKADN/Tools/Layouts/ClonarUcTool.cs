@@ -194,6 +194,10 @@ public sealed class ClonarUcTool
     // su extensión es el marco entero, no algo dibujado dentro.
     private const double FrameMatchTolerance = 0.5;
 
+    // Capas del membrete (cajetín, logo, textos fijos): no son dibujo del plano.
+    internal static bool IsTitleBlockLayer(string layer) =>
+        Array.Exists(TitleBlockLayers, x => string.Equals(x, layer, StringComparison.OrdinalIgnoreCase));
+
     // Un objeto está "dentro del marco" si el centro de su extensión cae dentro (los bordes del marco
     // y el membrete quedan fuera) y no es el viewport general, parte del membrete ni el rectángulo del marco.
     internal static bool IsInsideFrame(Entity entity, double frameMinY, double frameMaxY)

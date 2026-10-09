@@ -41,6 +41,7 @@ public class NomenclaturaVialCommand
     [CommandMethod("CALCAR", CommandFlags.Modal)] public void Calcar() => new CalcarTool().Run();
     [CommandMethod("RELLENARDATOS", CommandFlags.Modal)] public void RellenarDatos() => new RellenarDatosTool().Run();
     [CommandMethod("NUEVOANILLO", CommandFlags.Modal)] public void NuevoAnillo() => new NuevoAnilloTool().Run();
+    [CommandMethod("RECORTEANILLOS", CommandFlags.Modal)] public void RecorteAnillos() => new RecorteAnillosTool().Run();
     [CommandMethod("TAMANOS", CommandFlags.Modal)] public void Tamanos() => new TamanosTool().Run();
     [CommandMethod("RESUMENOBRA", CommandFlags.Modal)] public void ResumenObra() => new ResumenObraTool().Run();
     [CommandMethod("GENERAREXCEL", CommandFlags.Modal)] public void GenerarExcel() => new GenerarExcelTool().Run();
