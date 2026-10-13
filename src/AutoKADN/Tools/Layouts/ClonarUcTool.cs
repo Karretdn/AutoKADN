@@ -158,6 +158,7 @@ public sealed class ClonarUcTool
             {
                 dimension.LayerId = ucLayerId;
                 dimension.ColorIndex = 256;
+                SepararCotaUc(dimension);
                 CotaTool.AssignUcSurface(database, transaction, dimension, DefaultSurface);
                 converted++;
             }
@@ -219,6 +220,30 @@ public sealed class ClonarUcTool
         double centerY = (extents.MinPoint.Y + extents.MaxPoint.Y) / 2.0;
         return centerX > FrameMinX + FrameInset && centerX < FrameMaxX - FrameInset
             && centerY > frameMinY + FrameInset && centerY < frameMaxY - FrameInset;
+    }
+
+    // La cota UC va a CotaTool.UcOffsetFromLine de la tubería (un poco más lejos que la de longitud del DETALLE), del
+    // mismo lado; si ya estaba más lejos, se deja.
+    private static void SepararCotaUc(Dimension dimension)
+    {
+        Point3d a, b, linea;
+        Vector3d eje;
+        switch (dimension)
+        {
+            case RotatedDimension r: a = r.XLine1Point; b = r.XLine2Point; linea = r.DimLinePoint; eje = new Vector3d(Math.Cos(r.Rotation), Math.Sin(r.Rotation), 0.0); break;
+            case AlignedDimension al: a = al.XLine1Point; b = al.XLine2Point; linea = al.DimLinePoint; eje = b - a; break;
+            default: return;
+        }
+        if (eje.Length < 1e-9) return;
+        eje = eje.GetNormal();
+        var normal = new Vector3d(-eje.Y, eje.X, 0.0);
+        // Distancia de la línea de cota a la tubería (al punto medido más cercano a la línea de cota).
+        double da = (linea - a).DotProduct(normal), db = (linea - b).DotProduct(normal);
+        double distancia = Math.Abs(da) < Math.Abs(db) ? da : db;
+        if (Math.Abs(distancia) < 1e-6 || Math.Abs(distancia) >= CotaTool.UcOffsetFromLine) return;
+        Point3d nueva = linea + normal * (Math.Sign(distancia) * (CotaTool.UcOffsetFromLine - Math.Abs(distancia)));
+        if (dimension is RotatedDimension rd) rd.DimLinePoint = nueva;
+        else if (dimension is AlignedDimension ad) ad.DimLinePoint = nueva;
     }
 
     // Capa de cota de longitud (COTA_1-2, COTA_3-4, COTA_2, ...) -> capa UC del mismo diámetro (UC_x).

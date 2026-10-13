@@ -8,6 +8,9 @@ namespace AutoKADN.Tools.Acotado;
 public sealed class CotaTool
 {
     internal const double OffsetFromLine = 5.50; // también lo usa el calco con IA (CalcoDibujante)
+    // Las cotas UC van un poco más lejos de la tubería que las de longitud (en el UC quedaban muy pegadas). Lo usan
+    // COTAK > UC y CLONARUC.
+    internal const double UcOffsetFromLine = 7.50;
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
 
@@ -106,18 +109,19 @@ public sealed class CotaTool
 
         double rotation = Math.Atan2(direction.Y, direction.X);
 
+        double offset = type.Equals("UC", StringComparison.OrdinalIgnoreCase) ? UcOffsetFromLine : OffsetFromLine;
         ObjectId dimensionId = CreateDimension(
             document.Database,
             startPoint,
             endPoint,
-            midpoint + normal * OffsetFromLine,
+            midpoint + normal * offset,
             rotation);
 
         if (dimensionId == ObjectId.Null) return true;
 
         editor.Regen();
 
-        if (!MoveDimensionToSide(document, editor, dimensionId, midpoint, normal))
+        if (!MoveDimensionToSide(document, editor, dimensionId, midpoint, normal, offset))
         {
             EraseDimension(document.Database, dimensionId);
             return false;
@@ -262,7 +266,8 @@ public sealed class CotaTool
         Editor editor,
         ObjectId dimensionId,
         Point3d midpoint,
-        Vector3d normal)
+        Vector3d normal,
+        double offset)
     {
         using Transaction transaction = document.Database.TransactionManager.StartTransaction();
 
@@ -273,7 +278,7 @@ public sealed class CotaTool
             return false;
         }
 
-        var jig = new DimensionSideJig(dimension, midpoint, normal, OffsetFromLine);
+        var jig = new DimensionSideJig(dimension, midpoint, normal, offset);
         editor.WriteMessage("\nMueva el mouse al lado deseado y haga clic para fijar: ");
 
         PromptResult result = editor.Drag(jig);
