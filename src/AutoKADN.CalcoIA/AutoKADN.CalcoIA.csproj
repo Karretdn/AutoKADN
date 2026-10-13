@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Calco con IA: lee la hoja escaneada de un croquis (con Claude Code o con la API de Anthropic) y deja el plano de
+       calco que dibuja el plugin (CALCOPLANO / Calcar con IA). Ver src/AutoKADN.Proyectos/CALCO-IA.md §7. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- WPF solo para leer, recortar y dibujar imágenes (sin ventanas). -->
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AutoKADN.CalcoIA</RootNamespace>
+    <AssemblyName>AutoKADN.CalcoIA</AssemblyName>
+    <!-- Junto a las DLL del plugin: el plugin lo busca en bin\CalcoIA. -->
+    <OutputPath>..\..\bin\CalcoIA\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.55.0" />
+    <PackageReference Include="PdfPig" Version="0.1.11" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+  </ItemGroup>
+
+  <!-- Instrucciones y parámetros del calco: viajan junto al ejecutable y se editan sin compilar. -->
+  <ItemGroup>
+    <None Include="kit\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

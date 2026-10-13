@@ -5,6 +5,7 @@ using AutoKADN.Tools.Acotado;
 using AutoKADN.Tools.Bloques;
 using AutoKADN.Tools.Debug;
 using AutoKADN.Tools.Dibujo;
+using AutoKADN.Tools.Dibujo.CalcoIa;
 using AutoKADN.Tools.Excel;
 using AutoKADN.Tools.Layouts;
 using AutoKADN.Tools.Medidas;
@@ -40,6 +41,9 @@ public class NomenclaturaVialCommand
     [CommandMethod("CLONARUC", CommandFlags.Modal)] public void ClonarUc() => new ClonarUcTool().Run();
     [CommandMethod("LINEARAPIDA", CommandFlags.Modal)] public void LineaRapida() => new LineaRapidaTool().Run();
     [CommandMethod("CALCAR", CommandFlags.Modal)] public void Calcar() => new CalcarTool().Run();
+    [CommandMethod("CALCOPLANO", CommandFlags.Modal)] public void DibujarCalcoPlano() => new CalcoPlanoTool().Run();
+    [CommandMethod("CALCOIA", CommandFlags.Modal)] public void CalcarConIa() => new CalcoIaTool().Run();
+    [CommandMethod("DETALLARIA", CommandFlags.Modal)] public void DetallarConIa() => new CalcoDetallarTool().Run();
     [CommandMethod("RELLENARDATOS", CommandFlags.Modal)] public void RellenarDatos() => new RellenarDatosTool().Run();
     [CommandMethod("NUEVOANILLO", CommandFlags.Modal)] public void NuevoAnillo() => new NuevoAnilloTool().Run();
     [CommandMethod("RECORTEANILLOS", CommandFlags.Modal)] public void RecorteAnillos() => new RecorteAnillosTool().Run();

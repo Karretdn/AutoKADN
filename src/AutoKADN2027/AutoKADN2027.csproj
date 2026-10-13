@@ -15,6 +15,11 @@
     <AutoCADInstallDir>C:\Program Files\Autodesk\AutoCAD 2027</AutoCADInstallDir>
   </PropertyGroup>
 
+  <!-- Calcar con IA: el lector (AutoKADN.CalcoIA.exe) se compila junto con el plugin y queda en bin\CalcoIA. -->
+  <ItemGroup>
+    <ProjectReference Include="..\AutoKADN.CalcoIA\AutoKADN.CalcoIA.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="..\AutoKADN\**\*.cs" Exclude="..\AutoKADN\bin\**;..\AutoKADN\obj\**" />
     <Reference Include="System.Windows.Forms" />

@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using AutoKADN.Tools.Dibujo.CalcoIa;
 using AutoKADN.Tools.Layouts;
 using AcadApplication = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
@@ -13,7 +14,8 @@ namespace AutoKADN.Tools.Dibujo;
 // transparencia, en la capa CALCO (que no se imprime) y al fondo. Antes de dejarla se dibuja un rectángulo sobre lo
 // que se ve: solo esa parte queda a la vista y se agranda para llenar el marco. Enter o clic derecho = usar todo.
 // ESC cancela y no deja nada. La imagen o el PDF quedan como referencia al archivo (no se incrustan).
-// El trabajo sobre el dibujo está en CalcoImporter.
+// El trabajo sobre el dibujo está en CalcoImporter. La hoja queda marcada para los botones «Calcar con IA» y
+// «Detallar con IA» (CalcoIaTool).
 public sealed class CalcarTool
 {
     private static readonly Regex DetailLayout = new Regex(@"^(?:ANILLO\s+\d+|TRONCAL)\s+DETALLE$", RegexOptions.IgnoreCase);
@@ -56,9 +58,18 @@ public sealed class CalcarTool
             editor.UpdateScreen(); // que se vea entera antes de pedir el recorte
 
             bool cropped = false;
-            if (!AskCrop(editor, import.Content, out CalcoFrame crop, out bool cancelled))
+            CalcoFrame crop;
+            bool rotate;
+            bool hasCrop;
+            // «Girar» gira la hoja 90° y vuelve a preguntar (se puede girar las veces que haga falta).
+            while ((hasCrop = AskCrop(editor, import.Content, out crop, out bool cancelled, out rotate)) == false && rotate)
             {
-                if (cancelled) return; // ESC: se borra lo importado (en finally)
+                import.Content = CalcoImporter.Rotate(database, entityId, frame);
+                editor.UpdateScreen();
+            }
+            if (!hasCrop)
+            {
+                if (crop.Width < 0) return; // ESC: se borra lo importado (en finally)
             }
             else
             {
@@ -71,6 +82,10 @@ public sealed class CalcarTool
             editor.UpdateScreen();
             editor.WriteMessage($"\n[CALCAR] «{Path.GetFileName(path)}»{(CalcoImporter.IsPdf(path) ? " (página " + page + ")" : string.Empty)} importado en {place}: "
                 + $"{(cropped ? "recortado y ajustado" : "completo y ajustado")} al marco, transparencia {CalcoImporter.TransparencyPercent} %, capa {CalcoImporter.LayerName} (no se imprime).\n");
+
+            // La hoja queda marcada (archivo, página y recorte) para los botones «Calcar con IA» y «Detallar con IA».
+            double[]? recorte = cropped ? CalcoIaTool.Fracciones(import.Content, crop) : null;
+            CalcoIaTool.Marcar(database, entityId, path, page, recorte);
         }
         catch (System.Exception ex)
         {
@@ -184,19 +199,24 @@ public sealed class CalcarTool
         return true;
     }
 
-    // Pide el rectángulo de lo que se va a calcar. true = hay recorte; false = usar todo, o cancelar si cancelled.
-    private static bool AskCrop(Editor editor, CalcoFrame content, out CalcoFrame crop, out bool cancelled)
+    // Pide el rectángulo de lo que se va a calcar. true = hay recorte; false = usar todo, girar (rotate) o cancelar (crop
+    // con ancho negativo).
+    private static bool AskCrop(Editor editor, CalcoFrame content, out CalcoFrame crop, out bool cancelled, out bool rotate)
     {
         crop = default;
         cancelled = false;
+        rotate = false;
 
-        var firstOptions = new PromptPointOptions("\nDibuje el rectángulo de lo que va a calcar: primera esquina (Enter o clic derecho para usar todo): ") { AllowNone = true };
+        var firstOptions = new PromptPointOptions("\nDibuje el rectángulo de lo que va a calcar: primera esquina o [Girar] (Enter o clic derecho para usar todo): ") { AllowNone = true };
+        firstOptions.Keywords.Add("Girar");
+        firstOptions.AppendKeywordsToMessage = false;
         PromptPointResult first = editor.GetPoint(firstOptions);
+        if (first.Status == PromptStatus.Keyword) { rotate = true; return false; }
         if (first.Status == PromptStatus.None) return false;
-        if (first.Status != PromptStatus.OK) { cancelled = true; return false; }
+        if (first.Status != PromptStatus.OK) { cancelled = true; crop = new CalcoFrame(0, 0, -1, 0); return false; }
 
         PromptPointResult second = editor.GetCorner(new PromptCornerOptions("\nEsquina opuesta: ", first.Value));
-        if (second.Status != PromptStatus.OK) { cancelled = true; return false; }
+        if (second.Status != PromptStatus.OK) { cancelled = true; crop = new CalcoFrame(0, 0, -1, 0); return false; }
 
         Matrix3d ucs = editor.CurrentUserCoordinateSystem;
         crop = CalcoFrame.FromCorners(first.Value.TransformBy(ucs), second.Value.TransformBy(ucs));

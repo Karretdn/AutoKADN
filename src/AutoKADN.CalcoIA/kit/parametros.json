@@ -1,0 +1,31 @@
+{
+  "_nota": "Medidas del calco con IA en unidades del dibujo (la plantilla del proyecto). Se leen en cada corrida: un cambio aquí vale sin compilar. Ver CALCO-IA.md.",
+  "marco": { "x0": 4.5, "y0": 92.221, "x1": 210.989, "y1": 224.023 },
+  "margen": 3.0,
+  "separacion": 8.5,
+  "offsetCota": 5.5,
+  "_estirar": "Cuánto se puede estirar a lo ancho o a lo alto (el croquis no va a escala). 1.0 = sin estirar (por ahora se prefiere así); 1.7 ≈ lo que estira a mano.",
+  "estirarMaximo": 1.0,
+  "_vias": "Ancho final de una vía entre la manzana y un vecino: el doble de lo que mide en el croquis, pero entre viaMinima y viaMaxima.",
+  "_simetria": "Un lado de una manzana vecina que cae a menos de simetriaVecinos × tamaño de la manzana del anillo de su borde (al otro lado de la vía) se alinea con él.",
+  "simetriaVecinos": 0.12,
+  "viaMinima": 18.0,
+  "viaMaxima": 35.0,
+  "radioIndicador": 6.746,
+  "_tramito": "Cruce de vía: cada tramito de 0.1 con su reducción mide tramitoFraccion del cruce, al menos tramitoMinimo unidades y como mucho tramitoMaximo del cruce.",
+  "tramitoFraccion": 0.25,
+  "tramitoMinimo": 6.0,
+  "tramitoMaximo": 0.35,
+  "separacionViviendas": 2.2,
+  "nombreViaLateral": 7.0,
+  "nombreViaSobreCota": 5.0,
+  "viaSinNombre": "VIA INTERNA - T.N.",
+  "superficie": "ZONA VERDE",
+  "motor": {
+    "tipo": "claude-code",
+    "modelo": "",
+    "esfuerzo": "",
+    "minutosMaximos": 20,
+    "turnosMaximos": 60
+  }
+}

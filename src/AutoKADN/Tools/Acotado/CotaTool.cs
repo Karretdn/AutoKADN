@@ -7,7 +7,7 @@ namespace AutoKADN.Tools.Acotado;
 
 public sealed class CotaTool
 {
-    private const double OffsetFromLine = 5.50;
+    internal const double OffsetFromLine = 5.50; // también lo usa el calco con IA (CalcoDibujante)
     private const string XDataAppName = "AUTOKADN";
     private const string UcSurfaceXDataType = "UC_SURFACE";
 

@@ -125,6 +125,31 @@ internal static class CalcoImporter
         return string.Empty;
     }
 
+    /// <summary>Gira lo importado 90° (antihorario) y lo vuelve a ajustar al marco. Devuelve el rectángulo que ocupa.</summary>
+    public static CalcoFrame Rotate(Database database, ObjectId entityId, CalcoFrame frame)
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        var entity = (Entity)transaction.GetObject(entityId, OpenMode.ForWrite);
+        CalcoFrame now = ExtentsOf(entity);
+        entity.TransformBy(Matrix3d.Rotation(Math.PI / 2.0, Vector3d.ZAxis, new Point3d(now.CenterX, now.CenterY, 0.0)));
+        now = ExtentsOf(entity);
+        var center = new Point3d(now.CenterX, now.CenterY, 0.0);
+        entity.TransformBy(Matrix3d.Displacement(new Vector3d(frame.CenterX - now.CenterX, frame.CenterY - now.CenterY, 0.0))
+                           * Matrix3d.Scaling(frame.FitScale(now.Width, now.Height), center));
+        CalcoFrame result = ExtentsOf(entity);
+        transaction.Commit();
+        return result;
+    }
+
+    /// <summary>Giro de lo importado, en grados antihorarios redondeados a 0, 90, 180 o 270.</summary>
+    public static int RotationOf(Entity entity)
+    {
+        double radianes = entity is RasterImage image ? Math.Atan2(image.Orientation.Xaxis.Y, image.Orientation.Xaxis.X)
+            : entity is UnderlayReference underlay ? underlay.Rotation : 0.0;
+        int grados = (int)Math.Round(radianes * 180.0 / Math.PI / 90.0) * 90;
+        return ((grados % 360) + 360) % 360;
+    }
+
     /// <summary>Borra lo importado (y su definición) si nadie más la usa: para cuando se cancela a la mitad.</summary>
     public static void Remove(Database database, ObjectId entityId)
     {
@@ -245,6 +270,9 @@ internal static class CalcoImporter
         transaction.AddNewlyCreatedDBObject(pdf, true);
 
         try { pdf.IsClipped = false; } catch (System.Exception) { /* sin borde de recorte todavía: se ve la página entera */ }
+        // Sin «ajustar colores al fondo»: con el fondo oscuro, AutoCAD vuelve el blanco del escaneo del color del fondo y
+        // la hoja no se ve bien. Así se ve como la imagen.
+        try { pdf.AdjustColorForBackground = false; } catch (System.Exception) { }
 
         // Tamaño natural de la página (escala 1); de ahí sale la escala que la deja justo en el marco.
         CalcoFrame natural = ExtentsOf(pdf);

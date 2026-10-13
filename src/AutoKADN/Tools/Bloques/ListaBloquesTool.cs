@@ -219,10 +219,11 @@ public sealed class ListaBloquesTool
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, field));
     }
 
-    private static void AttachMaterialXData(Database database, Transaction transaction, BlockReference blockReference, string description, string diameter, string surface, string layoutName)
+    // También lo usa el calco con IA (CalcoDibujante) con bloques recién insertados, que ya están abiertos para escritura.
+    internal static void AttachMaterialXData(Database database, Transaction transaction, BlockReference blockReference, string description, string diameter, string surface, string layoutName)
     {
         EnsureXDataRegApp(database, transaction);
-        blockReference.UpgradeOpen();
+        if (!blockReference.IsWriteEnabled) blockReference.UpgradeOpen();
         blockReference.XData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, XDataAppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, MaterialType),

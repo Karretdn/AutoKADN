@@ -86,6 +86,17 @@ Las válvulas y silletas del espiral se cuentan solo desde los bloques físicos;
 - Catálogo de **36 materiales**: UNION, TUBERIA, TEE y TAPON en los 6 diámetros · SILLETA 2x3/4, 3x3/4, 4x3/4, 6x3/4 · VALVULA 3/4, 2, 3, 4, 6 · REDUCCION 3/4x1/2, 4x2, 6x4.
 - **MATERIALPRUEBA** (XData `MATERIAL_PRUEBA`): UNION, TAPON y REDUCCION (3/4x1/2) con cantidad y la UC de origen (diámetro + terreno).
 
+### 2.5 Calco con IA (CALCAR → CALCOIA → DETALLARIA)
+El flujo es calcar la geometría, corregirla a mano y detallar con IA. La IA lee la hoja escaneada (el croquis del gasificado) con el programa `AutoKADN.CalcoIA.exe` (en `bin\CalcoIA`).
+
+| Herramienta | Dato que genera |
+|---|---|
+| CALCAR | la imagen o el PDF ajustado al marco, con XData `AUTOKADN_CALCO`: archivo, página y recorte (en la hoja sin girar). Se puede girar 90° al importar |
+| CALCOIA | la geometría del anillo en el layout abierto: manzana, predios y vecinas (capa `Mat`, cada lado una polilínea suelta), tubería nueva y existente (`Lineas`, la existente en HIDDEN2), los accesorios como bloques de material (DIAMETRO, UC y el XData `MATERIAL` de LISTABLOQUES), los textos prediales (centrados en su predio, como NOMENK) y viales, y el indicador del anillo. No acota |
+| DETALLARIA | lee lo que hay dibujado en el layout y le pone lo que dice el croquis: cotas de longitud con los ML en `COTA_<Ø>` (las cuentan LISTABLOQUES y GENERAREXCEL), cotas de ubicación en COTAS MAGENTA y las marcas LC / LC0.0. Si la hoja no corresponde al anillo (número, O.T., forma o accesorios), no dibuja nada y dice por qué |
+
+Cada corrida deja su carpeta en `%LOCALAPPDATA%\AutoKADN\CalcoIA\trabajos` (pedido, lectura, croquis, plano o detalle y registro). Los anillos ya calcados de un mismo PDF quedan en `%LOCALAPPDATA%\AutoKADN\CalcoIA\proyectos` para completar la red de los vecinos. La clave de la API, si se usa ese motor, va cifrada en `%APPDATA%\AutoKADN\calcoia-clave.bin`.
+
 ---
 
 ## 3. Resúmenes que ya quedan escritos en cada layout
