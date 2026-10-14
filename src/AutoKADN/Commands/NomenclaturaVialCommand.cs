@@ -42,7 +42,9 @@ public class NomenclaturaVialCommand
     [CommandMethod("LINEARAPIDA", CommandFlags.Modal)] public void LineaRapida() => new LineaRapidaTool().Run();
     [CommandMethod("CALCAR", CommandFlags.Modal)] public void Calcar() => new CalcarTool().Run();
     [CommandMethod("CALCOPLANO", CommandFlags.Modal)] public void DibujarCalcoPlano() => new CalcoPlanoTool().Run();
+    [CommandMethod("CALCO", CommandFlags.Modal)] public void ImportarYCalcar() => new CalcoPanelTool().Run();
     [CommandMethod("CALCOIA", CommandFlags.Modal)] public void CalcarConIa() => new CalcoIaTool().Run();
+    [CommandMethod("CORREGIRIA", CommandFlags.Modal)] public void CorregirConIa() => new CalcoCorregirTool().Run();
     [CommandMethod("DETALLARIA", CommandFlags.Modal)] public void DetallarConIa() => new CalcoDetallarTool().Run();
     [CommandMethod("AJUSTESIA", CommandFlags.Modal)] public void AjustesIa() => CalcoIaTool.AbrirAjustes();
     [CommandMethod("RELLENARDATOS", CommandFlags.Modal)] public void RellenarDatos() => new RellenarDatosTool().Run();

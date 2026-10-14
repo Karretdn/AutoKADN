@@ -18,7 +18,7 @@ namespace AutoKADN.Tools.Dibujo.CalcoIa;
 // Cada corrida deja su carpeta en %LOCALAPPDATA%\AutoKADN\CalcoIA\trabajos (pedido, croquis, plano, vista y registro).
 public sealed class CalcoIaTool
 {
-    private const string MarcaApp = "AUTOKADN_CALCO";
+    internal const string MarcaApp = "AUTOKADN_CALCO";
     private static readonly Regex AnilloDetalle = new Regex(@"^ANILLO\s+\d+\s+DETALLE$", RegexOptions.IgnoreCase);
     private static readonly Regex TituloAnillo = new Regex(@"ANILLO\s+\d+\s*-\s*(?<d>\d+\s*/\s*\d+)", RegexOptions.IgnoreCase);
 
@@ -137,21 +137,22 @@ public sealed class CalcoIaTool
         return new[] { esquinas.Min(e => e.Item1), esquinas.Min(e => e.Item2), esquinas.Max(e => e.Item1), esquinas.Max(e => e.Item2) };
     }
 
-    // El flujo completo: pedido → AutoKADN.CalcoIA.exe (ventana de avance) → dibujar el plano.
-    internal static void Ejecutar(Editor editor, Database database, string layout, string fuente, int pagina, double[]? recorte, int giro = 0)
+    // El flujo completo: pedido → AutoKADN.CalcoIA.exe (ventana de avance) → dibujar el plano. Con opciones (el panel
+    // «Importar y calcar»): se dibuja solo lo elegido y la ventana sigue sola al terminar bien. true si se dibujó.
+    internal static bool Ejecutar(Editor editor, Database database, string layout, string fuente, int pagina, double[]? recorte, int giro = 0, OpcionesCalco? opciones = null)
     {
         string? ejecutable = BuscarEjecutable();
         if (ejecutable == null)
         {
             editor.WriteMessage("\n[Calcar con IA] No se encontró AutoKADN.CalcoIA.exe (compile la solución: queda en bin\\CalcoIA).\n");
-            return;
+            return false;
         }
 
         string carpeta = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoKADN", "CalcoIA", "trabajos", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
         Directory.CreateDirectory(carpeta);
         File.WriteAllText(Path.Combine(carpeta, "pedido.json"), Pedido(fuente, pagina, recorte, layout, Tamanos.Load(), "calcar", DiametroDelLayout(database), giro), new UTF8Encoding(false));
 
-        var ventana = new VentanaCalcoIa(ejecutable, carpeta);
+        var ventana = new VentanaCalcoIa(ejecutable, carpeta, seguirSolo: opciones != null);
         bool? dibujar = Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(ventana);
         if (ventana.Costo != null) editor.WriteMessage($"\n[Calcar con IA] Costo: {ventana.Costo}\n");
         if (dibujar != true)
@@ -159,23 +160,26 @@ public sealed class CalcoIaTool
             editor.WriteMessage(ventana.Error != null
                 ? $"\n[Calcar con IA] No se pudo calcar: {ventana.Error}. Detalles en {Path.Combine(carpeta, "registro.txt")}\n"
                 : "\n[Calcar con IA] Cancelado: no se dibujó nada.\n");
-            return;
+            return false;
         }
 
         CalcoPlano plano = CalcoPlanoJson.Leer(File.ReadAllText(Path.Combine(carpeta, "plano.json")));
-        CalcoResultado resultado = CalcoDibujante.Dibujar(database, database.CurrentSpaceId, layout, plano, Tamanos.Load(), conCotas: false);
+        opciones?.Filtrar(plano);
+        CalcoResultado resultado = CalcoDibujante.Dibujar(database, database.CurrentSpaceId, layout, plano, Tamanos.Load(), conCotas: opciones?.CotasVerdes == true);
         if (!resultado.Ok)
         {
             editor.WriteMessage($"\n[Calcar con IA] No se dibujó nada: {resultado.Error}.\n");
-            return;
+            return false;
         }
         if (ApartarHoja(database)) editor.WriteMessage("\n[Calcar con IA] La hoja de referencia se movió a la derecha del marco (sigue marcada para «Detallar con IA»).");
         editor.Regen();
         editor.WriteMessage($"\n[Calcar con IA] Dibujado en {layout}: {resultado.Lineas} líneas, {resultado.Textos} textos, "
-            + $"{resultado.Accesorios} accesorios, {resultado.Indicadores} indicadores. Deshacer (H) lo quita entero. Las cotas las pone «Detallar con IA».\n");
+            + $"{resultado.Accesorios} accesorios, {resultado.Indicadores} indicadores" + (resultado.Cotas > 0 ? $", {resultado.Cotas} cotas de longitud" : string.Empty)
+            + (opciones == null ? ". Deshacer (H) lo quita entero. Las cotas las pone «Detallar con IA».\n" : ".\n"));
         foreach (string aviso in resultado.Avisos) editor.WriteMessage($"[Calcar con IA] Aviso: {aviso}.\n");
         foreach (string duda in ventana.Dudas) editor.WriteMessage($"[Calcar con IA] Revise: {duda}\n");
         editor.WriteMessage($"[Calcar con IA] Trabajo guardado en {carpeta}\n");
+        return true;
     }
 
     // AUTOKADN_CALCOIA (ruta del .exe) o, subiendo desde la DLL del plugin, bin\CalcoIA\AutoKADN.CalcoIA.exe.

@@ -10,7 +10,9 @@ public sealed class Croquis
     public double[][][] Construcciones { get; set; } = [];           // polígonos cerrados dentro de predios
     public List<CasaCroquis> Casas { get; set; } = [];               // casas sueltas (rectángulo, con su techo si lo tiene)
     public double[][][] Cercas { get; set; } = [];                   // cercas «x—x—x», como polilíneas abiertas
-    public List<TextoCroquis> Textos { get; set; } = [];             // números de predio ("LOTE" si no tiene), «LOTES» en vecinas
+    public double[][][] Bordillos { get; set; } = [];                // línea de bordillo (LB) que cierra el andén, como polilíneas
+    public List<NotaCroquis> Notas { get; set; } = [];               // notas escritas con flecha (el material de un empalme)
+    public List<TextoCroquis> Textos { get; set; } = [];             // números de predio como están escritos (sin texto si no tiene), «LOTES» en vecinas
     public List<VecinoCroquis> Vecinos { get; set; } = [];           // lo que se ve de manzanas vecinas
     public List<IndicadorCroquis> Indicadores { get; set; } = [];    // círculos "n | ∅" (el propio y los de vecinos)
     public List<ViaCroquis> Vias { get; set; } = [];                 // nombres de las vías, donde están escritos
@@ -21,6 +23,15 @@ public sealed class Croquis
     public Dictionary<string, string>? Cuadro { get; set; }         // total de tubería por diámetro según el cuadro de UC
     public Dictionary<string, int>? CuadroAccesorios { get; set; }  // cantidad de cada accesorio según el cuadro (UNION: 1, TEE: 2…)
     public List<string> Dudas { get; set; } = [];
+}
+
+// Una nota del croquis con su flecha: el texto tal como está escrito (una línea por renglón) y a qué apunta.
+public sealed class NotaCroquis
+{
+    public string Texto { get; set; } = string.Empty;
+    public double X { get; set; }            // dónde está escrita (su esquina de arriba a la izquierda)
+    public double Y { get; set; }
+    public double[]? Flecha { get; set; }    // [x, y]: a qué apunta
 }
 
 public sealed class TextoCroquis
@@ -65,7 +76,7 @@ public sealed class ViaCroquis
 
 public sealed class TuberiaCroquis
 {
-    public string Tipo { get; set; } = "nueva";       // nueva | existente | cruce
+    public string Tipo { get; set; } = "nueva";       // nueva | existente (anillo existente, azul punteada) | matriz (red matriz existente, roja continua) | cruce
     public string Diametro { get; set; } = "3/4";      // nueva / existente
     public double[][] Puntos { get; set; } = [];
     public bool Cerrada { get; set; }
@@ -98,11 +109,21 @@ public sealed class Plano
     public List<CotaPlano> Cotas { get; set; } = [];
     public List<AccesorioPlano> Accesorios { get; set; } = [];
     public List<IndicadorPlano> Indicadores { get; set; } = [];
+    public List<NotaPlano> Notas { get; set; } = [];
+}
+
+// Nota con flecha: texto de varios renglones (arriba a la izquierda en X, Y) y la punta de la flecha.
+public sealed class NotaPlano
+{
+    public string Texto { get; set; } = string.Empty;
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double[] Flecha { get; set; } = [0, 0];
 }
 
 public sealed class LineaPlano
 {
-    public string Tipo { get; set; } = "manzana";   // manzana, predio, construccion, casa, cerca, vecino, tuberia_nueva, tuberia_existente
+    public string Tipo { get; set; } = "manzana";   // manzana, predio, construccion, casa, cerca, vecino, bordillo, tuberia_matriz, tuberia_nueva, tuberia_existente
     public List<double[]> Puntos { get; set; } = [];
     public bool Cerrada { get; set; }
 }
@@ -145,4 +166,72 @@ public sealed class IndicadorPlano
     public string? Viviendas { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
+}
+
+// ───────────── Lectura por lados: la manzana y, de cada lado, lo que hay de la cara hacia afuera ─────────────
+// Lo que se dibuja es siempre lo mismo (Isacc): la manzana (casi siempre un rectángulo; un quiebre solo si se ve un volado
+// o una saliente) con sus predios pegados a la línea; de cada lado, en orden desde la cara, las tuberías (anillo azul o
+// troncal roja; continua nueva, punteada existente), la línea de bordillo si hay andén, la vía con su nombre y lo que hay
+// enfrente. Todo a la misma separación: la posición sale de los parámetros, no de dónde está dibujada en la hoja.
+public sealed class CroquisLados
+{
+    public double[][] Manzana { get; set; } = [];                    // contorno en píxeles de la hoja
+    public double[][][] Predios { get; set; } = [];                  // divisiones de predio (de línea a línea)
+    public List<TextoCroquis> Textos { get; set; } = [];             // nombres de predio, donde están escritos
+    public List<IndicadorCroquis> Indicadores { get; set; } = [];
+    public Dictionary<string, LadoCroquis> Lados { get; set; } = [];  // arriba, abajo, izquierda, derecha
+    public List<AccesorioLado> Accesorios { get; set; } = [];
+    public List<NotaLado> Notas { get; set; } = [];
+    public string? Superficie { get; set; }
+    public Dictionary<string, string>? Cuadro { get; set; }
+    public Dictionary<string, int>? CuadroAccesorios { get; set; }
+    public List<string> Dudas { get; set; } = [];
+}
+
+public sealed class LadoCroquis
+{
+    public List<CarrilCroquis> Carriles { get; set; } = [];   // desde la cara de la manzana hacia afuera
+    public bool Bordillo { get; set; }                        // hay andén: la línea de bordillo (LB) va después de las tuberías
+    public string? Via { get; set; }                          // nombre de la vía (formato NOMENK)
+    public string Enfrente { get; set; } = "nada";            // manzana | pegada (otro lote, sin calle) | nada
+    public string? RotuloEnfrente { get; set; }               // lo que dice enfrente («FINCA (OTRO LOTE)», «LOTES»)
+    public bool Abierta { get; set; }                         // la hoja corta la manzana de este lado: sigue hasta el borde del plano
+}
+
+// Una tubería a lo largo de un lado. Desde/hasta: dónde empieza y termina a lo largo del lado, en píxeles de la hoja (x en
+// los lados de arriba y abajo, y en los de los lados); "borde" = sigue hasta el borde del plano; sin dar = todo el lado.
+public sealed class CarrilCroquis
+{
+    public string Red { get; set; } = "anillo";         // anillo (azul) | troncal (roja)
+    public string Estado { get; set; } = "nueva";       // nueva (continua) | existente (punteada)
+    public string? Diametro { get; set; }
+    public System.Text.Json.JsonElement? Desde { get; set; }
+    public System.Text.Json.JsonElement? Hasta { get; set; }
+    public string? Cota { get; set; }                   // cota verde (longitud), si el carril es un solo tramo
+    public List<TramoLado> Tramos { get; set; } = [];   // si tiene varios: hasta dónde va cada uno y su cota, en orden
+}
+
+public sealed class TramoLado
+{
+    public double Hasta { get; set; }
+    public string? Cota { get; set; }
+    public string? Estado { get; set; }   // nueva | existente (si cambia a lo largo del carril; sin dar = el del carril)
+}
+
+public sealed class AccesorioLado
+{
+    public string Nombre { get; set; } = string.Empty;  // TAPON, TEE, UNION, VALVULA, SILLETA, REDUCCION
+    public string Lado { get; set; } = string.Empty;
+    public int Carril { get; set; } = 1;                // 1 = el más cercano a la manzana
+    public double En { get; set; }                      // a lo largo del lado (px de la hoja)
+    public string? Diametro { get; set; }
+}
+
+// Nota con flecha (el material de un empalme): apunta al carril de ese lado en esa posición.
+public sealed class NotaLado
+{
+    public string Texto { get; set; } = string.Empty;
+    public string Lado { get; set; } = string.Empty;
+    public int Carril { get; set; } = 1;
+    public double En { get; set; }
 }

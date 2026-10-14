@@ -12,6 +12,11 @@ public sealed class ResultadoEnderezado
     public List<string> SinVecina { get; } = [];       // lados (no abiertos) sin manzana de enfrente
     internal List<Alargue> Alargues { get; } = [];     // tramos que no alcanzan (cota o accesorios encimados)
     internal double Sx, Sy;                             // escala de esta vuelta (unidades del dibujo por píxel)
+    // Píxel (de la hoja vista con su giro) → dibujo: X = Ox + (x − Izquierda)·Sx, Y = Oy − (y − Arriba)·Sy. Exacto en la
+    // manzana del anillo; las vecinas se corren con su vía (sirve para ubicar una zona, no para medir).
+    internal double Ox, Oy, Izquierda, Arriba;
+    // Lectura por lados: uniones en la punta de una tubería nueva donde no sigue ninguna red existente (lado y posición).
+    internal List<string> UnionesSueltas { get; } = [];
 }
 
 // Un tramo de tubería nueva que hay que alargar en el croquis (píxeles). H: horizontal (se mueve en x). Si tiene una punta
@@ -43,7 +48,7 @@ public sealed class LadoConTuberia
 // de composición de CALCO-IA.md: 90°, líneas de predio alineadas, vías al doble (los vecinos se alejan lo que mide la vía),
 // todo el alto del marco con estirado en X hasta estirarMaximo, tubería a `separacion` de la cara de manzana más cercana,
 // cruce de vía de 3/4" con sus reducciones (regla 10), accesorios orientados según la tubería y textos sin montarse.
-public static class Enderezador
+public static partial class Enderezador
 {
     private const double Alinear = 12;   // px: líneas de predio casi alineadas a ambos lados de una división se unen
     private const double Empalmar = 40;  // px: el extremo de una línea de predio se lleva a la línea perpendicular cercana
@@ -206,9 +211,9 @@ public static class Enderezador
         // La red existente no pasa del borde de la zona elegida: lo que el croquis muestra más allá se corta ahí (y luego
         // sigue hasta el marco).
         if (recorte is Rect rz)
-            foreach (TuberiaCroquis t in croquis.Tuberias.Where(t => string.Equals(t.Tipo, "existente", StringComparison.OrdinalIgnoreCase)))
+            foreach (TuberiaCroquis t in croquis.Tuberias.Where(t => EsExistente(t)))
                 t.Puntos = t.Puntos.Where(q => q.Length >= 2).Select(q => new[] { Math.Clamp(q[0], rz.X, rz.X1), Math.Clamp(q[1], rz.Y, rz.Y1) }).ToArray();
-        foreach (TuberiaCroquis t in croquis.Tuberias.Where(t => string.Equals(t.Tipo, "existente", StringComparison.OrdinalIgnoreCase) && !t.Cerrada))
+        foreach (TuberiaCroquis t in croquis.Tuberias.Where(t => EsExistente(t) && !t.Cerrada))
             siguen[t] = (Sigue(t, true), Sigue(t, false));
         if (recorte is Rect rc)
         {
@@ -216,6 +221,53 @@ public static class Enderezador
             if (AlBorde(my1, rc.Y1)) abiertos.Add(Lado.Sur);
             if (AlBorde(mx0, rc.X)) abiertos.Add(Lado.Oeste);
             if (AlBorde(mx1, rc.X1)) abiertos.Add(Lado.Este);
+        }
+
+        // ── 1b. Andenes: la línea de bordillo (LB) cierra el andén de un lado de la manzana. Entre la manzana y la LB van
+        //        la tubería nueva y la existente; todo queda a la misma separación: manzana → tubería → … → LB («el mismo
+        //        desfase de manzana a tubería y de tubería a andén»). La calle empieza en la LB ──
+        var andenes = new Dictionary<Lado, Anden>();
+        foreach (double[][] linea in croquis.Bordillos.Where(b => b.Length >= 2))
+            foreach (Borde lb in Ortogonal(Puntos(linea), cerrada: false, fusionar: true, duenio: -1))
+            {
+                if (lb.Largo < 0.05 * tamano) continue;
+                P2 medio = lb.H ? new P2((lb.A0 + lb.A1) / 2, lb.C) : new P2(lb.C, (lb.A0 + lb.A1) / 2);
+                Lado lado = LadoDe(medio, mx0, my0, mx1, my1);
+                if (EsHorizontalLado(lado) != lb.H) continue;
+                Borde? cara = manzana.Where(b => b.H == lb.H && EnLado(b, lado, mx0, my0, mx1, my1)).OrderByDescending(b => b.Largo).FirstOrDefault();
+                if (cara == null) continue;
+                double ancho = lb.C - cara.C;
+                if (Math.Abs(ancho) < 2 || Math.Abs(ancho) > 0.35 * tamano) continue;
+                if (!andenes.TryGetValue(lado, out Anden? anden)) andenes[lado] = anden = new Anden { Lado = lado, Cara = cara, Ancho = ancho };
+                anden.Bordes.Add(lb);
+            }
+        // Carriles: las tuberías (nueva o existente) que van a lo largo del andén, de la manzana hacia la LB.
+        foreach (Anden anden in andenes.Values)
+        {
+            var distancias = new List<double>();
+            foreach (TuberiaCroquis t in croquis.Tuberias.Where(t => !string.Equals(t.Tipo, "cruce", StringComparison.OrdinalIgnoreCase)))
+            {
+                var pts = t.Puntos.Where(x => x.Length >= 2).Select(x => new P2(x[0], x[1])).ToList();
+                for (int i = 0; i + 1 < pts.Count; i++)
+                {
+                    bool h = Math.Abs(pts[i + 1].Y - pts[i].Y) < Math.Abs(pts[i + 1].X - pts[i].X);
+                    if (h != anden.Cara.H) continue;
+                    double c = h ? (pts[i].Y + pts[i + 1].Y) / 2 : (pts[i].X + pts[i + 1].X) / 2;
+                    double d = (c - anden.Cara.C) * Math.Sign(anden.Ancho);
+                    double a0 = h ? Math.Min(pts[i].X, pts[i + 1].X) : Math.Min(pts[i].Y, pts[i + 1].Y), a1 = h ? Math.Max(pts[i].X, pts[i + 1].X) : Math.Max(pts[i].Y, pts[i + 1].Y);
+                    if (d <= 0.05 * Math.Abs(anden.Ancho) || d >= 0.95 * Math.Abs(anden.Ancho) || a1 < anden.Cara.Min || a0 > anden.Cara.Max) continue;
+                    distancias.Add(d);
+                }
+            }
+            foreach (double d in distancias.OrderBy(x => x))
+                if (anden.Carriles.Count == 0 || d - anden.Carriles[^1] > 0.15 * Math.Abs(anden.Ancho)) anden.Carriles.Add(d);
+            anden.Unidades = (Math.Max(1, anden.Carriles.Count) + 1) * p.Separacion;
+        }
+        if (andenes.Count > 0) r.Resumen.Add("Andén con línea de bordillo (LB) en " + string.Join(", ", andenes.Values.Select(a => $"{a.Lado.ToString().ToLowerInvariant()} ({Math.Max(1, a.Carriles.Count)} tubería(s))")) + ": manzana, tuberías y LB a la misma separación");
+        int Carril(Lado lado, double distancia)
+        {
+            if (!andenes.TryGetValue(lado, out Anden? a) || a.Carriles.Count == 0) return 1;
+            return 1 + Enumerable.Range(0, a.Carriles.Count).OrderBy(i => Math.Abs(a.Carriles[i] - distancia)).First();
         }
 
         // ── 2. Vecinos: lado, borde que da a la manzana y cuánto se alejan (vía al doble) ──
@@ -243,6 +295,9 @@ public static class Enderezador
             vecino.Frente = frente.C;
             vecino.Via = frente.C - cara.C;        // lo que mide la vía en el croquis (con signo: hacia afuera)
             vecino.Corrimiento = vecino.Via;       // para empezar, al doble; se ajusta con la escala (paso 3)
+            // Pegada a la manzana (otro lote, una finca): la misma línea, sin calle de por medio.
+            vecino.Pegada = Math.Abs(vecino.Via) < Math.Max(12, 0.02 * tamano);
+            if (andenes.TryGetValue(vecino.Lado, out Anden? suAnden) && !vecino.Pegada) { vecino.Anden = Math.Abs(suAnden.Ancho); vecino.AndenUnidades = suAnden.Unidades; }
             vecinos.Add(vecino);
         }
 
@@ -280,6 +335,11 @@ public static class Enderezador
         double extraLateral = p.Separacion + p.OffsetCota + p.NombreViaLateral + 1.5;
         double extraArriba = norte != null ? espacioVecino : extraVertical, extraAbajo = sur != null ? espacioVecino : extraVertical;
         double extraIzq = oeste != null ? espacioVecino : extraLateral, extraDer = este != null ? espacioVecino : extraLateral;
+        double ExtraAnden(Lado l) => andenes.TryGetValue(l, out Anden? a) ? Math.Max(0, a.Unidades - p.Separacion) : 0;
+        if (norte == null) extraArriba += ExtraAnden(Lado.Norte);
+        if (sur == null) extraAbajo += ExtraAnden(Lado.Sur);
+        if (oeste == null) extraIzq += ExtraAnden(Lado.Oeste);
+        if (este == null) extraDer += ExtraAnden(Lado.Este);
         // Un lado abierto llega justo al borde del marco: sin margen ni espacio para vía o cotas.
         double margenArriba = p.Margen, margenAbajo = p.Margen, margenIzq = p.Margen, margenDer = p.Margen;
         if (abiertos.Contains(Lado.Norte) && norte == null) { extraArriba = 0; margenArriba = 0; }
@@ -357,8 +417,11 @@ public static class Enderezador
             foreach (Vecino v in vecinos)
             {
                 double s = EsHorizontalLado(v.Lado) ? sy : sx, via = Math.Abs(v.Via);
-                double ancho = Math.Max(p.ViaMinima, Math.Min(p.ViaMaxima, 2 * via * s));   // unidades del dibujo
-                double corrimiento = Math.Sign(v.Via) * (ancho / s - via);
+                // La calle va de la LB (si hay andén) a la vecina; el andén mide lo de sus carriles. Una vecina pegada no
+                // tiene calle: queda en la línea de la manzana.
+                double calle = Math.Max(1, via - v.Anden);
+                double ancho = v.Pegada ? 0 : v.AndenUnidades + Math.Max(p.ViaMinima, Math.Min(p.ViaMaxima, 2 * calle * s));   // unidades del dibujo
+                double corrimiento = v.Pegada ? -v.Via : Math.Sign(v.Via) * (ancho / s - via);
                 if (Math.Abs(corrimiento - v.Corrimiento) > 0.5) cambio = true;
                 v.Corrimiento = corrimiento;
             }
@@ -379,6 +442,7 @@ public static class Enderezador
         r.Resumen.Add(FormattableString.Invariant($"Escala {sx:0.####} (X) × {sy:0.####} (Y) u/px; estirado ×{sx / sy:0.00}"));
         r.Sx = sx;
         r.Sy = sy;
+        (r.Ox, r.Oy, r.Izquierda, r.Arriba) = (ox, oy, izquierda, arriba);
 
         Plano plano = r.Plano;
         plano.CentroManzana = [X((mx0 + mx1) / 2), Y((my0 + my1) / 2)];
@@ -575,10 +639,53 @@ public static class Enderezador
                 double adentro = Math.Sign((tramo.H ? centroBloque.Y : centroBloque.X) - cara.C);
                 if (cara.Duenio != CaraDeCerca && adentro != 0 && afuera == adentro) { afuera = -adentro; adentroDeManzana++; }
                 tramo.CDib = tramo.H ? Y(cara.C) - afuera * p.Separacion : X(cara.C) + afuera * p.Separacion;
+                tramo.Afuera = afuera;
+                tramo.Distancia = Math.Abs(tramo.C - cara.C);
             }
             if (!cruce) Recto(tubo);
             tubo.X = X; tubo.Y = Y;
             tubos.Add(tubo);
+        }
+        // Carriles: dos tuberías a lo largo de la misma cara de la manzana (la nueva y la existente, o en un andén) no se
+        // montan: la más cercana a la cara va a la separación, la siguiente al doble… en el orden del croquis.
+        int apiladas = 0;
+        foreach (var grupo in tubos.Where(t => !t.Cruce).SelectMany(t => t.Tramos).Where(b => b.Cara != null && b.Cara.Duenio == -1).GroupBy(b => (b.Cara, b.Afuera)))
+        {
+            Borde cara = grupo.Key.Cara!;
+            Lado lado = LadoDe(cara.H ? new P2((cara.A0 + cara.A1) / 2, cara.C) : new P2(cara.C, (cara.A0 + cara.A1) / 2), mx0, my0, mx1, my1);
+            bool conAnden = andenes.TryGetValue(lado, out Anden? anden) && Math.Sign(anden.Ancho) == Math.Sign(grupo.Key.Afuera);
+            var carriles = new List<double>();
+            if (!conAnden)
+                foreach (double d in grupo.Select(b => b.Distancia).OrderBy(x => x))
+                    if (carriles.Count == 0 || d - carriles[^1] > Math.Max(15, 0.03 * tamano)) carriles.Add(d);
+            if (!conAnden && carriles.Count < 2) continue;
+            foreach (Borde b in grupo)
+            {
+                int k = conAnden ? Carril(lado, b.Distancia) : 1 + Enumerable.Range(0, carriles.Count).OrderBy(i => Math.Abs(carriles[i] - b.Distancia)).First();
+                if (k > 1) apiladas++;
+                b.CDib = b.H ? Y(cara.C) - b.Afuera * k * p.Separacion : X(cara.C) + b.Afuera * k * p.Separacion;
+            }
+        }
+        if (apiladas > 0) { foreach (Tubo t in tubos.Where(t => !t.Cruce)) Recto(t); r.Resumen.Add($"Tuberías paralelas a la misma cara, una tras otra a la separación ({apiladas} tramo(s) en el segundo carril o más)"); }
+        // Líneas de bordillo: a la separación de la última tubería del andén; en las esquinas se juntan.
+        var lineasLB = new List<(Borde B, double C, double A0, double A1)>();
+        foreach (Anden anden in andenes.Values)
+        {
+            double afuera = Math.Sign(anden.Ancho);
+            double c = anden.Cara.H ? Y(anden.Cara.C) - afuera * anden.Unidades : X(anden.Cara.C) + afuera * anden.Unidades;
+            foreach (Borde lb in anden.Bordes)
+                lineasLB.Add((lb, c, lb.H ? X(lb.Min) : Y(lb.Min), lb.H ? X(lb.Max) : Y(lb.Max)));
+        }
+        for (int i = 0; i < lineasLB.Count; i++)
+        {
+            var (lb, c, a0, a1) = lineasLB[i];
+            foreach (var otra in lineasLB.Where(o => o.B.H != lb.H))
+            {
+                // La punta de esta LB que llega a la otra (en el croquis) termina en ella.
+                if (Math.Abs(lb.Min - otra.B.C) < 0.08 * tamano) a0 = otra.C;
+                if (Math.Abs(lb.Max - otra.B.C) < 0.08 * tamano) a1 = otra.C;
+            }
+            plano.Lineas.Add(new LineaPlano { Tipo = "bordillo", Puntos = lb.H ? [[a0, c], [a1, c]] : [[c, a0], [c, a1]] });
         }
         if (sobreCerca > 0) r.Resumen.Add($"Tubería que el croquis ponía encima de una cerca: va a la separación de ella, del lado del anillo ({sobreCerca} tramo(s))");
         if (adentroDeManzana > 0) r.Resumen.Add($"Tubería que el croquis dejaba por dentro de una manzana: va por la calle ({adentroDeManzana} tramo(s))");
@@ -690,6 +797,7 @@ public static class Enderezador
 
         // ── 7. Líneas de tubería, cotas, cruces (regla 10) y accesorios ──
         var accesorios = new List<AccesorioPlano>();
+        var origen = new Dictionary<AccesorioPlano, AccesorioCroquis>();
         string superficie = string.IsNullOrWhiteSpace(croquis.Superficie) ? p.Superficie : croquis.Superficie!.Trim().ToUpperInvariant();
         foreach (Tubo t in tubos.Where(t => !t.Cruce && !t.Reemplazada))
         {
@@ -705,8 +813,9 @@ public static class Enderezador
                     if (sigue.inicio) Extender(existente, 0, 1, marco);
                     if (sigue.fin) Extender(existente, existente.Count - 1, existente.Count - 2, marco);
                 }
+                bool matriz = string.Equals(t.Fuente?.Tipo, "matriz", StringComparison.OrdinalIgnoreCase);
                 foreach (List<double[]> tramo in RecortarAlMarco(existente, marco, 0.5))
-                    plano.Lineas.Add(new LineaPlano { Tipo = "tuberia_existente", Puntos = tramo });
+                    plano.Lineas.Add(new LineaPlano { Tipo = matriz ? "troncal_existente" : "tuberia_existente", Puntos = tramo });
                 continue;
             }
             plano.Lineas.Add(new LineaPlano { Tipo = "tuberia_nueva", Puntos = puntos.Select(q => new[] { q.X, q.Y }).ToList(), Cerrada = t.Cerrada });
@@ -748,11 +857,28 @@ public static class Enderezador
                     if (!Ocupado(enPunta)) u = new Ubicacion(tubo, enPunta);
                     break;
                 }
-            accesorios.Add(new AccesorioPlano
+            var puesto = new AccesorioPlano
             {
                 Nombre = nombre, X = u.Punto.X, Y = u.Punto.Y, Diametro = string.IsNullOrWhiteSpace(a.Diametro) ? u.Tubo.Diametro : Normalizar(a.Diametro),
                 Superficie = superficie, Direccion = 0,
-            });
+            };
+            accesorios.Add(puesto);
+            origen[puesto] = a;
+        }
+        // Empalme con silleta a la red matriz (o existente): la silleta va frente a la tee de la tubería nueva, en la línea
+        // de la red; la tee mira hacia ella (el ramal no se dibuja: lo dice la nota del material).
+        var emparejadas = new HashSet<AccesorioPlano>();
+        foreach (AccesorioPlano silleta in accesorios.Where(x => x.Nombre == "SILLETA" && origen.ContainsKey(x)).ToList())
+        {
+            AccesorioCroquis sc = origen[silleta];
+            AccesorioPlano? tee = accesorios.Where(x => x.Nombre == "TEE" && origen.ContainsKey(x))
+                .OrderBy(x => Math.Abs(origen[x].X - sc.X) + Math.Abs(origen[x].Y - sc.Y)).FirstOrDefault();
+            if (tee == null || Math.Abs(origen[tee].X - sc.X) + Math.Abs(origen[tee].Y - sc.Y) > 0.15 * tamano) continue;
+            Ubicacion? enRed = Ubicar(tubos.Where(t => !t.Nueva).ToList(), new P2(sc.X, sc.Y), 0);
+            bool redHorizontal = enRed != null && enRed.Tubo.Tramos.Count > 0 && enRed.Tubo.Tramos.OrderBy(b => DistanciaSegmento(new P2(sc.X, sc.Y), b.H ? new P2(b.A0, b.C) : new P2(b.C, b.A0), b.H ? new P2(b.A1, b.C) : new P2(b.C, b.A1))).First().H;
+            if (enRed != null) { if (redHorizontal) { silleta.X = tee.X; silleta.Y = enRed.Punto.Y; } else { silleta.X = enRed.Punto.X; silleta.Y = tee.Y; } }
+            tee.Direccion = Math.Round(Math.Atan2(silleta.Y - tee.Y, silleta.X - tee.X) * 180 / Math.PI, 4);
+            emparejadas.Add(tee);
         }
         // En una bifurcación de la red existente casi siempre va una tee. Lo decide la IA: si marcó otra cosa (una unión
         // que la hoja muestra), se respeta; solo se le recuerda.
@@ -763,9 +889,36 @@ public static class Enderezador
             if (ahi?.Nombre == "TEE") continue;
             r.Resumen.Add(FormattableString.Invariant($"La tubería nueva llega a una bifurcación de la red existente en ({punto.X:0.0}, {punto.Y:0.0}) y ahí hay {(ahi == null ? "ningún accesorio" : ahi.Nombre)}: en una bifurcación casi siempre va TEE (regla 7b); si la hoja marca claramente otra cosa, déjela"));
         }
-        foreach (AccesorioPlano a in accesorios) a.Direccion = Direccion(a, tubos, r);
+        foreach (AccesorioPlano a in accesorios.Where(x => !emparejadas.Contains(x))) a.Direccion = Direccion(a, tubos, r);
         plano.Accesorios.AddRange(accesorios);
         Faltantes(croquis, tubos, accesorios, tamanos, minimoAccesorios, (mx0 + mx1) / 2, (my0 + my1) / 2, r);
+
+        // ── 7b. Notas con flecha (el material de un empalme): donde están escritas, dentro del marco ──
+        foreach (NotaCroquis n in croquis.Notas.Where(n => !string.IsNullOrWhiteSpace(n.Texto)))
+        {
+            string[] renglones = n.Texto.Replace("\r", string.Empty).Split('\n').Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
+            double alto = tamanos.Predial, ancho = renglones.Max(x => x.Length) * 0.75 * alto, largo = renglones.Length * 1.6 * alto;
+            P2 q = Correr(new P2(n.X, n.Y), Duenio(new P2(n.X, n.Y)));
+            double nx = X(q.X), ny = Y(q.Y);
+            // Lo que en el croquis está pasada la LB de un andén sigue pasada la LB en el dibujo (el andén se dibuja más ancho).
+            foreach (Anden a in andenes.Values)
+            {
+                double fuera = ((a.Cara.H ? n.Y : n.X) - a.Bordes[0].C) * Math.Sign(a.Ancho);
+                if (fuera <= 0) continue;
+                double s = a.Cara.H ? sy : sx;
+                double extra = a.Unidades - Math.Abs(a.Ancho) * s + 1.0;
+                if (a.Cara.H) ny -= Math.Sign(a.Ancho) * extra; else nx += Math.Sign(a.Ancho) * extra;
+            }
+            nx = Math.Clamp(nx, marco.X0 + 1, marco.X1 - ancho - 1);
+            ny = Math.Clamp(ny, marco.Y0 + largo + 1, marco.Y1 - 1);
+            double[] flecha = n.Flecha is { Length: >= 2 } fl ? D(Correr(new P2(fl[0], fl[1]), Duenio(new P2(fl[0], fl[1])))) : [nx, ny];
+            if (n.Flecha is { Length: >= 2 } fa && origen.Count > 0)
+            {
+                var (acc, ac) = origen.Select(kv => (kv.Key, kv.Value)).OrderBy(x => Math.Abs(x.Value.X - fa[0]) + Math.Abs(x.Value.Y - fa[1])).First();
+                if (Math.Abs(ac.X - fa[0]) + Math.Abs(ac.Y - fa[1]) < 0.1 * tamano) flecha = [acc.X, acc.Y];
+            }
+            plano.Notas.Add(new NotaPlano { Texto = string.Join("\n", renglones), X = Math.Round(nx, 4), Y = Math.Round(ny, 4), Flecha = flecha });
+        }
 
         // ── 8. Textos de predios (los de una vecina, como «LOTES», se corren con ella; el que no cabe en el marco no va) ──
         var textosFuera = new List<string>();
@@ -861,7 +1014,7 @@ public static class Enderezador
         Dictionary<ViaCroquis, Lado> ladoVia = LadosDeVias(vias, mx0, my0, mx1, my1);
         foreach (Lado lado in new[] { Lado.Norte, Lado.Sur, Lado.Oeste, Lado.Este })
         {
-            if (abiertos.Contains(lado) || ladoVia.ContainsValue(lado)) continue;
+            if (abiertos.Contains(lado) || ladoVia.ContainsValue(lado) || vecinos.Any(v => v.Lado == lado && v.Pegada)) continue;
             bool conTubo = tubos.Any(t => t.Nueva && t.Tramos.Any(b => b.Cara != null && b.Cara.Duenio == -1 && EnLado(b.Cara, lado, mx0, my0, mx1, my1)));
             if (!conTubo) continue;
             double fuera = 0.05 * tamano;
@@ -885,6 +1038,7 @@ public static class Enderezador
             bool conTubo = tubos.Any(t => t.Tramos.Any(b => b.Cara == cara));
             bool conCota = tubos.Any(t => t.Nueva && t.Tramos.Select((b, i) => (b, i)).Any(x => x.b.Cara == cara && x.i < t.Cotas.Count && !string.IsNullOrWhiteSpace(t.Cotas[x.i])));
             double limite = (conCota ? p.Separacion + p.OffsetCota : conTubo ? p.Separacion : 0);
+            if (andenes.TryGetValue(lado, out Anden? andenVia)) limite = Math.Max(limite, andenVia.Unidades + 1.5);
             Vecino? v = vecinos.FirstOrDefault(x => x.Lado == lado);
             var texto = new TextoPlano { Texto = via.Nombre.Trim().ToUpperInvariant(), Tipo = "vial" };
             switch (lado)
@@ -906,6 +1060,19 @@ public static class Enderezador
                     texto.X = v != null ? (X(cara.C) + limite + X(v.Frente + v.Corrimiento) - LimiteVecino(v, tubos, p)) / 2 : X(cara.C) + limite + p.NombreViaLateral;
                     break;
             }
+            // Que no quede encima de una nota: se corre a lo largo de la vía hasta pasarla.
+            double largoTexto = texto.Texto.Length * 0.75 * tamanos.Vial;
+            foreach (NotaPlano n in plano.Notas)
+            {
+                string[] renglones = n.Texto.Split('\n');
+                double nx0 = n.X - 1, nx1 = n.X + renglones.Max(x => x.Length) * 0.62 * tamanos.Predial + 1, ny0 = n.Y - renglones.Length * 1.6 * tamanos.Predial - 1, ny1 = n.Y + 1;
+                bool vertical = Math.Abs(texto.Giro) > 45;
+                double tx0 = vertical ? texto.X - tamanos.Vial : texto.X - largoTexto / 2, tx1 = vertical ? texto.X + tamanos.Vial : texto.X + largoTexto / 2;
+                double ty0 = vertical ? texto.Y - largoTexto / 2 : texto.Y - tamanos.Vial, ty1 = vertical ? texto.Y + largoTexto / 2 : texto.Y + tamanos.Vial;
+                if (tx1 < nx0 || tx0 > nx1 || ty1 < ny0 || ty0 > ny1) continue;
+                if (vertical) texto.Y = (ty0 + ty1) / 2 > (ny0 + ny1) / 2 ? ny1 + largoTexto / 2 + 1 : ny0 - largoTexto / 2 - 1;
+                else texto.X = (tx0 + tx1) / 2 > (nx0 + nx1) / 2 ? nx1 + largoTexto / 2 + 1 : nx0 - largoTexto / 2 - 1;
+            }
             plano.Textos.Add(texto);
         }
 
@@ -926,7 +1093,7 @@ public static class Enderezador
         if (croquis.Vias.Count == 0) r.Avisos.Add($"no hay nombres de vías: agregue los que la hoja traiga (KR…, CL…); si no trae ninguno, no los invente: quedan como «{p.ViaSinNombre}»");
         foreach (var o in obstaculos)
         {
-            bool pisa = plano.Lineas.Where(l => l.Tipo is "tuberia_nueva" or "tuberia_existente").SelectMany(Segmentos)
+            bool pisa = plano.Lineas.Where(l => l.Tipo is "tuberia_nueva" or "tuberia_existente" or "troncal_nueva" or "troncal_existente").SelectMany(Segmentos)
                 .Any(s => CruzaCaja(s.a, s.b, o.x0 + 0.3, o.y0 + 0.3, o.x1 - 0.3, o.y1 - 0.3));
             if (pisa) r.Avisos.Add(FormattableString.Invariant($"la tubería pasa por debajo de {o.que} en ({(o.x0 + o.x1) / 2:0.0}, {(o.y0 + o.y1) / 2:0.0}): la tubería va por la calle, no por dentro de los predios; revise dónde está la tubería o {o.que} en la hoja"));
         }
@@ -1689,7 +1856,7 @@ public static class Enderezador
                 string d = Normalizar(kv.Key);
                 if (!double.TryParse(kv.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double cuadro)) continue;
                 double dibujo = totales.TryGetValue(d, out double s) ? s : 0;
-                if (Math.Abs(cuadro - dibujo) > 0.05) r.Avisos.Add(FormattableString.Invariant($"el cuadro dice {cuadro:0.0#} ML de {d}\" y las cotas suman {dibujo:0.0#}"));
+                if (Math.Abs(cuadro - dibujo) > 0.05) r.Resumen.Add(FormattableString.Invariant($"Cuadro: {cuadro:0.0#} ML de {d}\"; las cotas suman {dibujo:0.0#} (la diferencia puede ser una espiral u otro material: las cotas se dejan como están escritas)"));
             }
         foreach (var g in plano.Accesorios.GroupBy(a => (a.Nombre, a.Diametro)).OrderBy(g => g.Key.Nombre))
             r.Resumen.Add($"{g.Key.Nombre} {g.Key.Diametro}\": {g.Count()}");
@@ -1992,13 +2159,33 @@ public static class Enderezador
         public double CDib;       // coordenada final en el dibujo
         public double? CorteDib;  // dónde termina en el dibujo, si sigue otro tramo paralelo (el vértice donde llega un ramal)
         public Borde? Cara;       // la cara de manzana que acompaña (tuberías)
+        public double Afuera;     // tuberías: hacia qué lado de la cara va (signo en px)
+        public double Distancia;  // tuberías: a qué distancia de la cara está en el croquis (px)
         public double Largo => Math.Abs(A1 - A0);
         public double Min => Math.Min(A0, A1);
         public double Max => Math.Max(A0, A1);
     }
 
+    // Un andén: la cara de la manzana, sus líneas de bordillo (px), su ancho en el croquis (con signo hacia afuera), las
+    // tuberías que van a lo largo (distancia a la cara, en px, en orden) y cuánto mide en el dibujo.
+    private sealed class Anden
+    {
+        public Lado Lado;
+        public Borde Cara = null!;
+        public List<Borde> Bordes = [];
+        public double Ancho;
+        public List<double> Carriles = [];
+        public double Unidades;
+    }
+
+    private static bool EsExistente(TuberiaCroquis t) =>
+        string.Equals(t.Tipo, "existente", StringComparison.OrdinalIgnoreCase) || string.Equals(t.Tipo, "matriz", StringComparison.OrdinalIgnoreCase);
+
     private sealed class Vecino
     {
+        public bool Pegada;        // pegada a la manzana (otro lote): sin calle
+        public double Anden;       // px del andén de ese lado (la calle empieza en la LB)
+        public double AndenUnidades;
         public int Indice;
         public List<P2> Original = [];
         public List<Borde> Bordes = [];

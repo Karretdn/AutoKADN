@@ -24,16 +24,18 @@ public static class Motores
         Paso("Preparando la hoja");
         _ = trabajo.Imagen; // extrae la hoja del PDF ahora: los errores de archivo salen antes de llamar a la IA
         if (trabajo.EsDetalle) _ = trabajo.Lectura;
+        if (trabajo.EsCorreccion) { _ = trabajo.CroquisAnteriorJson; _ = trabajo.PlanoAnterior; }
 
         string? error = config.Tipo == "api" ? MotorApi.Correr(trabajo, config) : MotorClaudeCode.Correr(trabajo, config);
         InformarCosto(trabajo);
-        if (error == null && !File.Exists(trabajo.Archivo("resultado.json"))) error = trabajo.EsDetalle ? "la IA terminó sin entregar el detalle" : "la IA terminó sin entregar el plano";
+        if (error == null && !File.Exists(trabajo.Archivo("resultado.json"))) error = trabajo.EsDetalle ? "la IA terminó sin entregar el detalle" : trabajo.EsCorreccion ? "la IA terminó sin entregar la corrección" : "la IA terminó sin entregar el plano";
         if (error != null)
         {
             trabajo.Registrar("ERROR " + error);
             Console.WriteLine("ERROR " + error);
             return 1;
         }
+        if (trabajo.EsCorreccion) Correcciones.Registrar(trabajo);
         Console.WriteLine("LISTO");
         return 0;
     }
@@ -60,17 +62,30 @@ public static class Motores
         catch (JsonException) { /* el resultado sigue valiendo sin el costo */ }
     }
 
-    public static string Instrucciones(Trabajo trabajo) =>
-        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "kit", trabajo.EsDetalle ? "INSTRUCCIONES-DETALLE.md" : "INSTRUCCIONES.md"));
+    // Al corregir: las del calco (las reglas son las mismas) y las de la corrección.
+    public static string Instrucciones(Trabajo trabajo)
+    {
+        string kit = Path.Combine(AppContext.BaseDirectory, "kit");
+        if (trabajo.EsDetalle) return File.ReadAllText(Path.Combine(kit, "INSTRUCCIONES-DETALLE.md"));
+        string calco = File.ReadAllText(Path.Combine(kit, trabajo.PorLados ? "INSTRUCCIONES-LADOS.md" : "INSTRUCCIONES.md"));
+        return trabajo.EsCorreccion ? calco + Environment.NewLine + Environment.NewLine + File.ReadAllText(Path.Combine(kit, "INSTRUCCIONES-CORRECCION.md")) : calco;
+    }
 
     // Lo que se le dice a la IA al empezar (los dos motores).
     public static string Pedido(Trabajo trabajo) => (Giro.Normalizar(trabajo.Pedido.Giro) != 0 && !trabajo.EsDetalle
         ? $"La hoja está girada {Giro.Normalizar(trabajo.Pedido.Giro)}° en el dibujo: describa el croquis como se ve en la hoja (derecha, como fue escaneada); el enderezado lo gira solo y la vista previa sale girada. "
         : string.Empty) + (trabajo.Pedido.Diametro.Length > 0
         ? $"El layout dice que el anillo es de Ø{trabajo.Pedido.Diametro}\" (úselo salvo que la hoja diga claramente otro diámetro; si es así, anótelo en dudas). "
-        : string.Empty) + (trabajo.EsDetalle
+        : string.Empty) + (trabajo.EsCorreccion
+        ? $"Corrija el calco del layout {trabajo.Pedido.Layout} con lo que pide el usuario: «{trabajo.Correccion.Nota.Trim()}». Empiece con ver_correccion " +
+          "(la zona señalada y el croquis anterior), cambie solo lo que pide la corrección y lo que dependa de ello, compare con superponer y " +
+          "enderezar, y termine llamando a entregar una sola vez con el croquis completo."
+        : trabajo.EsDetalle
         ? $"Detalle el anillo ya dibujado en el layout {trabajo.Pedido.Layout} con lo que dice la hoja de este trabajo. Empiece con ver_dibujo y ver_hoja, " +
           "compruebe que la hoja corresponda al dibujo, revise con revisar_detalle y termine llamando a entregar_detalle una sola vez."
+        : trabajo.PorLados
+        ? $"Lea la hoja de este trabajo por lados para el layout {trabajo.Pedido.Layout}: la manzana, sus predios y, de cada lado, " +
+          "las tuberías en orden, la LB, la vía y lo de enfrente. Empiece con ver_hoja, revise la vista previa con enderezar y termine llamando a entregar una sola vez."
         : $"Calque la hoja de este trabajo para el layout {trabajo.Pedido.Layout}. Empiece con ver_hoja, mida lo necesario, " +
           "revise la vista previa con enderezar y termine llamando a entregar una sola vez.");
 
@@ -85,6 +100,7 @@ public static class Motores
         "ver_paginas" => "Buscando el plano del proyecto en el PDF",
         "ver_pagina" => $"Viendo la página {entrada?["pagina"]} del PDF",
         "ver_dibujo" => "Viendo el anillo dibujado",
+        "ver_correccion" => "Viendo lo que hay que corregir",
         "revisar_detalle" => "Revisando el detalle",
         "entregar_detalle" => "Entregando el detalle",
         _ => herramienta,

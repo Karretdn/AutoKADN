@@ -28,6 +28,10 @@ public sealed class Parametros
     public double NombreViaSobreCota { get; set; } = 5.0;
     public string ViaSinNombre { get; set; } = "VIA INTERNA - T.N.";   // vía junto a la tubería que el croquis no nombra
     public string Superficie { get; set; } = "ZONA VERDE";
+    // Cómo lee la IA la hoja: «lados» (la manzana y lo que hay de cada lado, en orden; las posiciones salen de los
+    // parámetros) o «croquis» (todo en píxeles; el enderezado deduce la estructura).
+    public string Lectura { get; set; } = "lados";
+    public double AnchoVia { get; set; } = 22.0;   // lectura por lados: ancho de una vía (unidades del dibujo)
     public MotorConfig Motor { get; set; } = new();
 
     // Los de fábrica (kitparametros.json) con lo que el usuario cambió en «Ajustes de la IA» encima (Ajustes). Con un
@@ -77,7 +81,8 @@ public sealed class Pedido
     public double[]? Recorte { get; set; }                // [x0, y0, x1, y1] en fracción de la hoja (0..1, arriba a la izquierda)
     public string Layout { get; set; } = "ANILLO 1 DETALLE";
     public TamanosPedido Tamanos { get; set; } = new();
-    // calcar: dibujar el anillo desde la hoja; detallar: el anillo ya está dibujado (lectura.json) y solo se acota.
+    // calcar: dibujar el anillo desde la hoja; detallar: el anillo ya está dibujado (lectura.json) y solo se acota;
+    // corregir: rehacer un calco anterior con lo que pide el usuario (correccion.json).
     public string Modo { get; set; } = "calcar";
     // Cómo está girada la hoja en el dibujo (grados antihorarios: 0, 90, 180, 270). La IA la lee derecha (el recorte
     // viene en la hoja derecha) y el enderezado gira lo que leyó (ver Giro).
@@ -86,12 +91,27 @@ public sealed class Pedido
     public string Diametro { get; set; } = string.Empty;
 }
 
+// «Corregir con IA» (correccion.json, del plugin): qué trabajo dibujó lo que hay en el layout, qué pide el usuario y dónde.
+public sealed class PedidoCorreccion
+{
+    public string Anterior { get; set; } = string.Empty;   // carpeta del trabajo (calcar o corregir) que dibujó el layout
+    public string Nota { get; set; } = string.Empty;       // qué está mal y qué hacer, con las palabras del usuario
+    public string Zona { get; set; } = "todo";             // todo | plano (señalada en el dibujo) | hoja (en la hoja de referencia)
+    // plano: [x0, y0, x1, y1] en unidades del dibujo; hoja: en fracción de la hoja derecha (0..1, arriba a la izquierda).
+    public double[]? Caja { get; set; }
+}
+
 // Carpeta de un trabajo: pedido.json (del plugin) y lo que deja el calco: hoja.*, croquis.json, plano.json, vista.png,
-// resultado.json y registro.txt. En modo detallar: lectura.json (del plugin) y detalle.json.
+// resultado.json y registro.txt. En modo detallar: lectura.json (del plugin) y detalle.json. En modo corregir:
+// correccion.json (del plugin); el croquis y el plano anteriores se leen de la carpeta del trabajo anterior.
 public sealed class Trabajo
 {
     private Imagen? _imagen;
     private LecturaDibujo? _lectura;
+    private PedidoCorreccion? _correccion;
+    private Croquis? _croquisAnterior;
+    private string? _croquisAnteriorJson;
+    private Plano? _planoAnterior;
     private readonly Dictionary<int, Imagen> _paginas = [];
 
     private Trabajo(string carpeta, Pedido pedido, Parametros parametros)
@@ -109,6 +129,32 @@ public sealed class Trabajo
     public string Archivo(string nombre) => Path.Combine(Carpeta, nombre);
 
     public bool EsDetalle => string.Equals(Pedido.Modo, "detallar", StringComparison.OrdinalIgnoreCase);
+
+    public bool EsCorreccion => string.Equals(Pedido.Modo, "corregir", StringComparison.OrdinalIgnoreCase);
+
+    // Lectura por lados (ver CroquisLados): la de los parámetros; al corregir, la del trabajo anterior.
+    public bool PorLados => !EsDetalle && (EsCorreccion ? CroquisAnteriorJson.Contains("\"lados\"", StringComparison.Ordinal)
+        : string.Equals(Parametros.Lectura, "lados", StringComparison.OrdinalIgnoreCase));
+
+    // El croquis del trabajo anterior tal cual (en cualquiera de las dos lecturas).
+    public string CroquisAnteriorJson => _croquisAnteriorJson ??= File.ReadAllText(DelAnterior("croquis.json"));
+
+    public PedidoCorreccion Correccion => _correccion ??= JsonSerializer.Deserialize<PedidoCorreccion>(File.ReadAllText(Archivo("correccion.json")), Json.Opciones)
+        ?? throw new InvalidDataException("correccion.json vacío");
+
+    // Lo que leyó y dibujó el trabajo anterior (el que se corrige).
+    public Croquis CroquisAnterior => _croquisAnterior ??= JsonSerializer.Deserialize<Croquis>(File.ReadAllText(DelAnterior("croquis.json")), Json.Opciones)
+        ?? throw new InvalidDataException("el croquis del trabajo anterior está vacío");
+
+    public Plano PlanoAnterior => _planoAnterior ??= JsonSerializer.Deserialize<Plano>(File.ReadAllText(DelAnterior("plano.json")), Json.Opciones)
+        ?? throw new InvalidDataException("el plano del trabajo anterior está vacío");
+
+    private string DelAnterior(string nombre)
+    {
+        string archivo = Path.Combine(Correccion.Anterior, nombre);
+        if (!File.Exists(archivo)) throw new FileNotFoundException($"no está {nombre} en el trabajo anterior ({Correccion.Anterior})", archivo);
+        return archivo;
+    }
 
     // Lo que ya está dibujado en el layout (modo detallar): lectura.json, que escribe el plugin.
     public LecturaDibujo Lectura => _lectura ??= JsonSerializer.Deserialize<LecturaDibujo>(File.ReadAllText(Archivo("lectura.json")), Json.Opciones)
@@ -208,6 +254,13 @@ public sealed class Trabajo
     {
         string? existente = Directory.EnumerateFiles(Carpeta, "hoja.*").FirstOrDefault();
         if (existente != null) return existente;
+        // Al corregir, la hoja ya extraída del trabajo anterior (la misma fuente y página).
+        if (EsCorreccion && Directory.Exists(Correccion.Anterior) && Directory.EnumerateFiles(Correccion.Anterior, "hoja.*").FirstOrDefault() is string anterior)
+        {
+            string copia = Archivo(Path.GetFileName(anterior));
+            File.Copy(anterior, copia, overwrite: true);
+            return copia;
+        }
 
         string fuente = Pedido.Fuente;
         if (!File.Exists(fuente)) throw new FileNotFoundException("no se encontró la hoja", fuente);

@@ -20,6 +20,9 @@
   "nombreViaLateral": 7.0,
   "nombreViaSobreCota": 5.0,
   "viaSinNombre": "VIA INTERNA - T.N.",
+  "_lectura": "Cómo lee la IA la hoja: lados (la manzana y, de cada lado, las tuberías, la LB, la vía y lo de enfrente, en orden: las posiciones salen de estos parámetros) o croquis (todo en píxeles).",
+  "lectura": "lados",
+  "anchoVia": 22.0,
   "superficie": "ZONA VERDE",
   "motor": {
     "tipo": "claude-code",

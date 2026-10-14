@@ -56,6 +56,20 @@ public static class Superposicion
             foreach (double[][] p in c.Construcciones) Poli(p, Lapiz(naranja, 1.4, true), true);
             foreach (VecinoCroquis v in c.Vecinos) Poli(v.Borde, Lapiz(cafe, 2.2), false);
             var turquesa = Color.FromRgb(0, 150, 150);
+            // Líneas de bordillo (LB): negras punteadas finas, con «LB».
+            foreach (double[][] lb in c.Bordillos)
+            {
+                Poli(lb, Lapiz(Color.FromRgb(20, 20, 20), 1.6, punteada: true), false);
+                if (lb.Length >= 2) dc.DrawText(new FormattedText("LB", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Arial"), 13, Brushes.Black, 1.0), P((lb[0][0] + lb[1][0]) / 2, (lb[0][1] + lb[1][1]) / 2));
+            }
+            // Notas: un recuadro donde está escrita y la flecha.
+            foreach (NotaCroquis n in c.Notas)
+            {
+                Point o = P(n.X, n.Y);
+                dc.DrawRectangle(null, Lapiz(Color.FromRgb(90, 90, 90), 1.2, punteada: true), new System.Windows.Rect(o.X, o.Y, 60, 30));
+                dc.DrawText(new FormattedText("nota", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Arial"), 12, Brushes.DimGray, 1.0), new Point(o.X + 2, o.Y + 2));
+                if (n.Flecha is { Length: >= 2 } fl) dc.DrawLine(Lapiz(Color.FromRgb(90, 90, 90), 1.4), o, P(fl[0], fl[1]));
+            }
             foreach (double[][] cerca in c.Cercas)
             {
                 Poli(cerca, Lapiz(turquesa, 2.0, punteada: true), false);
@@ -82,7 +96,8 @@ public static class Superposicion
             {
                 bool cruce = string.Equals(t.Tipo, "cruce", StringComparison.OrdinalIgnoreCase);
                 bool nueva = string.Equals(t.Tipo, "nueva", StringComparison.OrdinalIgnoreCase);
-                Poli(t.Puntos, Lapiz(cruce ? magenta : azul, nueva || cruce ? 3.0 : 2.0, punteada: !nueva && !cruce), t.Cerrada);
+                bool matriz = string.Equals(t.Tipo, "matriz", StringComparison.OrdinalIgnoreCase);
+                Poli(t.Puntos, Lapiz(cruce ? magenta : matriz ? rojo : azul, nueva || cruce || matriz ? 3.0 : 2.0, punteada: !nueva && !cruce && !matriz), t.Cerrada);
                 var pts = t.Puntos.Where(q => q.Length >= 2).ToList();
                 int tramos = t.Cerrada ? pts.Count : pts.Count - 1;
                 for (int i = 0; i < tramos && i < t.Cotas.Count; i++)
@@ -119,5 +134,68 @@ public static class Superposicion
         var caja = new System.Windows.Rect(centro.X - f.Width / 2 - 2, centro.Y - f.Height / 2 - 1, f.Width + 4, f.Height + 2);
         if (fondo) dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)), null, caja);
         dc.DrawText(f, new Point(caja.X + 2, caja.Y + 1));
+    }
+}
+
+// La lectura por lados encima de la hoja: la manzana, los predios y los textos donde están; de cada lado, los carriles
+// a poca distancia de la cara (en su orden, no donde están dibujados: lo que se compara es hasta dónde llegan y dónde van
+// los accesorios), la LB punteada, la vía y lo de enfrente.
+public static class SuperposicionLados
+{
+    public static byte[] Dibujar(Imagen hoja, Rect zona, int maxLado, CroquisLados c, out double escala)
+    {
+        double mx0 = c.Manzana.Min(q => q[0]), mx1 = c.Manzana.Max(q => q[0]), my0 = c.Manzana.Min(q => q[1]), my1 = c.Manzana.Max(q => q[1]);
+        double paso = Math.Max(12, 0.025 * Math.Min(mx1 - mx0, my1 - my0));
+        var croquis = new Croquis
+        {
+            Manzana = c.Manzana, Predios = c.Predios, Textos = c.Textos, Indicadores = c.Indicadores,
+        };
+        var bordillos = new List<double[][]>();
+        foreach (var (nombre, l) in c.Lados)
+        {
+            string n = nombre.Trim().ToLowerInvariant();
+            bool h = n is "arriba" or "abajo";
+            double cara = n switch { "arriba" => my0, "abajo" => my1, "izquierda" => mx0, _ => mx1 };
+            double signo = n is "arriba" or "izquierda" ? -1 : 1;   // hacia afuera en píxeles de la hoja
+            double a0 = h ? mx0 : my0, a1 = h ? mx1 : my1, largo = a1 - a0;
+            double[] Pt(double enLargo, double fuera) => h ? [enLargo, cara + signo * fuera] : [cara + signo * fuera, enLargo];
+            double Pos(System.Text.Json.JsonElement? e, double defecto, double borde) =>
+                e is System.Text.Json.JsonElement v ? v.ValueKind == System.Text.Json.JsonValueKind.Number ? v.GetDouble()
+                : v.ValueKind == System.Text.Json.JsonValueKind.String && string.Equals(v.GetString(), "borde", StringComparison.OrdinalIgnoreCase) ? borde : defecto : defecto;
+            for (int k = 1; k <= l.Carriles.Count; k++)
+            {
+                CarrilCroquis carril = l.Carriles[k - 1];
+                double a = Pos(carril.Desde, a0, a0 - 0.3 * largo), b = Pos(carril.Hasta, a1, a1 + 0.3 * largo);
+                bool troncal = string.Equals(carril.Red, "troncal", StringComparison.OrdinalIgnoreCase);
+                // Cada tramo con su estado (un carril puede seguir como existente).
+                var limites = new List<double> { a };
+                foreach (TramoLado t in carril.Tramos.Take(Math.Max(0, carril.Tramos.Count - 1))) limites.Add(t.Hasta);
+                limites.Add(b);
+                for (int t = 0; t + 1 < limites.Count; t++)
+                {
+                    string estado = carril.Tramos.Count > t && !string.IsNullOrWhiteSpace(carril.Tramos[t].Estado) ? carril.Tramos[t].Estado! : carril.Estado;
+                    bool esNueva = string.Equals(estado, "nueva", StringComparison.OrdinalIgnoreCase);
+                    string? cota = carril.Tramos.Count > t ? carril.Tramos[t].Cota : carril.Cota;
+                    croquis.Tuberias.Add(new TuberiaCroquis { Tipo = troncal ? "matriz" : esNueva ? "nueva" : "existente", Puntos = [Pt(limites[t], k * paso), Pt(limites[t + 1], k * paso)], Cotas = esNueva ? [cota] : [] });
+                }
+            }
+            double fuera = (Math.Max(1, l.Carriles.Count) + 1) * paso;
+            if (l.Bordillo) bordillos.Add([Pt(a0, fuera), Pt(a1, fuera)]);
+            if (!string.IsNullOrWhiteSpace(l.Via)) croquis.Vias.Add(new ViaCroquis { Nombre = l.Via!, X = Pt((a0 + a1) / 2, fuera + 2 * paso)[0], Y = Pt((a0 + a1) / 2, fuera + 2 * paso)[1] });
+            if (string.Equals(l.Enfrente, "manzana", StringComparison.OrdinalIgnoreCase)) croquis.Vecinos.Add(new VecinoCroquis { Borde = [Pt(a0, fuera + 4 * paso), Pt(a1, fuera + 4 * paso)] });
+            if (string.Equals(l.Enfrente, "pegada", StringComparison.OrdinalIgnoreCase)) croquis.Vecinos.Add(new VecinoCroquis { Borde = [Pt(a0 - 0.2 * largo, 0), Pt(a1 + 0.2 * largo, 0)] });
+            foreach (AccesorioLado acc in c.Accesorios.Where(x => string.Equals(x.Lado, nombre, StringComparison.OrdinalIgnoreCase)))
+            {
+                double[] q = Pt(acc.En, Math.Max(1, acc.Carril) * paso);
+                croquis.Accesorios.Add(new AccesorioCroquis { Nombre = acc.Nombre, X = q[0], Y = q[1] });
+            }
+            foreach (NotaLado nota in c.Notas.Where(x => string.Equals(x.Lado, nombre, StringComparison.OrdinalIgnoreCase)))
+            {
+                double[] q = Pt(nota.En, Math.Max(1, nota.Carril) * paso), o = Pt(nota.En + 3 * paso, fuera + 3 * paso);
+                croquis.Notas.Add(new NotaCroquis { Texto = nota.Texto, X = o[0], Y = o[1], Flecha = q });
+            }
+        }
+        croquis.Bordillos = bordillos.ToArray();
+        return Superposicion.Dibujar(hoja, zona, maxLado, croquis, out escala);
     }
 }

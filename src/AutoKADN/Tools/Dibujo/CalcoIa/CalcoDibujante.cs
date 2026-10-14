@@ -12,7 +12,9 @@ namespace AutoKADN.Tools.Dibujo.CalcoIa;
 // para que CLONAR UC, DEBUGDETALLES, LISTABLOQUES y GENERAREXCEL lo reconozcan igual que un dibujo hecho a mano:
 //  · manzanas, predios, construcciones, casas y vecinos: polilíneas en la capa Mat, color por capa.
 //  · cercas: capa Lineas, color por capa, linea_X_linea a escala 0.8 (como las de los planos).
-//  · tubería nueva: capa Lineas, azul, continua; existente: azul, HIDDEN2 a escala 1.5 (la leyenda de la plantilla).
+//  · tubería nueva: capa Lineas, azul, continua; existente: azul, HIDDEN2 a escala 1.5 (la leyenda de la plantilla);
+//    troncal: roja (continua nueva, HIDDEN2 existente). Línea de bordillo (LB): capa Mat, como la manzana.
+//  · notas con flecha (el material de un empalme): MText en la capa Mat y la flecha como polilínea.
 //  · textos: centrados en la capa Mat, alto de TAMAÑOS (Vial o Predial) y su marca para TAMAÑOS, como NOMENK.
 //  · cotas de longitud: como COTAK > Longitud (Dimscale de TAMAÑOS, capa COTA_<diámetro>, a 5.5 de la tubería).
 //  · accesorios: bloque dinámico insertado de NUEVO (una copia pierde el vínculo dinámico y no se cuenta), capa Mat, verde,
@@ -29,6 +31,7 @@ internal static class CalcoDibujante
     public const string LineaCerca = "linea_X_linea";
     public const double EscalaLineaCerca = 0.8;
     public const short ColorAccesorios = 3;         // verde, como en los planos
+    public const short ColorMatriz = 1;             // rojo: la red matriz existente
     // Indicador de la plantilla (por si el dibujo no trae uno para copiar).
     private const double RadioIndicador = 6.746;
     private const double AltoNumeroIndicador = 4.8;
@@ -65,15 +68,44 @@ internal static class CalcoDibujante
         if (conCotas) DibujarCotas(database, transaction, espacio, capas, plano, tamanos, resultado);
         DibujarAccesorios(database, transaction, espacio, capaDibujo, layout, plano, tamanos, resultado);
         DibujarIndicadores(database, transaction, espacio, capaDibujo, indicadorBase, centroBase, plano, tamanos, resultado);
+        DibujarNotas(database, transaction, espacio, capaDibujo, plano, tamanos, resultado);
         AvisarFueraDelMarco(plano, resultado);
 
         transaction.Commit();
         return resultado;
     }
 
+    // Nota con flecha: el texto (de varios renglones) en un MText con su esquina de arriba a la izquierda donde dice el
+    // plano y una línea de la flecha al renglón de arriba.
+    private static void DibujarNotas(Database database, Transaction transaction, BlockTableRecord espacio, ObjectId capa, CalcoPlano plano, TamanoValores tamanos, CalcoResultado resultado)
+    {
+        foreach (CalcoNota nota in plano.Notas)
+        {
+            if (string.IsNullOrWhiteSpace(nota.Texto)) continue;
+            double alto = tamanos.Predial * 0.8;
+            var texto = new MText();
+            texto.SetDatabaseDefaults(database);
+            texto.LayerId = capa;
+            texto.ColorIndex = 256;
+            texto.TextHeight = alto;
+            texto.Attachment = AttachmentPoint.TopLeft;
+            texto.Location = P(nota.Posicion);
+            texto.Contents = nota.Texto.Replace("\r", string.Empty).Replace("\n", "\\P");
+            Agregar(espacio, transaction, texto);
+            var flecha = new Polyline();
+            flecha.SetDatabaseDefaults(database);
+            flecha.LayerId = capa;
+            flecha.ColorIndex = 256;
+            flecha.AddVertexAt(0, new Point2d(nota.Flecha.X, nota.Flecha.Y), 0.0, 0.0, 0.0);
+            flecha.AddVertexAt(1, new Point2d(nota.Posicion.X - 0.5, nota.Posicion.Y - alto * 0.6), 0.0, 0.0, 0.0);
+            Agregar(espacio, transaction, flecha);
+            resultado.Textos++;
+        }
+    }
+
     public static string CapaCota(string diametro) => "COTA_" + Naming.NormalizeDiameter(diametro).Replace('/', '-');
 
-    private static bool EsTuberia(CalcoTipoLinea tipo) => tipo == CalcoTipoLinea.TuberiaNueva || tipo == CalcoTipoLinea.TuberiaExistente;
+    private static bool EsTuberia(CalcoTipoLinea tipo) => tipo == CalcoTipoLinea.TuberiaNueva || tipo == CalcoTipoLinea.TuberiaExistente || tipo == CalcoTipoLinea.TuberiaMatriz || tipo == CalcoTipoLinea.TroncalExistente;
 
     private static Point3d P(CalcoPunto punto) => new Point3d(punto.X, punto.Y, 0.0);
 
@@ -86,7 +118,7 @@ internal static class CalcoDibujante
     private static void DibujarLineas(Database database, Transaction transaction, BlockTableRecord espacio, LayerTable capas, CalcoPlano plano, CalcoResultado resultado)
     {
         ObjectId existente = ObjectId.Null;
-        if (plano.Lineas.Any(l => l.Tipo == CalcoTipoLinea.TuberiaExistente))
+        if (plano.Lineas.Any(l => l.Tipo == CalcoTipoLinea.TuberiaExistente || l.Tipo == CalcoTipoLinea.TroncalExistente))
         {
             existente = TipoDeLinea(database, transaction, LineaExistente);
             if (existente.IsNull) resultado.Avisos.Add($"no se encontró el tipo de línea {LineaExistente}: la tubería existente quedó continua");
@@ -139,8 +171,8 @@ internal static class CalcoDibujante
             return;
         }
         polilinea.LayerId = capas[CapaTuberia];
-        polilinea.ColorIndex = ColorTuberia;
-        if (tipo == CalcoTipoLinea.TuberiaExistente && !existente.IsNull)
+        polilinea.ColorIndex = tipo == CalcoTipoLinea.TuberiaMatriz || tipo == CalcoTipoLinea.TroncalExistente ? ColorMatriz : ColorTuberia;
+        if ((tipo == CalcoTipoLinea.TuberiaExistente || tipo == CalcoTipoLinea.TroncalExistente) && !existente.IsNull)
         {
             polilinea.LinetypeId = existente;
             polilinea.LinetypeScale = EscalaLineaExistente;

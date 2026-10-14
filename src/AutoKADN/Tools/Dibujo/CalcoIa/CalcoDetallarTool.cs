@@ -29,16 +29,8 @@ public sealed class CalcoDetallarTool
                 return;
             }
 
-            string lecturaJson;
-            int tramos;
-            using (Transaction transaction = database.TransactionManager.StartTransaction())
-            {
-                CalcoLectura lectura = CalcoLectorLayout.Leer(transaction, (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead));
-                tramos = lectura.Tramos.Count(t => t.Nuevo);
-                lecturaJson = lectura.AJson(layout);
-                transaction.Commit();
-            }
-            if (tramos == 0)
+            string? lecturaJson = LeerDibujo(database, layout);
+            if (lecturaJson == null)
             {
                 editor.WriteMessage("\n[DETALLARIA] No hay tubería nueva dibujada en este layout (líneas azules continuas). Dibuje primero el anillo o use «Calcar con IA».\n");
                 return;
@@ -53,13 +45,25 @@ public sealed class CalcoDetallarTool
         }
     }
 
-    private static void Ejecutar(Editor editor, Database database, string layout, string fuente, int pagina, double[]? recorte, string lecturaJson, int giro)
+    // Lo que hay dibujado en el layout abierto, para la IA (lectura.json); null si no hay tubería nueva.
+    internal static string? LeerDibujo(Database database, string layout)
+    {
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        CalcoLectura lectura = CalcoLectorLayout.Leer(transaction, (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead));
+        string? json = lectura.Tramos.Any(t => t.Nuevo) ? lectura.AJson(layout) : null;
+        transaction.Commit();
+        return json;
+    }
+
+    // Con opciones (el panel «Importar y calcar», justo después de calcar): se pone solo lo elegido y la ventana sigue
+    // sola al terminar bien. true si se puso.
+    internal static bool Ejecutar(Editor editor, Database database, string layout, string fuente, int pagina, double[]? recorte, string lecturaJson, int giro, OpcionesDetalle? opciones = null)
     {
         string? ejecutable = CalcoIaTool.BuscarEjecutable();
         if (ejecutable == null)
         {
             editor.WriteMessage("\n[Detallar con IA] No se encontró AutoKADN.CalcoIA.exe (compile la solución: queda en bin\\CalcoIA).\n");
-            return;
+            return false;
         }
 
         string carpeta = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoKADN", "CalcoIA", "trabajos", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
@@ -67,29 +71,30 @@ public sealed class CalcoDetallarTool
         File.WriteAllText(Path.Combine(carpeta, "pedido.json"), CalcoIaTool.Pedido(fuente, pagina, recorte, layout, Tamanos.Load(), "detallar", CalcoIaTool.DiametroDelLayout(database), giro), new UTF8Encoding(false));
         File.WriteAllText(Path.Combine(carpeta, "lectura.json"), lecturaJson, new UTF8Encoding(false));
 
-        var ventana = new VentanaCalcoIa(ejecutable, carpeta, detallar: true);
+        var ventana = new VentanaCalcoIa(ejecutable, carpeta, detallar: true, seguirSolo: opciones != null);
         bool? poner = Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(ventana);
         if (ventana.Costo != null) editor.WriteMessage($"\n[Detallar con IA] Costo: {ventana.Costo}\n");
         if (ventana.Motivos.Count > 0)
         {
             editor.WriteMessage("\n[Detallar con IA] La hoja no corresponde a este anillo; no se puso nada:\n");
             foreach (string motivo in ventana.Motivos) editor.WriteMessage($"[Detallar con IA]   • {motivo}\n");
-            return;
+            return false;
         }
         if (poner != true)
         {
             editor.WriteMessage(ventana.Error != null
                 ? $"\n[Detallar con IA] No se pudo detallar: {ventana.Error}. Detalles en {Path.Combine(carpeta, "registro.txt")}\n"
                 : "\n[Detallar con IA] Cancelado: no se puso nada.\n");
-            return;
+            return false;
         }
 
         CalcoDetalle detalle = CalcoDetalleJson.Leer(File.ReadAllText(Path.Combine(carpeta, "detalle.json")));
+        opciones?.Filtrar(detalle);
         CalcoResultado resultado = CalcoDetallador.Detallar(database, database.CurrentSpaceId, detalle, Tamanos.Load());
         if (!resultado.Ok)
         {
             editor.WriteMessage($"\n[Detallar con IA] No se puso nada: {resultado.Error}.\n");
-            return;
+            return false;
         }
         if (CalcoIaTool.ApartarHoja(database)) editor.WriteMessage("\n[Detallar con IA] La hoja de referencia se movió a la derecha del marco.");
         editor.Regen();
@@ -98,5 +103,6 @@ public sealed class CalcoDetallarTool
         foreach (string aviso in ventana.Avisos) editor.WriteMessage($"[Detallar con IA] Aviso: {aviso}.\n");
         foreach (string duda in ventana.Dudas) editor.WriteMessage($"[Detallar con IA] Revise: {duda}\n");
         editor.WriteMessage($"[Detallar con IA] Trabajo guardado en {carpeta}\n");
+        return true;
     }
 }

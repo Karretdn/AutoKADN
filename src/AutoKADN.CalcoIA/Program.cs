@@ -10,8 +10,8 @@ namespace AutoKADN.CalcoIA;
 //   herramienta <trabajo> <nombre> [json | @archivo]   corre una herramienta a mano (pruebas)
 //   clave                               guarda la clave de la API de Anthropic (cifrada para el usuario de Windows)
 //   ajustes                             ventana «Ajustes de la IA» (motor, modelo, clave y parámetros del dibujo)
-// El plugin escribe pedido.json en la carpeta del trabajo, corre «leer» y lee su salida: líneas «PASO …» con el avance
-// y, al final, «LISTO» o «ERROR …».
+// El plugin escribe pedido.json en la carpeta del trabajo, corre «leer» y lee su salida: líneas «PASO …» con el avance,
+// «COSTO {json}» y, al final, «LISTO» o «ERROR …». El modo (calcar, detallar o corregir) va en pedido.json.
 public static class Program
 {
     [STAThread]

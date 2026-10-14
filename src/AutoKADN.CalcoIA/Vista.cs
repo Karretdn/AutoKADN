@@ -8,13 +8,14 @@ namespace AutoKADN.CalcoIA;
 // hoja antes de entregar. Cotas como en COTAK (a offsetCota de la tubería, hacia afuera de la manzana, texto horizontal).
 public static class Vista
 {
-    private const double PxPorUnidad = 7.0;
+    internal const double PxPorUnidad = 7.0;
+    internal const double Margen = 10;   // px alrededor del marco
 
     public static byte[] Dibujar(Plano plano, Parametros p, TamanosPedido tamanos)
     {
         Marco m = p.Marco;
-        int ancho = (int)Math.Ceiling(m.Ancho * PxPorUnidad) + 20, alto = (int)Math.Ceiling(m.Alto * PxPorUnidad) + 20;
-        Point P(double x, double y) => new(10 + (x - m.X0) * PxPorUnidad, 10 + (m.Y1 - y) * PxPorUnidad);
+        int ancho = (int)Math.Ceiling(m.Ancho * PxPorUnidad + 2 * Margen), alto = (int)Math.Ceiling(m.Alto * PxPorUnidad + 2 * Margen);
+        Point P(double x, double y) => new(Margen + (x - m.X0) * PxPorUnidad, Margen + (m.Y1 - y) * PxPorUnidad);
         Point Q(double[] q) => P(q[0], q[1]);
 
         var visual = new DrawingVisual();
@@ -32,7 +33,7 @@ public static class Vista
             foreach (LineaPlano l in plano.Lineas)
             {
                 if (l.Tipo == "cerca") { Cerca(dc, l, Q); continue; }
-                Pen lapiz = l.Tipo switch { "tuberia_nueva" => azul, "tuberia_existente" => punteada, "vecino" => gris, "predio" or "construccion" => gris, "casa" => fina, _ => negro };
+                Pen lapiz = l.Tipo switch { "tuberia_nueva" => azul, "tuberia_existente" => punteada, "troncal_nueva" => new Pen(Brushes.Red, 1.6), "troncal_existente" => new Pen(Brushes.Red, 1.4) { DashStyle = new DashStyle([6, 4], 0) }, "bordillo" => fina, "vecino" => gris, "predio" or "construccion" => gris, "casa" => fina, _ => negro };
                 var figura = new StreamGeometry();
                 using (StreamGeometryContext g = figura.Open())
                 {
@@ -60,6 +61,15 @@ public static class Vista
 
             foreach (TextoPlano t in plano.Textos)
                 Texto(dc, t.Texto, t.X, t.Y, t.Giro, (t.Tipo == "vial" ? tamanos.Vial : tamanos.Predial) * (t.Escala ?? 1), t.Tipo == "vial" ? Brushes.DarkSlateBlue : Brushes.Black, P, fondo: false);
+
+            // Notas con flecha (el material de un empalme).
+            foreach (NotaPlano n in plano.Notas)
+            {
+                string[] renglones = n.Texto.Split('\n');
+                double altoNota = tamanos.Predial * 0.8;
+                for (int k = 0; k < renglones.Length; k++) Texto(dc, renglones[k], n.X + renglones[k].Length * 0.33 * altoNota, n.Y - (k + 0.5) * 1.5 * altoNota, 0, altoNota, Brushes.Black, P, fondo: false);
+                dc.DrawLine(negro, P(n.X, n.Y), P(n.Flecha[0], n.Flecha[1]));
+            }
 
             foreach (IndicadorPlano i in plano.Indicadores)
             {

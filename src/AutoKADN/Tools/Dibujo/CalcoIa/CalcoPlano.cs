@@ -16,6 +16,8 @@ public sealed class CalcoPlano
     public List<CalcoCota> Cotas { get; } = new List<CalcoCota>();
     public List<CalcoAccesorio> Accesorios { get; } = new List<CalcoAccesorio>();
     public List<CalcoIndicador> Indicadores { get; } = new List<CalcoIndicador>();
+    // Notas con flecha (el material de un empalme con silleta): texto de varios renglones y a qué apunta.
+    public List<CalcoNota> Notas { get; } = new List<CalcoNota>();
 }
 
 public readonly struct CalcoPunto
@@ -25,7 +27,7 @@ public readonly struct CalcoPunto
     public double Y { get; }
 }
 
-public enum CalcoTipoLinea { Manzana, Predio, Construccion, Vecino, TuberiaNueva, TuberiaExistente, Casa, Cerca }
+public enum CalcoTipoLinea { Manzana, Predio, Construccion, Vecino, TuberiaNueva, TuberiaExistente, Casa, Cerca, Bordillo, TuberiaMatriz, TroncalExistente }
 
 public enum CalcoTipoTexto { Predial, Vial, Libre }
 
@@ -69,6 +71,14 @@ public sealed class CalcoAccesorio
     public double Direccion { get; set; }
     public string Diametro { get; set; } = "3/4";
     public string Superficie { get; set; } = "ZONA VERDE";
+}
+
+// Nota con flecha: el texto (renglones separados por \n) con su esquina de arriba a la izquierda en Posicion.
+public sealed class CalcoNota
+{
+    public string Texto { get; set; } = string.Empty;
+    public CalcoPunto Posicion { get; set; }
+    public CalcoPunto Flecha { get; set; }
 }
 
 // Indicador de anillo: círculo con el número y el diámetro (y debajo las viviendas, si se dan).
@@ -148,6 +158,14 @@ public static class CalcoPlanoJson
                 Centro = new CalcoPunto(Numero(item, "x"), Numero(item, "y")),
             });
 
+        foreach (Dictionary<string, object?> item in Lista(raiz, "notas"))
+            plano.Notas.Add(new CalcoNota
+            {
+                Texto = Texto(item, "texto", string.Empty),
+                Posicion = new CalcoPunto(Numero(item, "x"), Numero(item, "y")),
+                Flecha = item.TryGetValue("flecha", out object? flecha) && flecha != null ? Punto(flecha, "notas.flecha") : new CalcoPunto(Numero(item, "x"), Numero(item, "y")),
+            });
+
         return plano;
     }
 
@@ -163,6 +181,10 @@ public static class CalcoPlanoJson
             case "vecino": return CalcoTipoLinea.Vecino;
             case "tuberia_nueva": return CalcoTipoLinea.TuberiaNueva;
             case "tuberia_existente": return CalcoTipoLinea.TuberiaExistente;
+            case "tuberia_matriz":
+            case "troncal_nueva": return CalcoTipoLinea.TuberiaMatriz;
+            case "troncal_existente": return CalcoTipoLinea.TroncalExistente;
+            case "bordillo": return CalcoTipoLinea.Bordillo;
             default: throw new FormatException($"tipo de línea desconocido «{valor}»");
         }
     }

@@ -8,15 +8,18 @@ using AutoKADN.Core;
 
 namespace AutoKADN.Tools.Dibujo.CalcoIa;
 
-// Ventana de «Calcar con IA» y «Detallar con IA»: corre AutoKADN.CalcoIA.exe leer <trabajo>, muestra su avance (líneas
+// Ventana de «Calcar con IA», «Corregir con IA» y «Detallar con IA»: corre AutoKADN.CalcoIA.exe leer <trabajo>, muestra su avance (líneas
 // PASO), el tiempo y deja cancelar. Al terminar muestra el resumen, los avisos y las dudas, y pregunta si se dibuja.
 // Al detallar, si la IA dijo que la hoja no es la de ese anillo, muestra los motivos y no deja poner nada.
-// DialogResult = true solo si terminó bien y el usuario eligió Dibujar (o Poner cotas).
+// DialogResult = true solo si terminó bien y el usuario eligió Dibujar (o Poner cotas). Con seguirSolo (el panel
+// «Importar y calcar», donde el usuario ya eligió qué hacer) se cierra sola al terminar bien; si falla, se queda abierta.
 internal sealed class VentanaCalcoIa : Window
 {
     private readonly string _ejecutable;
     private readonly string _carpeta;
     private readonly bool _detallar;
+    private readonly bool _corregir;
+    private readonly bool _seguirSolo;
     private readonly TextBlock _estado;
     private readonly TextBlock _tiempo;
     private readonly ListBox _registro;
@@ -28,12 +31,14 @@ internal sealed class VentanaCalcoIa : Window
     private Process? _proceso;
     private bool _terminado;
 
-    public VentanaCalcoIa(string ejecutable, string carpeta, bool detallar = false)
+    public VentanaCalcoIa(string ejecutable, string carpeta, bool detallar = false, bool corregir = false, bool seguirSolo = false)
     {
+        _seguirSolo = seguirSolo;
         _ejecutable = ejecutable;
         _carpeta = carpeta;
         _detallar = detallar;
-        Title = detallar ? "AutoKADN - Detallar con IA" : "AutoKADN - Calcar con IA";
+        _corregir = corregir;
+        Title = detallar ? "AutoKADN - Detallar con IA" : corregir ? "AutoKADN - Corregir con IA" : "AutoKADN - Calcar con IA";
         Width = 640;
         Height = 520;
         MinWidth = 480;
@@ -54,7 +59,7 @@ internal sealed class VentanaCalcoIa : Window
         raiz.Children.Add(cabeza);
 
         var botones = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
-        _dibujar = new Button { Content = detallar ? "Poner cotas" : "Dibujar", Padding = new Thickness(18, 6, 18, 6), Margin = new Thickness(0, 0, 8, 0), IsDefault = true, Visibility = Visibility.Collapsed };
+        _dibujar = new Button { Content = detallar ? "Poner cotas" : corregir ? "Redibujar" : "Dibujar", Padding = new Thickness(18, 6, 18, 6), Margin = new Thickness(0, 0, 8, 0), IsDefault = true, Visibility = Visibility.Collapsed };
         _dibujar.Click += (_, _) => { DialogResult = true; };
         _cancelar = new Button { Content = "Cancelar", Padding = new Thickness(18, 6, 18, 6), IsCancel = true };
         _cancelar.Click += (_, _) => Close();
@@ -161,7 +166,7 @@ internal sealed class VentanaCalcoIa : Window
         }
         if (!File.Exists(resultado) || !File.Exists(Path.Combine(_carpeta, salida)))
         {
-            Fallo(Error ?? (_detallar ? "terminó sin detalle" : "el calco terminó sin plano"));
+            Fallo(Error ?? (_detallar ? "terminó sin detalle" : _corregir ? "la corrección terminó sin plano" : "el calco terminó sin plano"));
             return;
         }
 
@@ -173,7 +178,7 @@ internal sealed class VentanaCalcoIa : Window
                 Agregar(datos, "dudas", Dudas);
                 var resumen = new List<string>();
                 Agregar(datos, "resumen", resumen);
-                _final.Children.Add(Titulo(_detallar ? "Listo. Esto se va a poner:" : "Listo. Esto se va a dibujar:"));
+                _final.Children.Add(Titulo(_detallar ? "Listo. Esto se va a poner:" : _corregir ? "Listo. El calco corregido reemplaza al anterior:" : "Listo. Esto se va a dibujar:"));
                 foreach (string linea in resumen) _final.Children.Add(Renglon("• " + linea));
                 if (Avisos.Count > 0) { _final.Children.Add(Titulo("Avisos:")); foreach (string a in Avisos) _final.Children.Add(Renglon("• " + a)); }
                 if (Dudas.Count > 0) { _final.Children.Add(Titulo("Revise en el dibujo:")); foreach (string d in Dudas) _final.Children.Add(Renglon("• " + d)); }
@@ -185,6 +190,7 @@ internal sealed class VentanaCalcoIa : Window
         _final.Visibility = Visibility.Visible;
         _dibujar.Visibility = Visibility.Visible;
         _dibujar.Focus();
+        if (_seguirSolo) DialogResult = true;
     }
 
     // «≈ 0.21 USD (claude-sonnet-5-5, 11 pasos, 0:50; a precio de API: con tu plan no se cobra aparte)».
@@ -210,7 +216,7 @@ internal sealed class VentanaCalcoIa : Window
         _cronometro.Stop();
         _reloj.Stop();
         Error = mensaje;
-        _estado.Text = (_detallar ? "No se pudo detallar: " : "No se pudo calcar: ") + mensaje;
+        _estado.Text = (_detallar ? "No se pudo detallar: " : _corregir ? "No se pudo corregir: " : "No se pudo calcar: ") + mensaje;
         _estado.Foreground = Brushes.Firebrick;
         _final.Children.Add(Renglon("Registro del trabajo: " + Path.Combine(_carpeta, "registro.txt")));
         _final.Visibility = Visibility.Visible;

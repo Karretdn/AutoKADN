@@ -33,8 +33,6 @@ public sealed class CalcarTool
         Database database = document.Database;
 
         object originalShortcutMenu = AcadApplication.GetSystemVariable("SHORTCUTMENU");
-        ObjectId entityId = ObjectId.Null;
-        bool keep = false;
         try
         {
             // Clic derecho = Enter (sin menú contextual), como en LINEARAPIDA.
@@ -48,11 +46,48 @@ public sealed class CalcarTool
             int page = 1;
             if (CalcoImporter.IsPdf(path) && !AskPage(editor, path, out page)) return;
 
+            Importar(editor, database, spaceId, frame, place, path, page);
+        }
+        catch (System.Exception ex)
+        {
+            editor.WriteMessage($"\nERROR en CALCAR: {ex.Message}\n");
+        }
+        finally
+        {
+            AcadApplication.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
+        }
+    }
+
+    // Lo mismo que el botón, con el archivo y la página ya elegidos (el panel «Importar y calcar»): en el marco del layout
+    // abierto, con el recorte y [Girar]. false si no se importó (cancelado o error; no deja nada).
+    internal static bool ImportarEnLayout(Editor editor, Database database, string path, int page)
+    {
+        object originalShortcutMenu = AcadApplication.GetSystemVariable("SHORTCUTMENU");
+        try
+        {
+            AcadApplication.SetSystemVariable("SHORTCUTMENU", 0);
+            if (!TryGetFrame(editor, database, out ObjectId spaceId, out CalcoFrame frame, out string place)) return false;
+            return Importar(editor, database, spaceId, frame, place, path, page);
+        }
+        finally
+        {
+            AcadApplication.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
+        }
+    }
+
+    // Adjunta la hoja en el marco, pide el recorte (con [Girar]) y la marca para «Calcar con IA» y «Detallar con IA».
+    // ESC borra lo importado. true si quedó.
+    private static bool Importar(Editor editor, Database database, ObjectId spaceId, CalcoFrame frame, string place, string path, int page)
+    {
+        ObjectId entityId = ObjectId.Null;
+        bool keep = false;
+        try
+        {
             CalcoImport import = CalcoImporter.Attach(database, spaceId, path, page, frame);
             if (!import.Ok)
             {
                 editor.WriteMessage($"\n[CALCAR] No se pudo importar «{Path.GetFileName(path)}»: {import.Error}.\n");
-                return;
+                return false;
             }
             entityId = import.EntityId;
             editor.UpdateScreen(); // que se vea entera antes de pedir el recorte
@@ -69,7 +104,7 @@ public sealed class CalcarTool
             }
             if (!hasCrop)
             {
-                if (crop.Width < 0) return; // ESC: se borra lo importado (en finally)
+                if (crop.Width < 0) return false; // ESC: se borra lo importado (en finally)
             }
             else
             {
@@ -86,14 +121,10 @@ public sealed class CalcarTool
             // La hoja queda marcada (archivo, página y recorte) para los botones «Calcar con IA» y «Detallar con IA».
             double[]? recorte = cropped ? CalcoIaTool.Fracciones(import.Content, crop) : null;
             CalcoIaTool.Marcar(database, entityId, path, page, recorte);
-        }
-        catch (System.Exception ex)
-        {
-            editor.WriteMessage($"\nERROR en CALCAR: {ex.Message}\n");
+            return true;
         }
         finally
         {
-            AcadApplication.SetSystemVariable("SHORTCUTMENU", originalShortcutMenu);
             if (!keep && !entityId.IsNull) CalcoImporter.Remove(database, entityId);
         }
     }

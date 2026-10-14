@@ -52,6 +52,8 @@ public static class Giro
             Construcciones = c.Construcciones.Select(L).ToArray(),
             Casas = c.Casas.Select(k => new CasaCroquis { Caja = Caja(k.Caja), Rotulo = k.Rotulo, Techo = k.Techo, EnConstruccion = k.EnConstruccion }).ToList(),
             Cercas = c.Cercas.Select(L).ToArray(),
+            Bordillos = c.Bordillos.Select(L).ToArray(),
+            Notas = c.Notas.Select(n => { var g = Punto(n.X, n.Y, giro, ancho, alto); return new NotaCroquis { Texto = n.Texto, X = g.X, Y = g.Y, Flecha = n.Flecha == null ? null : P(n.Flecha) }; }).ToList(),
             Textos = c.Textos.Select(t => { var g = Punto(t.X, t.Y, giro, ancho, alto); return new TextoCroquis { Texto = t.Texto, X = g.X, Y = g.Y, Giro = ((t.Giro + giro) % 180 + 180) % 180 }; }).ToList(),
             Vecinos = c.Vecinos.Select(v => new VecinoCroquis { Borde = L(v.Borde) }).ToList(),
             Indicadores = c.Indicadores.Select(i => { var g = Punto(i.X, i.Y, giro, ancho, alto); return new IndicadorCroquis { Numero = i.Numero, Diametro = i.Diametro, Viviendas = i.Viviendas, X = g.X, Y = g.Y }; }).ToList(),
@@ -70,6 +72,59 @@ public static class Giro
             CuadroAccesorios = c.CuadroAccesorios,
             Dudas = c.Dudas,
         };
+        return r;
+    }
+}
+
+public static class GiroLados
+{
+    // La lectura por lados de la hoja derecha, girada como está la hoja en el dibujo: los puntos giran, cada lado cambia
+    // de nombre y sus posiciones «a lo largo» pasan al eje que le toca.
+    public static CroquisLados Girar(CroquisLados c, int giro, double ancho, double alto)
+    {
+        giro = Giro.Normalizar(giro);
+        if (giro == 0) return c;
+        double[] P(double[] q) { if (q.Length < 2) return q; var g = Giro.Punto(q[0], q[1], giro, ancho, alto); return [g.X, g.Y]; }
+        string[] lados = ["arriba", "izquierda", "abajo", "derecha"];   // antihorario
+        string Lado(string l) { int i = Array.IndexOf(lados, l.Trim().ToLowerInvariant()); return i < 0 ? l : lados[(i + giro / 90) % 4]; }
+        double mx0 = c.Manzana.Min(q => q[0]), mx1 = c.Manzana.Max(q => q[0]), my0 = c.Manzana.Min(q => q[1]), my1 = c.Manzana.Max(q => q[1]);
+        // Una posición a lo largo de un lado (x en arriba/abajo, y en los costados) → la del lado girado.
+        double ALoLargo(string lado, double en)
+        {
+            string l = lado.Trim().ToLowerInvariant();
+            (double x, double y) q = l switch
+            {
+                "arriba" => (en, my0), "abajo" => (en, my1), "izquierda" => (mx0, en), _ => (mx1, en),
+            };
+            var g = Giro.Punto(q.x, q.y, giro, ancho, alto);
+            string nuevo = Lado(l);
+            return nuevo is "arriba" or "abajo" ? g.X : g.Y;
+        }
+        System.Text.Json.JsonElement? Pos(string lado, System.Text.Json.JsonElement? e)
+        {
+            if (e is not System.Text.Json.JsonElement v || v.ValueKind != System.Text.Json.JsonValueKind.Number) return e;
+            return System.Text.Json.JsonSerializer.SerializeToElement(ALoLargo(lado, v.GetDouble()));
+        }
+        var r = new CroquisLados
+        {
+            Manzana = c.Manzana.Select(P).ToArray(),
+            Predios = c.Predios.Select(x => x.Select(P).ToArray()).ToArray(),
+            Textos = c.Textos.Select(t => { var g = Giro.Punto(t.X, t.Y, giro, ancho, alto); return new TextoCroquis { Texto = t.Texto, X = g.X, Y = g.Y, Giro = ((t.Giro + giro) % 180 + 180) % 180 }; }).ToList(),
+            Indicadores = c.Indicadores.Select(i => { var g = Giro.Punto(i.X, i.Y, giro, ancho, alto); return new IndicadorCroquis { Numero = i.Numero, Diametro = i.Diametro, Viviendas = i.Viviendas, X = g.X, Y = g.Y }; }).ToList(),
+            Superficie = c.Superficie, Cuadro = c.Cuadro, CuadroAccesorios = c.CuadroAccesorios, Dudas = c.Dudas,
+        };
+        foreach (var (nombre, l) in c.Lados)
+            r.Lados[Lado(nombre)] = new LadoCroquis
+            {
+                Bordillo = l.Bordillo, Via = l.Via, Enfrente = l.Enfrente, RotuloEnfrente = l.RotuloEnfrente, Abierta = l.Abierta,
+                Carriles = l.Carriles.Select(k => new CarrilCroquis
+                {
+                    Red = k.Red, Estado = k.Estado, Diametro = k.Diametro, Cota = k.Cota, Desde = Pos(nombre, k.Desde), Hasta = Pos(nombre, k.Hasta),
+                    Tramos = k.Tramos.Select(t => new TramoLado { Hasta = ALoLargo(nombre, t.Hasta), Cota = t.Cota, Estado = t.Estado }).ToList(),
+                }).ToList(),
+            };
+        r.Accesorios = c.Accesorios.Select(a => new AccesorioLado { Nombre = a.Nombre, Lado = Lado(a.Lado), Carril = a.Carril, En = ALoLargo(a.Lado, a.En), Diametro = a.Diametro }).ToList();
+        r.Notas = c.Notas.Select(n => new NotaLado { Texto = n.Texto, Lado = Lado(n.Lado), Carril = n.Carril, En = ALoLargo(n.Lado, n.En) }).ToList();
         return r;
     }
 }

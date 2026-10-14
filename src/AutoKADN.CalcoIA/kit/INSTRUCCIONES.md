@@ -80,7 +80,8 @@ Sea eficiente: mida lo necesario, sin repetir medidas que ya tiene.
     Dé solo su inicio (en la tubería nueva), su fin (en la otra red), su largo en `cotas` y el diámetro de la red en
     cada extremo en `diametros`. No ponga las tees, reducciones ni los 0.1: los pone el enderezado.
 11. Cifras: el cero o el decimal se suele escribir arriba: «2°» = 2.0, «45⁵» = 45.5, «157⁷⁰» = 157.70.
-12. Números de predio tal como están escritos, en mayúsculas («34E-28»). Un predio con «L» o sin número es «LOTE».
+12. Números de predio tal como están escritos, en mayúsculas («34E-28»). Un predio con «L» es «LOTE». Un predio
+    sin nada escrito no lleva texto: no invente «LOTE» ni otro número.
     Los predios que dan a la misma vía comparten el prefijo (13A-30, 13A-24, 13A-20…) y suele ser el número de una
     de las vías; si uno rompe el patrón («134-30» entre «13A-…»), amplíelo y revíselo: la letra A se confunde con 4.
 13. Las viviendas van siempre con su número («10 VIVIENDAS»). Si no se lee el número, amplíe; si sigue sin leerse,

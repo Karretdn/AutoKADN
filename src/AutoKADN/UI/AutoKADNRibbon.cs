@@ -42,8 +42,9 @@ public sealed class AutoKADNRibbon
         // plano y sacar los Excel. Cada una tiene su color en los íconos y en la barra del título.
         Brush calco = Pincel(ColorCalco);
         RibbonPanelSource calcoPanel = AgregarPanel(tab, "CALCO", "Calco", ColorCalco);
-        calcoPanel.Items.Add(CreateButton("CALCAR", "Importar imagen/PDF", "CALCAR", CreateCalcarIcon(calco)));
-        calcoPanel.Items.Add(CreateButton("CALCOIA", "Calcar con IA", "CALCOIA", CreateCalcarIaIcon(calco)));
+        // Un solo panel para importar la hoja y calcarla (a mano o con IA); CALCAR y CALCOIA siguen como comandos.
+        calcoPanel.Items.Add(CreateButton("CALCO", "Importar y calcar", "CALCO", CreateCalcarIcon(calco)));
+        calcoPanel.Items.Add(CreateButton("CORREGIRIA", "Corregir con IA", "CORREGIRIA", CreateCorregirIaIcon(calco)));
         calcoPanel.Items.Add(CreateButton("DETALLARIA", "Detallar con IA", "DETALLARIA", CreateDetallarIcon(calco)));
         calcoPanel.Items.Add(CreateButton("AJUSTESIA", "Ajustes IA", "AJUSTESIA", CreateAjustesIcon(calco)));
 
@@ -228,14 +229,13 @@ public sealed class AutoKADNRibbon
         return new DrawingImage(g);
     }
 
-    // «Calcar con IA»: la manzana con su anillo alrededor (la geometría).
-    private static DrawingImage CreateCalcarIaIcon(Brush c)
+    // «Corregir con IA»: la zona señalada (rectángulo punteado) y un lápiz.
+    private static DrawingImage CreateCorregirIaIcon(Brush c)
     {
-        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(c, 2.6); var fina = new Pen(c, 1.6);
-        dc.DrawRectangle(null, p, new System.Windows.Rect(11, 11, 18, 18));                                // la manzana
-        dc.DrawLine(fina, new System.Windows.Point(20, 11), new System.Windows.Point(20, 29));              // un predio
-        dc.DrawRectangle(null, fina, new System.Windows.Rect(5, 5, 30, 30));                               // el anillo
-        dc.DrawEllipse(c, null, new System.Windows.Point(35, 20), 2.4, 2.4);                    // un accesorio
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(c, 2.6); var punteada = new Pen(c, 1.8) { DashStyle = new DashStyle(new[] { 2.0, 1.5 }, 0) };
+        dc.DrawRectangle(null, punteada, new System.Windows.Rect(4, 4, 24, 24));                           // la zona
+        dc.DrawLine(new Pen(c, 5), new System.Windows.Point(17, 34), new System.Windows.Point(33, 18));     // el lápiz
+        dc.DrawLine(p, new System.Windows.Point(14, 37), new System.Windows.Point(17, 34));                  // su punta
         return new DrawingImage(g);
     }
 
