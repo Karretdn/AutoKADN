@@ -1936,6 +1936,10 @@ public static partial class Enderezador
 
     private static List<P2> Puntos(double[][] puntos) => puntos.Where(q => q.Length >= 2).Select(q => new P2(q[0], q[1])).ToList();
 
+    // El contorno de la manzana a 90°, como lo endereza la lectura por lados (en píxeles de la hoja).
+    internal static List<(double X, double Y)> ContornoOrtogonal(double[][] manzana) =>
+        Vertices(Ortogonal(Puntos(manzana), cerrada: true, fusionar: true, duenio: -1), cerrada: true, null).Select(q => (q.X, q.Y)).ToList();
+
     // Cada tramo pasa a horizontal o vertical en su coordenada promedio; con fusionar se juntan los seguidos iguales.
     private static List<Borde> Ortogonal(IReadOnlyList<P2> puntos, bool cerrada, bool fusionar, int duenio)
     {

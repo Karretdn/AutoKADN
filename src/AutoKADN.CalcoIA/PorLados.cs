@@ -18,18 +18,23 @@ public static partial class Enderezador
     {
         public Lado Lado;
         public LadoCroquis Datos = new();
-        public double F;          // la cara de la manzana (y si el lado es horizontal, x si es vertical), en el dibujo
-        public double Signo;      // hacia afuera: +1 / -1 en esa coordenada
-        public double A0, A1;     // de dónde a dónde va la cara a lo largo (dibujo)
+        public Frente Cara = null!;        // la cara de la manzana vista desde este lado (con sus escalones), en el dibujo
+        public HashSet<int> Contorno = []; // los vértices del contorno de la manzana que son de esta cara
+        public double Signo;               // hacia afuera: +1 / -1 (y si el lado es horizontal, x si es vertical)
+        public double A0, A1;              // de esquina a esquina a lo largo (dibujo)
         public bool H => EsHorizontalLado(Lado);
         public int Carriles => Datos.Carriles.Count;
-        public double Carril(int k) => F + Signo * k * sepGlobal;
-        public double LB => F + Signo * (Math.Max(1, Carriles) + 1) * sepGlobal;
-        public double Exterior => Datos.Bordillo ? LB : Carriles > 0 ? Carril(Carriles) : F;   // donde empieza la calle
+        public Frente Carril(int k) => Cara.Paralela(k * sepGlobal);
+        public Frente LB => Cara.Paralela((Math.Max(1, Carriles) + 1) * sepGlobal);
+        public Frente Exterior => Datos.Bordillo ? LB : Carriles > 0 ? Carril(Carriles) : Cara;   // donde empieza la calle
         public bool Pegada => string.Equals(Datos.Enfrente, "pegada", StringComparison.OrdinalIgnoreCase);
         public bool ConManzana => string.Equals(Datos.Enfrente, "manzana", StringComparison.OrdinalIgnoreCase);
-        public double Frente => Exterior + Signo * anchoViaGlobal;                              // cara de la manzana de enfrente
+        public Frente Frente => Exterior.Corrida(anchoViaGlobal);                                   // la manzana de enfrente: la misma figura
+        public double[] Pt(double aLoLargo, double c) => H ? [aLoLargo, c] : [c, aLoLargo];
+        public List<double[]> Traza(Frente linea, double a, double b) => linea.Entre(a, b).Select(q => Pt(q.A, q.C)).ToList();
     }
+
+    private static string NombreLectura(Lado l) => l switch { Lado.Norte => "arriba", Lado.Sur => "abajo", Lado.Oeste => "izquierda", _ => "derecha" };
 
     [ThreadStatic] private static double sepGlobal;
     [ThreadStatic] private static double anchoViaGlobal;
@@ -120,10 +125,13 @@ public static partial class Enderezador
         (r.Ox, r.Oy, r.Izquierda, r.Arriba) = (ox, oy, mx0, my0);
         r.Resumen.Add(FormattableString.Invariant($"Escala {s:0.####} u/px (lectura por lados: tuberías, LB y vías a la separación de {p.Separacion})"));
 
-        lados[Lado.Norte].F = Y(my0); lados[Lado.Sur].F = Y(my1); lados[Lado.Oeste].F = X(mx0); lados[Lado.Este].F = X(mx1);
+        // Cada lado, desde su cara: la manzana vista desde ahí, con los escalones que tenga.
+        List<double[]> esquinas = vm.Select(D).ToList();
+        var frentes = Frente.DeContorno(esquinas.Select(q => (q[0], q[1])).ToList(), yArriba: true);
         foreach (LadoDibujo d in lados.Values)
         {
-            if (d.H) { d.A0 = X(mx0); d.A1 = X(mx1); } else { d.A0 = Y(my1); d.A1 = Y(my0); }
+            (d.Cara, d.Contorno) = frentes[NombreLectura(d.Lado)];
+            (d.A0, d.A1) = (d.Cara.Inicio, d.Cara.Fin);
         }
         double ALoLargo(LadoDibujo d, double px) => d.H ? X(px) : Y(px);
         // Los lados que se tocan en cada punta de un lado: la punta de menor coordenada y la de mayor.
@@ -131,21 +139,20 @@ public static partial class Enderezador
 
         plano.CentroManzana = [X((mx0 + mx1) / 2), Y((my0 + my1) / 2)];
         var abiertos = lados.Values.Where(d => d.Datos.Abierta).ToList();
-        if (abiertos.Count == 0) plano.Lineas.Add(new LineaPlano { Tipo = "manzana", Puntos = vm.Select(D).ToList(), Cerrada = true });
+        if (abiertos.Count == 0) plano.Lineas.Add(new LineaPlano { Tipo = "manzana", Puntos = esquinas, Cerrada = true });
         else
         {
-            // Sin las aristas que van sobre un lado abierto; las que llegan a él siguen hasta el borde del plano.
-            var esquinas = vm.Select(D).ToList();
+            // Sin las aristas de la cara de un lado abierto; las que llegan a ella siguen hasta el borde del plano.
             double Borde(LadoDibujo d) => d.Lado switch { Lado.Norte => m.Y1, Lado.Sur => m.Y0, Lado.Oeste => m.X0, _ => m.X1 };
-            bool Sobre(double[] q, LadoDibujo d) => Math.Abs((d.H ? q[1] : q[0]) - d.F) < 1e-6;
             for (int i = 0; i < esquinas.Count; i++)
             {
-                double[] a = [.. esquinas[i]], b = [.. esquinas[(i + 1) % esquinas.Count]];
-                if (abiertos.Any(d => Sobre(a, d) && Sobre(b, d))) continue;
+                int j = (i + 1) % esquinas.Count;
+                double[] a = [.. esquinas[i]], b = [.. esquinas[j]];
+                if (abiertos.Any(d => d.Contorno.Contains(i) && d.Contorno.Contains(j))) continue;
                 foreach (LadoDibujo d in abiertos)
                 {
-                    if (Sobre(a, d)) a[d.H ? 1 : 0] = Borde(d);
-                    if (Sobre(b, d)) b[d.H ? 1 : 0] = Borde(d);
+                    if (d.Contorno.Contains(i)) a[d.H ? 1 : 0] = Borde(d);
+                    if (d.Contorno.Contains(j)) b[d.H ? 1 : 0] = Borde(d);
                 }
                 plano.Lineas.Add(new LineaPlano { Tipo = "manzana", Puntos = [a, b] });
             }
@@ -193,26 +200,28 @@ public static partial class Enderezador
             {
                 var u = segmentos[i]; var v = segmentos[j];
                 if (u.D.H == v.D.H || !Igual(u.C.Red, v.C.Red)) continue;
-                double esquinaU = v.D.F, esquinaV = u.D.F;   // a lo largo de u, la cara de v; y al revés
+                // A lo largo de u, la cara de v en la esquina que comparten; y al revés.
+                double esquinaU = v.D.Cara.Punta(u.D.Signo > 0), esquinaV = u.D.Cara.Punta(v.D.Signo > 0);
                 double tolU = tolEsquina(u.D) * s, tolV = tolEsquina(v.D) * s;
                 bool Llega(double x, double esquina, double tol, double signoOtro) => !double.IsInfinity(x) && (Math.Abs(x - esquina) <= tol || (signoOtro > 0 ? x > esquina : x < esquina));
                 bool uA = Llega(u.A, esquinaU, tolU, v.D.Signo), uB = Llega(u.B, esquinaU, tolU, v.D.Signo);
                 bool vLlega = Llega(v.A, esquinaV, tolV, u.D.Signo) || Llega(v.B, esquinaV, tolV, u.D.Signo);
                 if (!(uA || uB) || !vLlega) continue;
-                double cruceU = v.D.Carril(v.K);
+                double cruceU = v.D.Carril(v.K).Punta(u.D.Signo > 0);
                 if (uA && (!uB || Math.Abs(u.A - esquinaU) <= Math.Abs(u.B - esquinaU))) u.A = cruceU; else u.B = cruceU;
                 segmentos[i] = u;
             }
         double BordeMarco(LadoDibujo d, double valor) => double.IsNegativeInfinity(valor) ? (d.H ? m.X0 : m.Y0) : double.IsPositiveInfinity(valor) ? (d.H ? m.X1 : m.Y1) : valor;
-        P2 Punto(LadoDibujo d, int k, double aLoLargo) => d.H ? new P2(aLoLargo, d.Carril(k)) : new P2(d.Carril(k), aLoLargo);
-        var lineasCarril = new Dictionary<(Lado, int), (P2 A, P2 B, CarrilCroquis C)>();
+        P2 Punto(LadoDibujo d, int k, double aLoLargo) { double[] q = d.Pt(aLoLargo, d.Carril(k).En(aLoLargo)); return new P2(q[0], q[1]); }
+        // Cada carril: de dónde a dónde va a lo largo y su trazo en el dibujo (con los escalones de la cara).
+        var lineasCarril = new Dictionary<(Lado, int), (double A, double B, CarrilCroquis C, List<double[]> Traza)>();
         var puntasNuevas = new List<(P2 Punto, string Diametro)>();     // puntas de tramos nuevos
         var puntasExistentes = new List<P2>();                          // puntas de tramos existentes
         var empalmes = new List<(P2 Punto, string Diametro)>();          // donde la nueva sigue como existente: unión
         foreach (var (d, k, carril, a0, b0) in segmentos)
         {
             double a = BordeMarco(d, a0), b = BordeMarco(d, b0);
-            lineasCarril[(d.Lado, k)] = (Punto(d, k, a), Punto(d, k, b), carril);
+            lineasCarril[(d.Lado, k)] = (a, b, carril, d.Traza(d.Carril(k), a, b));
             string diametro = Normalizar(string.IsNullOrWhiteSpace(carril.Diametro) ? (string.IsNullOrWhiteSpace(diametroLayout) ? "3/4" : diametroLayout) : carril.Diametro);
             // Tramos en orden de «desde» a «hasta»; el último termina en la punta del carril.
             var limites = new List<double> { a };
@@ -225,14 +234,17 @@ public static partial class Enderezador
                 string tipo = troncal ? (nueva ? "troncal_nueva" : "troncal_existente") : (nueva ? "tuberia_nueva" : "tuberia_existente");
                 P2 qa = Punto(d, k, limites[t]), qb = Punto(d, k, limites[t + 1]);
                 if (Math.Abs(limites[t + 1] - limites[t]) < 1e-6) continue;
-                plano.Lineas.Add(new LineaPlano { Tipo = tipo, Puntos = [[qa.X, qa.Y], [qb.X, qb.Y]] });
+                plano.Lineas.Add(new LineaPlano { Tipo = tipo, Puntos = d.Traza(d.Carril(k), limites[t], limites[t + 1]) });
                 if (nueva) { puntasNuevas.Add((qa, diametro)); puntasNuevas.Add((qb, diametro)); } else { puntasExistentes.Add(qa); puntasExistentes.Add(qb); }
                 if (t > 0 && Igual(Estado(carril, t - 1), "nueva") != nueva) empalmes.Add((qa, diametro));
                 if (!nueva) continue;
                 string? cota = carril.Tramos.Count > t ? carril.Tramos[t].Cota : carril.Cota;
                 if (string.IsNullOrWhiteSpace(cota)) { r.Avisos.Add($"tramo nuevo sin cota en el lado {Nombre(d.Lado)} (carril {k})"); continue; }
-                double[] lado = d.H ? [(qa.X + qb.X) / 2, qa.Y + d.Signo * 10] : [qa.X + d.Signo * 10, (qa.Y + qb.Y) / 2];
-                plano.Cotas.Add(new CotaPlano { A = [qa.X, qa.Y], B = [qb.X, qb.Y], Texto = Cota(cota!), Diametro = diametro, Lado = lado });
+                // La cota mide a lo largo del lado: sus puntas en la misma línea (la más afuera, si el tramo pasa un escalón).
+                double enLinea = d.Carril(k).Extremo(limites[t], limites[t + 1]);
+                double[] ca = d.Pt(limites[t], enLinea), cb = d.Pt(limites[t + 1], enLinea);
+                double[] lado = d.H ? [(ca[0] + cb[0]) / 2, enLinea + d.Signo * 10] : [enLinea + d.Signo * 10, (ca[1] + cb[1]) / 2];
+                plano.Cotas.Add(new CotaPlano { A = ca, B = cb, Texto = Cota(cota!), Diametro = diametro, Lado = lado });
             }
         }
         // La punta de un tramo nuevo que toca una punta de tramo existente (en la esquina) también es un empalme.
@@ -245,33 +257,38 @@ public static partial class Enderezador
         {
             // Hasta dónde llega lo de este lado en cada punta: la LB del lado que se toca, o su cara si allá hay una vecina
             // pegada, o lo de ese lado hacia afuera.
+            // (la punta de ese lado que da a este).
             var (menorL, mayorL) = Vecinos(d);
             LadoDibujo o = lados[mayor ? mayorL : menorL];
-            if (o.Datos.Bordillo) return o.LB;
-            if (o.Pegada) return o.F;
-            return o.Exterior;
+            bool hacia = d.Signo > 0;
+            if (o.Datos.Bordillo) return o.LB.Punta(hacia);
+            if (o.Pegada) return o.Cara.Punta(hacia);
+            return o.Exterior.Punta(hacia);
         }
         foreach (LadoDibujo d in lados.Values)
         {
-            double a = Punta(d, false), b = Punta(d, true);
+            double a = Punta(d, false), b = Punta(d, true), medio = (d.A0 + d.A1) / 2;
             if (d.Datos.Bordillo)
-                plano.Lineas.Add(new LineaPlano { Tipo = "bordillo", Puntos = d.H ? [[a, d.LB], [b, d.LB]] : [[d.LB, a], [d.LB, b]] });
+                plano.Lineas.Add(new LineaPlano { Tipo = "bordillo", Puntos = d.Traza(d.LB, a, b) });
             if (d.Pegada)
             {
                 double fa = d.H ? m.X0 : m.Y0, fb = d.H ? m.X1 : m.Y1;
-                plano.Lineas.Add(new LineaPlano { Tipo = "vecino", Puntos = d.H ? [[fa, d.F], [fb, d.F]] : [[d.F, fa], [d.F, fb]] });
+                plano.Lineas.Add(new LineaPlano { Tipo = "vecino", Puntos = d.Traza(d.Cara, fa, fb) });
                 if (!string.IsNullOrWhiteSpace(d.Datos.RotuloEnfrente))
+                {
+                    double[] q = d.Pt(medio, d.Cara.En(medio) + d.Signo * (tamanos.Predial + 0.5));
                     plano.Textos.Add(new TextoPlano
                     {
-                        Texto = d.Datos.RotuloEnfrente!.Trim().ToUpperInvariant(), Tipo = "libre", Fijo = true, Giro = d.H ? 0 : 90,
-                        X = d.H ? (d.A0 + d.A1) / 2 : d.F + d.Signo * (tamanos.Predial + 0.5), Y = d.H ? d.F + d.Signo * (tamanos.Predial + 0.5) : (d.A0 + d.A1) / 2,
+                        Texto = d.Datos.RotuloEnfrente!.Trim().ToUpperInvariant(), Tipo = "libre", Fijo = true, Giro = d.H ? 0 : 90, X = q[0], Y = q[1],
                     });
+                }
             }
             if (d.ConManzana)
-                plano.Lineas.Add(new LineaPlano { Tipo = "vecino", Puntos = d.H ? [[a, d.Frente], [b, d.Frente]] : [[d.Frente, a], [d.Frente, b]] });
+                plano.Lineas.Add(new LineaPlano { Tipo = "vecino", Puntos = d.Traza(d.Frente, a, b) });
             if (!string.IsNullOrWhiteSpace(d.Datos.Via) && !d.Pegada)
             {
-                double centro = d.ConManzana ? (d.Exterior + d.Frente) / 2 : d.Exterior + d.Signo * (p.OffsetCota + (d.H ? p.NombreViaSobreCota : p.NombreViaLateral));
+                double exterior = d.Exterior.En(medio);
+                double centro = d.ConManzana ? (exterior + d.Frente.En(medio)) / 2 : exterior + d.Signo * (p.OffsetCota + (d.H ? p.NombreViaSobreCota : p.NombreViaLateral));
                 plano.Textos.Add(new TextoPlano
                 {
                     Texto = d.Datos.Via!.Trim().ToUpperInvariant(), Tipo = "vial", Giro = d.H ? 0 : 90,
@@ -290,7 +307,7 @@ public static partial class Enderezador
                 continue;
             }
             LadoDibujo d = lados[l];
-            double a = d.H ? linea.A.X : linea.A.Y, b = d.H ? linea.B.X : linea.B.Y;
+            double a = linea.A, b = linea.B;
             double en = Math.Clamp(ALoLargo(d, acc.En), Math.Min(a, b), Math.Max(a, b));
             // Cerca de una punta, en la punta (tapones).
             if (Math.Abs(en - a) < 2) en = a; else if (Math.Abs(en - b) < 2) en = b;
@@ -323,7 +340,7 @@ public static partial class Enderezador
             foreach (var x in ahi.Where(x => x.A.Nombre == "TAPON")) { x.A.Nombre = "UNION"; cambiados++; }
             if (ahi.Count == 0)
             {
-                var (ld, lk) = lineasCarril.Where(kv => DistanciaSegmento(punto, kv.Value.A, kv.Value.B) < 0.5).Select(kv => kv.Key).FirstOrDefault();
+                var (ld, lk) = lineasCarril.Where(kv => DistanciaPoligono(punto, kv.Value.Traza.Select(q => new P2(q[0], q[1])).ToList(), cerrada: false) < 0.5).Select(kv => kv.Key).FirstOrDefault();
                 Vector2 dir = lados[ld].H ? new Vector2(1, 0) : new Vector2(0, 1);
                 accesorios.Add((new AccesorioPlano { Nombre = "UNION", X = punto.X, Y = punto.Y, Direccion = Angulo(dir), Diametro = diametro, Superficie = string.IsNullOrWhiteSpace(c.Superficie) ? p.Superficie : c.Superficie!.Trim().ToUpperInvariant() }, ld, lk));
                 agregadas++;
@@ -345,14 +362,15 @@ public static partial class Enderezador
         {
             if (LadoPorNombre(n.Lado) is not Lado l || !lineasCarril.TryGetValue((l, Math.Max(1, n.Carril)), out var linea)) continue;
             LadoDibujo d = lados[l];
-            double a = d.H ? linea.A.X : linea.A.Y, b = d.H ? linea.B.X : linea.B.Y;
+            double a = linea.A, b = linea.B;
             double en = Math.Clamp(ALoLargo(d, n.En), Math.Min(a, b), Math.Max(a, b));
             P2 flecha = Punto(d, Math.Max(1, n.Carril), en);
             AccesorioPlano? ahi = plano.Accesorios.OrderBy(x => Math.Abs(x.X - flecha.X) + Math.Abs(x.Y - flecha.Y)).FirstOrDefault();
             if (ahi != null && Math.Abs(ahi.X - flecha.X) + Math.Abs(ahi.Y - flecha.Y) < 3) flecha = new P2(ahi.X, ahi.Y);
             string[] renglones = n.Texto.Replace("\r", string.Empty).Split('\n').Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
             double alto = tamanos.Predial, ancho = renglones.Max(x => x.Length) * 0.62 * alto, largo = renglones.Length * 1.6 * alto;
-            double fuera = d.Exterior + d.Signo * 2;
+            // Pasado lo más afuera que hay a lo largo de la nota (si la cara tiene un escalón ahí).
+            double fuera = (d.H ? d.Exterior.Extremo(flecha.X - 2, flecha.X - 2 + ancho) : d.Exterior.Extremo(flecha.Y - largo / 2, flecha.Y + largo / 2)) + d.Signo * 2;
             double nx = d.H ? flecha.X - 2 : (d.Signo > 0 ? fuera : fuera - ancho), ny = d.H ? (d.Signo > 0 ? fuera + largo : fuera) : flecha.Y + largo / 2;
             nx = Math.Clamp(nx, m.X0 + 1, m.X1 - ancho - 1);
             ny = Math.Clamp(ny, m.Y0 + largo + 1, m.Y1 - 1);

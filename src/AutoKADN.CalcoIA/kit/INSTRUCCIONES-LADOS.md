@@ -7,9 +7,11 @@ tuberías, la línea de bordillo y las vías a la separación estándar.
 
 ## Los elementos (no hay más)
 
-1. **La manzana**: los trazos negros. Casi siempre un rectángulo: dé sus 4 esquinas medidas. Solo si se ve un volado o
-   una saliente, dé las esquinas de ese quiebre. Todo lo que encierran los trazos negros es la manzana (varias torres o
-   predios en fila son una sola manzana). Si la hoja la corta (sus trazos siguen hasta el borde), dé la esquina en el
+1. **La manzana**: los trazos negros. Casi siempre un rectángulo: dé sus 4 esquinas medidas. Si una parte de una cara
+   está más adentro o más afuera (un escalón, un volado, una saliente: la línea negra baja o sube y sigue), dé también
+   las esquinas de ese escalón; no lo empareje con el rectángulo. La manzana de enfrente suele tener la misma figura.
+   AutoKADN lleva las tuberías, la LB y la manzana de enfrente siguiendo esa figura. Todo lo que encierran los trazos
+   negros es la manzana (varias torres o predios en fila son una sola manzana). Si la hoja la corta (sus trazos siguen hasta el borde), dé la esquina en el
    borde de la hoja y marque ese lado `"abierta": true`; lo que se ve de esa parte (una torre, predios) va adentro.
 2. **Los predios**: las divisiones dentro de la manzana, de línea a línea, pegadas a la línea de la manzana. Cada predio
    lleva su nombre tal como está escrito («CASA 1», «34B-154»); «L» = «LOTE»; un predio sin nada escrito no lleva texto.
@@ -28,7 +30,9 @@ tuberías, la línea de bordillo y las vías a la separación estándar.
        ejemplo, punteada junto a otra torre o manzana hasta el borde de la hoja). Es el mismo carril con `tramos`: el
        tramo nuevo (con su cota) y el existente (`"estado": "existente"`), hasta donde se ve o `"borde"`. Toda la red
        existente que se vea va, aunque pase junto a otra torre o fuera de la manzana del anillo.
-   - **bordillo**: `true` si hay andén, una línea paralela (LB) pasadas las tuberías.
+   - **bordillo**: `true` solo si en la hoja está dibujada la línea de bordillo (LB): una línea larga paralela a
+     la cara, pasadas las tuberías, sin un número escrito sobre ella. La línea de una cota (con su número escrito encima,
+     «31», «56», y marcas en las puntas) no es LB. Si no la ve, `false`: AutoKADN no pone LB en ese lado.
    - **via**: el nombre de la vía de ese lado, en formato NOMENK: «CL 5 - ASF», «KR 34D - T.N.».
    - **enfrente**: `manzana` (otra manzana al otro lado de la vía), `pegada` (otro lote junto a la manzana, sin calle:
      «finca (otro lote)»; nunca lo que está dentro de los trazos negros) o `nada`. `rotuloEnfrente`: lo que está escrito
@@ -76,7 +80,6 @@ una troncal existente y un empalme con silleta; andén a la derecha y abajo; arr
     "abajo": {"carriles": [{"red": "anillo", "estado": "nueva", "diametro": "1/2", "desde": 765, "hasta": 1770, "cota": "25.4"},
                            {"red": "troncal", "estado": "existente", "diametro": "2", "desde": "borde", "hasta": "borde"}],
               "bordillo": true, "via": "KR 1 SUR - ASF", "enfrente": "nada"},
-    "izquierda": {"bordillo": true},
     "arriba": {"enfrente": "pegada", "rotuloEnfrente": "FINCA (OTRO LOTE)"}
   },
   "accesorios": [{"nombre": "TAPON", "lado": "derecha", "carril": 1, "en": 875},

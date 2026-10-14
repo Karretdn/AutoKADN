@@ -151,14 +151,17 @@ public static class SuperposicionLados
             Manzana = c.Manzana, Predios = c.Predios, Textos = c.Textos, Indicadores = c.Indicadores,
         };
         var bordillos = new List<double[][]>();
+        // Cada lado desde su cara, con los escalones de la manzana (como lo dibuja AutoKADN).
+        var frentes = Frente.DeContorno(Enderezador.ContornoOrtogonal(c.Manzana), yArriba: false);
         foreach (var (nombre, l) in c.Lados)
         {
-            string n = nombre.Trim().ToLowerInvariant();
+            string n = nombre.Trim().ToLowerInvariant() switch { "norte" => "arriba", "sur" => "abajo", "oeste" => "izquierda", "este" => "derecha", var x => x };
+            if (l == null || !frentes.TryGetValue(n, out var frente)) continue;
+            Frente cara = frente.Cara;
             bool h = n is "arriba" or "abajo";
-            double cara = n switch { "arriba" => my0, "abajo" => my1, "izquierda" => mx0, _ => mx1 };
-            double signo = n is "arriba" or "izquierda" ? -1 : 1;   // hacia afuera en píxeles de la hoja
-            double a0 = h ? mx0 : my0, a1 = h ? mx1 : my1, largo = a1 - a0;
-            double[] Pt(double enLargo, double fuera) => h ? [enLargo, cara + signo * fuera] : [cara + signo * fuera, enLargo];
+            double a0 = cara.Inicio, a1 = cara.Fin, largo = a1 - a0;
+            double[] Pt(double enLargo, double fuera) => h ? [enLargo, cara.Paralela(fuera).En(enLargo)] : [cara.Paralela(fuera).En(enLargo), enLargo];
+            double[][] Traza(Frente linea, double a, double b) => linea.Entre(a, b).Select(q => h ? new[] { q.A, q.C } : [q.C, q.A]).ToArray();
             double Pos(System.Text.Json.JsonElement? e, double defecto, double borde) =>
                 e is System.Text.Json.JsonElement v ? v.ValueKind == System.Text.Json.JsonValueKind.Number ? v.GetDouble()
                 : v.ValueKind == System.Text.Json.JsonValueKind.String && string.Equals(v.GetString(), "borde", StringComparison.OrdinalIgnoreCase) ? borde : defecto : defecto;
@@ -176,14 +179,17 @@ public static class SuperposicionLados
                     string estado = carril.Tramos.Count > t && !string.IsNullOrWhiteSpace(carril.Tramos[t].Estado) ? carril.Tramos[t].Estado! : carril.Estado;
                     bool esNueva = string.Equals(estado, "nueva", StringComparison.OrdinalIgnoreCase);
                     string? cota = carril.Tramos.Count > t ? carril.Tramos[t].Cota : carril.Cota;
-                    croquis.Tuberias.Add(new TuberiaCroquis { Tipo = troncal ? "matriz" : esNueva ? "nueva" : "existente", Puntos = [Pt(limites[t], k * paso), Pt(limites[t + 1], k * paso)], Cotas = esNueva ? [cota] : [] });
+                    double[][] puntos = Traza(cara.Paralela(k * paso), limites[t], limites[t + 1]);
+                    // La cota en el trozo más largo (si pasa un escalón).
+                    int largoMayor = Enumerable.Range(0, puntos.Length - 1).MaxBy(i => Math.Abs(puntos[i + 1][0] - puntos[i][0]) + Math.Abs(puntos[i + 1][1] - puntos[i][1]));
+                    croquis.Tuberias.Add(new TuberiaCroquis { Tipo = troncal ? "matriz" : esNueva ? "nueva" : "existente", Puntos = puntos, Cotas = esNueva ? Enumerable.Range(0, puntos.Length - 1).Select(i => i == largoMayor ? cota : null).ToList() : [] });
                 }
             }
             double fuera = (Math.Max(1, l.Carriles.Count) + 1) * paso;
-            if (l.Bordillo) bordillos.Add([Pt(a0, fuera), Pt(a1, fuera)]);
+            if (l.Bordillo) bordillos.Add(Traza(cara.Paralela(fuera), a0, a1));
             if (!string.IsNullOrWhiteSpace(l.Via)) croquis.Vias.Add(new ViaCroquis { Nombre = l.Via!, X = Pt((a0 + a1) / 2, fuera + 2 * paso)[0], Y = Pt((a0 + a1) / 2, fuera + 2 * paso)[1] });
-            if (string.Equals(l.Enfrente, "manzana", StringComparison.OrdinalIgnoreCase)) croquis.Vecinos.Add(new VecinoCroquis { Borde = [Pt(a0, fuera + 4 * paso), Pt(a1, fuera + 4 * paso)] });
-            if (string.Equals(l.Enfrente, "pegada", StringComparison.OrdinalIgnoreCase)) croquis.Vecinos.Add(new VecinoCroquis { Borde = [Pt(a0 - 0.2 * largo, 0), Pt(a1 + 0.2 * largo, 0)] });
+            if (string.Equals(l.Enfrente, "manzana", StringComparison.OrdinalIgnoreCase)) croquis.Vecinos.Add(new VecinoCroquis { Borde = Traza(cara.Paralela(fuera).Corrida(4 * paso), a0, a1) });
+            if (string.Equals(l.Enfrente, "pegada", StringComparison.OrdinalIgnoreCase)) croquis.Vecinos.Add(new VecinoCroquis { Borde = Traza(cara, a0 - 0.2 * largo, a1 + 0.2 * largo) });
             foreach (AccesorioLado acc in c.Accesorios.Where(x => string.Equals(x.Lado, nombre, StringComparison.OrdinalIgnoreCase)))
             {
                 double[] q = Pt(acc.En, Math.Max(1, acc.Carril) * paso);

@@ -151,7 +151,7 @@ public sealed class Herramientas
          "cota":{"type":"string","description":"cota verde (longitud) tal como está escrita, si el carril es un solo tramo"},
          "tramos":{"type":"array","items":{"type":"object","properties":{"hasta":{"type":"number"},"cota":{"type":"string"},"estado":{"type":"string","enum":["nueva","existente"],"description":"si el carril cambia a lo largo: la red nueva que sigue como existente (donde cambia va la unión)"}},"required":["hasta"]},"description":"si el carril tiene varias cotas verdes o cambia de nueva a existente: hasta dónde va cada tramo, su cota y su estado, en orden desde «desde»"}},
         "required":["red","estado"]}},
-      "bordillo":{"type":"boolean","description":"hay andén: una línea de bordillo (LB) paralela a la manzana, pasadas las tuberías"},
+      "bordillo":{"type":"boolean","description":"true solo si en la hoja está dibujada la línea de bordillo (LB): una línea larga paralela a la cara, pasadas las tuberías, sin número escrito encima (la línea de una cota, con su número y marcas en las puntas, no es LB). Si no se ve, false"},
       "via":{"type":"string","description":"nombre de la vía de este lado, formato NOMENK (\"CL 5 - ASF\")"},
       "enfrente":{"type":"string","enum":["manzana","pegada","nada"],"description":"manzana: otra manzana al otro lado de la vía; pegada: otro lote junto a la manzana, sin calle (una finca); nada"},
       "rotuloEnfrente":{"type":"string","description":"lo que está escrito enfrente: «FINCA (OTRO LOTE)», «LOTES»"},
@@ -161,7 +161,7 @@ public sealed class Herramientas
     public static string EsquemaLados => """
     {"type":"object","description":"La hoja por lados: la manzana y sus predios en píxeles de la hoja completa y, de cada lado, lo que hay de la cara hacia afuera, en orden. Las tuberías, la LB y las vías las pone AutoKADN a la separación estándar: no mida dónde están dibujadas; diga qué hay, en qué orden y hasta dónde llega a lo largo del lado.",
      "properties":{
-      "manzana":{"type":"array","items":PUNTO,"description":"contorno de la manzana del anillo (los trazos negros), medido; casi siempre 4 esquinas, más solo si se ve un volado o una saliente"},
+      "manzana":{"type":"array","items":PUNTO,"description":"contorno de la manzana del anillo (los trazos negros), medido; casi siempre 4 esquinas; si una cara tiene un escalón (un volado, una saliente: la línea negra baja o sube y sigue), también las esquinas del escalón, sin emparejarlo"},
       "predios":{"type":"array","items":{"type":"array","items":PUNTO,"minItems":2,"maxItems":2},"description":"cada división de predio, de línea a línea (los predios van pegados a la línea de la manzana)"},
       "textos":{"type":"array","items":{"type":"object","properties":{"texto":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"},"giro":{"type":"number"}},"required":["texto","x","y"]},"description":"el nombre de cada predio, en el centro del predio («CASA 1», «34B-154»); un predio sin nada escrito no lleva texto"},
       "indicadores":{"type":"array","items":{"type":"object","properties":{"numero":{"type":"string"},"diametro":{"type":"string"},"viviendas":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"}},"required":["numero","diametro","x","y"]},"description":"el círculo del anillo: su número y diámetro"},
