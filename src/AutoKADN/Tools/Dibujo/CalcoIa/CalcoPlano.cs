@@ -25,7 +25,7 @@ public readonly struct CalcoPunto
     public double Y { get; }
 }
 
-public enum CalcoTipoLinea { Manzana, Predio, Construccion, Vecino, TuberiaNueva, TuberiaExistente }
+public enum CalcoTipoLinea { Manzana, Predio, Construccion, Vecino, TuberiaNueva, TuberiaExistente, Casa, Cerca }
 
 public enum CalcoTipoTexto { Predial, Vial, Libre }
 
@@ -42,6 +42,9 @@ public sealed class CalcoTexto
     public CalcoPunto Centro { get; set; }
     public double Giro { get; set; }
     public CalcoTipoTexto Tipo { get; set; }
+    // Alto relativo al de su tipo en TAMAÑOS (los rótulos chicos de una casa, como «EN CONSTRUC.»). Con escala distinta
+    // de 1 el texto no se marca para TAMAÑOS, que lo dejaría del alto normal.
+    public double Escala { get; set; } = 1.0;
 }
 
 // Cota de longitud de un tramo de tubería nueva (COTAK > Longitud).
@@ -81,7 +84,7 @@ public sealed class CalcoIndicador
 /// Lee un plano de calco desde JSON. Formato (todo opcional salvo las coordenadas; giros en grados):
 /// <code>
 /// { "centroManzana": [x, y],
-///   "lineas":      [ { "tipo": "manzana|predio|construccion|vecino|tuberia_nueva|tuberia_existente", "puntos": [[x, y], ...], "cerrada": false } ],
+///   "lineas":      [ { "tipo": "manzana|predio|construccion|casa|cerca|vecino|tuberia_nueva|tuberia_existente", "puntos": [[x, y], ...], "cerrada": false } ],
 ///   "textos":      [ { "texto": "34C-11", "x": 0, "y": 0, "giro": 0, "tipo": "predial|vial|libre" } ],
 ///   "cotas":       [ { "a": [x, y], "b": [x, y], "texto": "31.0", "diametro": "3/4", "lado": [x, y] } ],
 ///   "accesorios":  [ { "nombre": "TAPON", "x": 0, "y": 0, "direccion": 180, "diametro": "3/4", "superficie": "ZONA VERDE" } ],
@@ -110,6 +113,7 @@ public static class CalcoPlanoJson
                 Centro = new CalcoPunto(Numero(item, "x"), Numero(item, "y")),
                 Giro = Grados(item, "giro"),
                 Tipo = TipoTexto(Texto(item, "tipo", "libre")),
+                Escala = item.TryGetValue("escala", out object? escala) && escala != null ? Numero(item, "escala") : 1.0,
             });
 
         foreach (Dictionary<string, object?> item in Lista(raiz, "cotas"))
@@ -154,6 +158,8 @@ public static class CalcoPlanoJson
             case "manzana": return CalcoTipoLinea.Manzana;
             case "predio": return CalcoTipoLinea.Predio;
             case "construccion": return CalcoTipoLinea.Construccion;
+            case "casa": return CalcoTipoLinea.Casa;
+            case "cerca": return CalcoTipoLinea.Cerca;
             case "vecino": return CalcoTipoLinea.Vecino;
             case "tuberia_nueva": return CalcoTipoLinea.TuberiaNueva;
             case "tuberia_existente": return CalcoTipoLinea.TuberiaExistente;

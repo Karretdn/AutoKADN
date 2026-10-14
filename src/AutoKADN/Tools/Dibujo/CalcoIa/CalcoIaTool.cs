@@ -4,7 +4,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using AutoKADN.Core;
+using AutoKADN.Tools.Layouts;
 using AcadApplication = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace AutoKADN.Tools.Dibujo.CalcoIa;
@@ -40,6 +42,20 @@ public sealed class CalcoIaTool
         {
             editor.WriteMessage($"\nERROR en CALCOIA: {ex.Message}\n");
         }
+    }
+
+    // «Ajustes IA» (botón, comando AJUSTESIA): la ventana de ajustes de AutoKADN.CalcoIA.exe (motor, modelo, clave de la
+    // API y parámetros del dibujo). Corre aparte: no bloquea AutoCAD.
+    internal static void AbrirAjustes()
+    {
+        Editor? editor = AcadApplication.DocumentManager.MdiActiveDocument?.Editor;
+        string? ejecutable = BuscarEjecutable();
+        if (ejecutable == null)
+        {
+            editor?.WriteMessage("\n[Ajustes IA] No se encontró AutoKADN.CalcoIA.exe (compile la solución: queda en bin\\CalcoIA).\n");
+            return;
+        }
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ejecutable, "ajustes") { UseShellExecute = false, CreateNoWindow = true });
     }
 
     internal static bool EsAnilloDetalle(string layout) => AnilloDetalle.IsMatch(layout.Trim());
@@ -137,6 +153,7 @@ public sealed class CalcoIaTool
 
         var ventana = new VentanaCalcoIa(ejecutable, carpeta);
         bool? dibujar = Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(ventana);
+        if (ventana.Costo != null) editor.WriteMessage($"\n[Calcar con IA] Costo: {ventana.Costo}\n");
         if (dibujar != true)
         {
             editor.WriteMessage(ventana.Error != null
@@ -152,6 +169,7 @@ public sealed class CalcoIaTool
             editor.WriteMessage($"\n[Calcar con IA] No se dibujó nada: {resultado.Error}.\n");
             return;
         }
+        if (ApartarHoja(database)) editor.WriteMessage("\n[Calcar con IA] La hoja de referencia se movió a la derecha del marco (sigue marcada para «Detallar con IA»).");
         editor.Regen();
         editor.WriteMessage($"\n[Calcar con IA] Dibujado en {layout}: {resultado.Lineas} líneas, {resultado.Textos} textos, "
             + $"{resultado.Accesorios} accesorios, {resultado.Indicadores} indicadores. Deshacer (H) lo quita entero. Las cotas las pone «Detallar con IA».\n");
@@ -247,6 +265,35 @@ public sealed class CalcoIaTool
     // La última hoja importada con CALCAR en el layout abierto (imagen o PDF de la capa CALCO con la marca).
     // El giro sale de cómo está la hoja ahora (CALCAR > Girar o ROTATE); el recorte va en la hoja derecha (la IA la lee
     // derecha y el enderezado gira lo que leyó).
+    // La hoja de referencia (la imagen o el PDF marcado) se lleva a la derecha del marco del plano, alineada con su borde
+    // de arriba, para que no tape el resultado. Solo si está encima del marco (si el usuario ya la movió, se deja). La
+    // marca va con ella: «Detallar con IA» la sigue encontrando.
+    internal static bool ApartarHoja(Database database)
+    {
+        bool movida = false;
+        using Transaction transaction = database.TransactionManager.StartTransaction();
+        var espacio = (BlockTableRecord)transaction.GetObject(database.CurrentSpaceId, OpenMode.ForRead);
+        foreach (ObjectId id in espacio)
+        {
+            if (!(transaction.GetObject(id, OpenMode.ForRead) is Entity entidad) || !string.Equals(entidad.Layer, CalcoImporter.LayerName, StringComparison.OrdinalIgnoreCase)) continue;
+            using ResultBuffer? marca = entidad.GetXDataForApplication(MarcaApp);
+            if (marca == null) continue;
+            Extents3d caja;
+            try { caja = entidad.GeometricExtents; }
+            catch (Autodesk.AutoCAD.Runtime.Exception) { continue; }
+            bool encima = caja.MinPoint.X < ClonarUcTool.FrameMaxX && caja.MaxPoint.X > ClonarUcTool.FrameMinX
+                && caja.MinPoint.Y < ClonarUcTool.DetalleFrameMaxY && caja.MaxPoint.Y > ClonarUcTool.DetalleFrameMinY;
+            if (!encima) continue;
+            const double separacion = 10.0;
+            var mover = new Vector3d(ClonarUcTool.FrameMaxX + separacion - caja.MinPoint.X, ClonarUcTool.DetalleFrameMaxY - caja.MaxPoint.Y, 0.0);
+            entidad.UpgradeOpen();
+            entidad.TransformBy(Matrix3d.Displacement(mover));
+            movida = true;
+        }
+        transaction.Commit();
+        return movida;
+    }
+
     internal static bool BuscarMarca(Database database, out string fuente, out int pagina, out double[]? recorte, out int giro)
     {
         fuente = string.Empty;

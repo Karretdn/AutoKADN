@@ -83,6 +83,8 @@ internal sealed class VentanaCalcoIa : Window
     public string? Error { get; private set; }
     // Al detallar: por qué la hoja no corresponde al anillo dibujado (vacío si sí corresponde).
     public List<string> Motivos { get; } = new List<string>();
+    // Lo que gastó la corrida, en una frase (null si el motor no lo dijo).
+    public string? Costo { get; private set; }
 
     private void Iniciar()
     {
@@ -123,6 +125,7 @@ internal sealed class VentanaCalcoIa : Window
             _registro.ScrollIntoView(_registro.Items[_registro.Items.Count - 1]);
         }
         else if (linea.StartsWith("ERROR ", StringComparison.Ordinal)) Error = linea.Substring(6).Trim();
+        else if (linea.StartsWith("COSTO ", StringComparison.Ordinal)) Costo = TextoCosto(linea.Substring(6).Trim());
     }
 
     private void Termino()
@@ -149,7 +152,7 @@ internal sealed class VentanaCalcoIa : Window
             _terminado = true;
             _cronometro.Stop();
             _reloj.Stop();
-            _estado.Text = "La hoja no corresponde a este anillo: no se pone nada.";
+            _estado.Text = "La hoja no corresponde a este anillo: no se pone nada." + (Costo != null ? " Costo: " + Costo : string.Empty);
             _estado.Foreground = Brushes.Firebrick;
             foreach (string motivo in Motivos) _final.Children.Add(Renglon("• " + motivo));
             _final.Visibility = Visibility.Visible;
@@ -178,10 +181,27 @@ internal sealed class VentanaCalcoIa : Window
         }
         catch (FormatException) { /* sin resumen: igual se puede dibujar */ }
 
-        _estado.Text = $"Terminado en {_cronometro.Elapsed:m\\:ss}.";
+        _estado.Text = $"Terminado en {_cronometro.Elapsed:m\\:ss}." + (Costo != null ? " Costo: " + Costo : string.Empty);
         _final.Visibility = Visibility.Visible;
         _dibujar.Visibility = Visibility.Visible;
         _dibujar.Focus();
+    }
+
+    // «≈ 0.21 USD (claude-sonnet-5-5, 11 pasos, 0:50; a precio de API: con tu plan no se cobra aparte)».
+    private static string? TextoCosto(string json)
+    {
+        try
+        {
+            if (!(MiniJson.Parse(json) is Dictionary<string, object> c)) return null;
+            string modelo = c.TryGetValue("modelo", out object m) && m is string s ? s : "";
+            int pasos = c.TryGetValue("turnos", out object t) && t is double dt ? (int)dt : 0;
+            double segundos = c.TryGetValue("segundos", out object g) && g is double dg ? dg : 0;
+            bool api = c.TryGetValue("base", out object b) && b is string sb && sb == "api";
+            string usd = c.TryGetValue("usd", out object u) && u is double du ? (api ? "" : "≈ ") + du.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " USD" : "desconocido";
+            string detalle = $"{modelo}, {pasos} pasos, {TimeSpan.FromSeconds(segundos):m\\:ss}";
+            return api ? $"{usd} cobrados a la API ({detalle})" : $"{usd} ({detalle}; a precio de API: con tu plan no se cobra aparte, cuenta para tu límite de uso)";
+        }
+        catch (FormatException) { return null; }
     }
 
     private void Fallo(string mensaje)

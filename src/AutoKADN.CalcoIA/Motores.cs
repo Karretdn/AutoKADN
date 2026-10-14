@@ -26,6 +26,7 @@ public static class Motores
         if (trabajo.EsDetalle) _ = trabajo.Lectura;
 
         string? error = config.Tipo == "api" ? MotorApi.Correr(trabajo, config) : MotorClaudeCode.Correr(trabajo, config);
+        InformarCosto(trabajo);
         if (error == null && !File.Exists(trabajo.Archivo("resultado.json"))) error = trabajo.EsDetalle ? "la IA terminó sin entregar el detalle" : "la IA terminó sin entregar el plano";
         if (error != null)
         {
@@ -38,6 +39,26 @@ public static class Motores
     }
 
     public static void Paso(string texto) => Console.WriteLine("PASO " + texto.Replace('\n', ' ').Replace('\r', ' '));
+
+    // Lo que costó: una línea «COSTO {json}» para el plugin (lo muestra al entregar) y el campo «costo» de resultado.json.
+    private static void InformarCosto(Trabajo trabajo)
+    {
+        if (trabajo.Costo is not Costo costo) return;
+        string json = JsonSerializer.Serialize(costo, Json.Opciones);
+        Console.WriteLine("COSTO " + json);
+        trabajo.Registrar("costo " + json);
+        string archivo = trabajo.Archivo("resultado.json");
+        if (!File.Exists(archivo)) return;
+        try
+        {
+            if (JsonNode.Parse(File.ReadAllText(archivo)) is JsonObject resultado)
+            {
+                resultado["costo"] = JsonSerializer.SerializeToNode(costo, Json.Opciones);
+                File.WriteAllText(archivo, resultado.ToJsonString(Json.Indentado));
+            }
+        }
+        catch (JsonException) { /* el resultado sigue valiendo sin el costo */ }
+    }
 
     public static string Instrucciones(Trabajo trabajo) =>
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "kit", trabajo.EsDetalle ? "INSTRUCCIONES-DETALLE.md" : "INSTRUCCIONES.md"));
@@ -61,6 +82,8 @@ public static class Motores
         "enderezar" => "Enderezando y revisando la vista previa",
         "entregar" => "Entregando el plano",
         "superponer" => "Comparando el croquis con la hoja",
+        "ver_paginas" => "Buscando el plano del proyecto en el PDF",
+        "ver_pagina" => $"Viendo la página {entrada?["pagina"]} del PDF",
         "ver_dibujo" => "Viendo el anillo dibujado",
         "revisar_detalle" => "Revisando el detalle",
         "entregar_detalle" => "Entregando el detalle",
@@ -68,19 +91,29 @@ public static class Motores
     };
 }
 
+// Lo que gastó una corrida. Base «plan»: Claude Code con el plan de Claude (el valor es a precio de API; el plan no lo
+// cobra aparte, cuenta para su límite de uso). «api»: se cobra a la cuenta de la API. Usd null: modelo sin precio conocido.
+public sealed class Costo
+{
+    public double? Usd { get; set; }
+    public string Modelo { get; set; } = string.Empty;
+    public int Turnos { get; set; }
+    public double Segundos { get; set; }
+    public string Base { get; set; } = "plan";
+}
+
 public static class Configuracion
 {
     public static MotorConfig Motor(Parametros parametros)
     {
         MotorConfig config = parametros.Motor;
-        string archivo = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AutoKADN", "calcoia.json");
-        if (File.Exists(archivo))
-        {
-            JsonNode? propio = JsonNode.Parse(File.ReadAllText(archivo));
-            if (propio?["motor"]?.GetValue<string>() is { Length: > 0 } tipo) config.Tipo = tipo;
-            if (propio?["modelo"]?.GetValue<string>() is { } modelo) config.Modelo = modelo;
-            if (propio?["esfuerzo"]?.GetValue<string>() is { } esfuerzo) config.Esfuerzo = esfuerzo;
-        }
+        // Lo que el usuario eligió en «Ajustes de la IA» (Ajustes.Archivo) manda sobre el kit.
+        JsonObject propio = Ajustes.Leer();
+        if (propio["motor"] is JsonValue m && m.TryGetValue(out string? tipo) && tipo.Length > 0) config.Tipo = tipo;
+        if (propio["modelo"] is JsonValue mo && mo.TryGetValue(out string? modelo)) config.Modelo = modelo;
+        if (propio["esfuerzo"] is JsonValue e && e.TryGetValue(out string? esfuerzo)) config.Esfuerzo = esfuerzo;
+        if (propio["minutosMaximos"] is JsonValue mi && mi.TryGetValue(out int minutos) && minutos > 0) config.MinutosMaximos = minutos;
+        if (propio["turnosMaximos"] is JsonValue tu && tu.TryGetValue(out int turnos) && turnos > 0) config.TurnosMaximos = turnos;
         if (Environment.GetEnvironmentVariable("AUTOKADN_CALCOIA_MOTOR") is { Length: > 0 } variable) config.Tipo = variable;
         config.Tipo = config.Tipo.Trim().ToLowerInvariant();
         return config;
@@ -140,6 +173,7 @@ public static class MotorClaudeCode
         proceso.ErrorDataReceived += (_, e) => { if (e.Data != null) { errores.AppendLine(e.Data); trabajo.Registrar("stderr " + e.Data); } };
         proceso.BeginErrorReadLine();
 
+        var reloj = Stopwatch.StartNew();   // lo que espera el usuario (incluye arrancar Claude Code)
         var lector = Task.Run(() =>
         {
             string? linea;
@@ -161,6 +195,16 @@ public static class MotorClaudeCode
                     case "result":
                         if (evento["is_error"]?.GetValue<bool>() == true) error = "Claude Code: " + (evento["result"]?.ToString() ?? evento["subtype"]?.ToString());
                         trabajo.Registrar($"fin: turnos {evento["num_turns"]}, {evento["duration_ms"]} ms, costo {evento["total_cost_usd"]} USD");
+                        // El modelo que más gastó (Claude Code puede usar otro chico para tareas sueltas).
+                        string? usado = (evento["modelUsage"] as JsonObject)?.OrderByDescending(m => m.Value?["costUSD"]?.GetValue<double>() ?? 0).Select(m => m.Key).FirstOrDefault();
+                        trabajo.Costo = new Costo
+                        {
+                            Usd = evento["total_cost_usd"] is JsonValue usd && usd.TryGetValue(out double d) ? Math.Round(d, 4) : null,
+                            Modelo = usado ?? config.Modelo,
+                            Turnos = evento["num_turns"] is JsonValue t && t.TryGetValue(out int n) ? n : 0,
+                            Segundos = Math.Round(reloj.Elapsed.TotalSeconds),
+                            Base = "plan",
+                        };
                         break;
                 }
             }

@@ -69,6 +69,7 @@ public sealed class CalcoDetallarTool
 
         var ventana = new VentanaCalcoIa(ejecutable, carpeta, detallar: true);
         bool? poner = Autodesk.AutoCAD.ApplicationServices.Application.ShowModalWindow(ventana);
+        if (ventana.Costo != null) editor.WriteMessage($"\n[Detallar con IA] Costo: {ventana.Costo}\n");
         if (ventana.Motivos.Count > 0)
         {
             editor.WriteMessage("\n[Detallar con IA] La hoja no corresponde a este anillo; no se puso nada:\n");
@@ -90,6 +91,7 @@ public sealed class CalcoDetallarTool
             editor.WriteMessage($"\n[Detallar con IA] No se puso nada: {resultado.Error}.\n");
             return;
         }
+        if (CalcoIaTool.ApartarHoja(database)) editor.WriteMessage("\n[Detallar con IA] La hoja de referencia se movió a la derecha del marco.");
         editor.Regen();
         editor.WriteMessage($"\n[Detallar con IA] {layout}: {resultado.Cotas} cotas y {resultado.Textos} marcas LC. Deshacer (H) lo quita entero.\n");
         foreach (string aviso in resultado.Avisos) editor.WriteMessage($"[Detallar con IA] Aviso: {aviso}.\n");

@@ -9,6 +9,7 @@ namespace AutoKADN.CalcoIA;
 //   mcp <trabajo>                       servidor MCP (stdio) con las herramientas, para Claude Code
 //   herramienta <trabajo> <nombre> [json | @archivo]   corre una herramienta a mano (pruebas)
 //   clave                               guarda la clave de la API de Anthropic (cifrada para el usuario de Windows)
+//   ajustes                             ventana «Ajustes de la IA» (motor, modelo, clave y parámetros del dibujo)
 // El plugin escribe pedido.json en la carpeta del trabajo, corre «leer» y lee su salida: líneas «PASO …» con el avance
 // y, al final, «LISTO» o «ERROR …».
 public static class Program
@@ -25,6 +26,12 @@ public static class Program
             if (string.IsNullOrWhiteSpace(clave)) { Console.Error.WriteLine("sin clave: no se guardó nada"); return 1; }
             ClaveApi.Guardar(clave);
             Console.WriteLine("clave guardada (cifrada para este usuario de Windows)");
+            return 0;
+        }
+        if (args.Length >= 1 && args[0] == "ajustes")
+        {
+            // Ventana «Ajustes de la IA» (la abre el botón de la cinta).
+            new System.Windows.Application().Run(new VentanaAjustes());
             return 0;
         }
         if (args.Length < 2)

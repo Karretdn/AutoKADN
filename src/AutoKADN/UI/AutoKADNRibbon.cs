@@ -45,6 +45,7 @@ public sealed class AutoKADNRibbon
         calcoPanel.Items.Add(CreateButton("CALCAR", "Importar imagen/PDF", "CALCAR", CreateCalcarIcon(calco)));
         calcoPanel.Items.Add(CreateButton("CALCOIA", "Calcar con IA", "CALCOIA", CreateCalcarIaIcon(calco)));
         calcoPanel.Items.Add(CreateButton("DETALLARIA", "Detallar con IA", "DETALLARIA", CreateDetallarIcon(calco)));
+        calcoPanel.Items.Add(CreateButton("AJUSTESIA", "Ajustes IA", "AJUSTESIA", CreateAjustesIcon(calco)));
 
         Brush dibujo = Pincel(ColorDibujo);
         RibbonPanelSource dibujoPanel = AgregarPanel(tab, "DIBUJO", "Dibujo", ColorDibujo);
@@ -250,6 +251,20 @@ public sealed class AutoKADNRibbon
         dc.DrawLine(fina, new System.Windows.Point(31, 3), new System.Windows.Point(31, 10));
         dc.DrawLine(fina, new System.Windows.Point(14, 21), new System.Windows.Point(26, 21));               // medida de ubicación
         dc.DrawEllipse(c, null, new System.Windows.Point(20, 27), 2.2, 2.2);
+        return new DrawingImage(g);
+    }
+
+    // «Ajustes IA»: un engranaje.
+    private static DrawingImage CreateAjustesIcon(Brush c)
+    {
+        var g = new DrawingGroup(); using DrawingContext dc = g.Open(); var p = new Pen(c, 2.6);
+        dc.DrawEllipse(null, p, new System.Windows.Point(20, 20), 9, 9);
+        dc.DrawEllipse(null, p, new System.Windows.Point(20, 20), 3.5, 3.5);
+        for (int i = 0; i < 8; i++)
+        {
+            double a = i * Math.PI / 4;
+            dc.DrawLine(new Pen(c, 4), new System.Windows.Point(20 + Math.Cos(a) * 10, 20 + Math.Sin(a) * 10), new System.Windows.Point(20 + Math.Cos(a) * 15, 20 + Math.Sin(a) * 15));
+        }
         return new DrawingImage(g);
     }
 

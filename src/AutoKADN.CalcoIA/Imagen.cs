@@ -27,9 +27,13 @@ public sealed class Imagen
 
     public static Imagen Cargar(string archivo)
     {
-        BitmapFrame marco;
-        using (var stream = File.OpenRead(archivo))
-            marco = BitmapFrame.Create(stream, BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
+        using var stream = File.OpenRead(archivo);
+        return Cargar(stream);
+    }
+
+    public static Imagen Cargar(Stream stream)
+    {
+        BitmapFrame marco = BitmapFrame.Create(stream, BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
         var bgr = new FormatConvertedBitmap(marco, PixelFormats.Bgr24, null, 0);
         bgr.Freeze();
         var datos = new byte[bgr.PixelWidth * bgr.PixelHeight * 3];
@@ -68,6 +72,34 @@ public sealed class Imagen
             }
         }
         return Png(visual, ancho, alto);
+    }
+
+    // Miniatura de una imagen (PNG o JPEG en memoria), decodificada ya chica: para ver muchas páginas a la vez.
+    public static BitmapSource Miniatura(byte[] bytes, int ancho)
+    {
+        var mapa = new BitmapImage();
+        mapa.BeginInit();
+        mapa.StreamSource = new MemoryStream(bytes);
+        mapa.DecodePixelWidth = ancho;
+        mapa.CacheOption = BitmapCacheOption.OnLoad;
+        mapa.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+        mapa.EndInit();
+        mapa.Freeze();
+        return mapa;
+    }
+
+    // Un PNG girado (grados antihorarios), para leer derecho lo que está escrito de lado.
+    public static byte[] Girar(byte[] png, int giro)
+    {
+        giro = ((giro % 360) + 360) % 360 / 90 * 90;
+        if (giro == 0) return png;
+        BitmapFrame marco = BitmapFrame.Create(new MemoryStream(png), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        var girada = new TransformedBitmap(marco, new RotateTransform(-giro));
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(girada));
+        using var memoria = new MemoryStream();
+        encoder.Save(memoria);
+        return memoria.ToArray();
     }
 
     // Un pedazo de la hoja tal cual (para dibujar encima).

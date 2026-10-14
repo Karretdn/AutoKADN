@@ -7,7 +7,8 @@ namespace AutoKADN.CalcoIA;
 // El croquis que leyó la IA dibujado encima de la hoja escaneada (que queda aclarada), para que compare y vea lo que le
 // falta o está corrido: manzana en rojo, predios en naranja, vecinos en café, tubería en azul (continua la nueva con su
 // cota en medio de cada tramo, punteada la existente, magenta el cruce), accesorios en círculos con su letra, textos de
-// predio en verde, vías en morado e indicadores. Todo en píxeles de la hoja completa, como el croquis.
+// predio en verde, vías en morado, indicadores, cercas en verde azulado (con x) y casas en café claro con su techo y su
+// rótulo. Todo en píxeles de la hoja completa, como el croquis.
 public static class Superposicion
 {
     public static byte[] Dibujar(Imagen hoja, Rect zona, int maxLado, Croquis c, out double escala)
@@ -54,6 +55,28 @@ public static class Superposicion
             foreach (double[][] p in c.Predios) Poli(p, Lapiz(naranja, 1.8), false);
             foreach (double[][] p in c.Construcciones) Poli(p, Lapiz(naranja, 1.4, true), true);
             foreach (VecinoCroquis v in c.Vecinos) Poli(v.Borde, Lapiz(cafe, 2.2), false);
+            var turquesa = Color.FromRgb(0, 150, 150);
+            foreach (double[][] cerca in c.Cercas)
+            {
+                Poli(cerca, Lapiz(turquesa, 2.0, punteada: true), false);
+                foreach (double[] q in cerca.Where(q => q.Length >= 2)) Etiqueta(dc, "x", Q(q), turquesa, 11, false);
+            }
+            var cafeClaro = Color.FromRgb(170, 110, 50);
+            foreach (CasaCroquis casa in c.Casas.Where(x => x.Caja.Length >= 4))
+            {
+                double x0 = Math.Min(casa.Caja[0], casa.Caja[2]), x1 = Math.Max(casa.Caja[0], casa.Caja[2]), y0 = Math.Min(casa.Caja[1], casa.Caja[3]), y1 = Math.Max(casa.Caja[1], casa.Caja[3]);
+                Pen lapiz = Lapiz(cafeClaro, 2.0, punteada: casa.EnConstruccion);
+                dc.DrawRectangle(null, lapiz, new System.Windows.Rect(P(x0, y0), P(x1, y1)));
+                if (casa.Techo)
+                {
+                    // Techo como en el plano: cumbrera a lo largo y las esquinas a ella.
+                    double w = x1 - x0, h = y1 - y0, m = 0.3 * Math.Min(w, h);
+                    if (w >= h) { double ym = (y0 + y1) / 2; Poli([[x0, y0], [x0 + m, ym], [x0, y1]], lapiz, false); Poli([[x1, y0], [x1 - m, ym], [x1, y1]], lapiz, false); Poli([[x0 + m, ym], [x1 - m, ym]], lapiz, false); }
+                    else { double xm = (x0 + x1) / 2; Poli([[x0, y0], [xm, y0 + m], [x1, y0]], lapiz, false); Poli([[x0, y1], [xm, y1 - m], [x1, y1]], lapiz, false); Poli([[xm, y0 + m], [xm, y1 - m]], lapiz, false); }
+                }
+                string rotulo = (casa.Rotulo ?? string.Empty) + (casa.EnConstruccion ? " (en constr.)" : string.Empty);
+                if (rotulo.Trim().Length > 0) Etiqueta(dc, rotulo.Trim(), P((x0 + x1) / 2, (y0 + y1) / 2), cafeClaro, 11, true);
+            }
 
             foreach (TuberiaCroquis t in c.Tuberias)
             {

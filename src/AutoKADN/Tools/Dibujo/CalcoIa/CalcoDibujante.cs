@@ -10,7 +10,8 @@ namespace AutoKADN.Tools.Dibujo.CalcoIa;
 
 // Dibuja un CalcoPlano en el espacio de un layout ANILLO n DETALLE con las mismas convenciones que dejan las herramientas,
 // para que CLONAR UC, DEBUGDETALLES, LISTABLOQUES y GENERAREXCEL lo reconozcan igual que un dibujo hecho a mano:
-//  · manzanas, predios, construcciones y vecinos: polilíneas en la capa Mat, color por capa.
+//  · manzanas, predios, construcciones, casas y vecinos: polilíneas en la capa Mat, color por capa.
+//  · cercas: capa Lineas, color por capa, linea_X_linea a escala 0.8 (como las de los planos).
 //  · tubería nueva: capa Lineas, azul, continua; existente: azul, HIDDEN2 a escala 1.5 (la leyenda de la plantilla).
 //  · textos: centrados en la capa Mat, alto de TAMAÑOS (Vial o Predial) y su marca para TAMAÑOS, como NOMENK.
 //  · cotas de longitud: como COTAK > Longitud (Dimscale de TAMAÑOS, capa COTA_<diámetro>, a 5.5 de la tubería).
@@ -25,6 +26,8 @@ internal static class CalcoDibujante
     public const short ColorTuberia = 5;            // azul
     public const string LineaExistente = "HIDDEN2";
     public const double EscalaLineaExistente = 1.5;
+    public const string LineaCerca = "linea_X_linea";
+    public const double EscalaLineaCerca = 0.8;
     public const short ColorAccesorios = 3;         // verde, como en los planos
     // Indicador de la plantilla (por si el dibujo no trae uno para copiar).
     private const double RadioIndicador = 6.746;
@@ -43,7 +46,7 @@ internal static class CalcoDibujante
 
         var capas = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
         var necesarias = new SortedSet<string>(StringComparer.OrdinalIgnoreCase) { CapaDibujo };
-        if (plano.Lineas.Any(l => EsTuberia(l.Tipo))) necesarias.Add(CapaTuberia);
+        if (plano.Lineas.Any(l => EsTuberia(l.Tipo) || l.Tipo == CalcoTipoLinea.Cerca)) necesarias.Add(CapaTuberia);
         if (conCotas) foreach (CalcoCota cota in plano.Cotas) necesarias.Add(CapaCota(cota.Diametro));
         List<string> faltan = necesarias.Where(capa => !capas.Has(capa)).ToList();
         if (faltan.Count > 0)
@@ -88,6 +91,12 @@ internal static class CalcoDibujante
             existente = TipoDeLinea(database, transaction, LineaExistente);
             if (existente.IsNull) resultado.Avisos.Add($"no se encontró el tipo de línea {LineaExistente}: la tubería existente quedó continua");
         }
+        ObjectId cerca = ObjectId.Null;
+        if (plano.Lineas.Any(l => l.Tipo == CalcoTipoLinea.Cerca))
+        {
+            cerca = TipoDeLinea(database, transaction, LineaCerca);
+            if (cerca.IsNull) resultado.Avisos.Add($"no se encontró el tipo de línea {LineaCerca} (el de la plantilla): las cercas quedaron continuas");
+        }
 
         // Cada lado va suelto (una polilínea de 2 vértices por segmento, no un rectángulo unido): así se dibuja a mano y es
         // más fácil de editar.
@@ -103,15 +112,26 @@ internal static class CalcoDibujante
                 polilinea.SetDatabaseDefaults(database);
                 polilinea.AddVertexAt(0, new Point2d(a.X, a.Y), 0.0, 0.0, 0.0);
                 polilinea.AddVertexAt(1, new Point2d(b.X, b.Y), 0.0, 0.0, 0.0);
-                Estilo(polilinea, linea.Tipo, capas, existente);
+                Estilo(polilinea, linea.Tipo, capas, existente, cerca);
                 Agregar(espacio, transaction, polilinea);
             }
             resultado.Lineas++;
         }
     }
 
-    private static void Estilo(Polyline polilinea, CalcoTipoLinea tipo, LayerTable capas, ObjectId existente)
+    private static void Estilo(Polyline polilinea, CalcoTipoLinea tipo, LayerTable capas, ObjectId existente, ObjectId cerca)
     {
+        if (tipo == CalcoTipoLinea.Cerca)
+        {
+            polilinea.LayerId = capas[CapaTuberia];
+            polilinea.ColorIndex = 256;
+            if (!cerca.IsNull)
+            {
+                polilinea.LinetypeId = cerca;
+                polilinea.LinetypeScale = EscalaLineaCerca;
+            }
+            return;
+        }
         if (!EsTuberia(tipo))
         {
             polilinea.LayerId = capas[CapaDibujo];
@@ -149,10 +169,11 @@ internal static class CalcoDibujante
         {
             if (string.IsNullOrWhiteSpace(texto.Texto)) continue;
             string? tipo = texto.Tipo == CalcoTipoTexto.Vial ? Tamanos.KindVial : texto.Tipo == CalcoTipoTexto.Predial ? Tamanos.KindPredial : null;
-            DBText entidad = CrearTexto(database, capa, texto.Texto.Trim(), P(texto.Centro), texto.Giro, texto.Tipo == CalcoTipoTexto.Vial ? tamanos.Vial : tamanos.Predial);
+            double alto = (texto.Tipo == CalcoTipoTexto.Vial ? tamanos.Vial : tamanos.Predial) * (texto.Escala > 0 ? texto.Escala : 1.0);
+            DBText entidad = CrearTexto(database, capa, texto.Texto.Trim(), P(texto.Centro), texto.Giro, alto);
             Agregar(espacio, transaction, entidad);
             entidad.AdjustAlignment(database);
-            if (tipo != null) SizeTags.Tag(entidad, database, transaction, tipo);
+            if (tipo != null && Math.Abs(texto.Escala - 1.0) < 1e-3) SizeTags.Tag(entidad, database, transaction, tipo);
             resultado.Textos++;
         }
     }

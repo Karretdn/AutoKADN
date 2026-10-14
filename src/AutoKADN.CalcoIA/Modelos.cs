@@ -8,7 +8,9 @@ public sealed class Croquis
     public double[][] Manzana { get; set; } = [];                    // contorno de la manzana principal, en orden
     public double[][][] Predios { get; set; } = [];                  // líneas rectas que separan predios: [[x,y],[x,y]]
     public double[][][] Construcciones { get; set; } = [];           // polígonos cerrados dentro de predios
-    public List<TextoCroquis> Textos { get; set; } = [];             // números de predio ("LOTE" si no tiene)
+    public List<CasaCroquis> Casas { get; set; } = [];               // casas sueltas (rectángulo, con su techo si lo tiene)
+    public double[][][] Cercas { get; set; } = [];                   // cercas «x—x—x», como polilíneas abiertas
+    public List<TextoCroquis> Textos { get; set; } = [];             // números de predio ("LOTE" si no tiene), «LOTES» en vecinas
     public List<VecinoCroquis> Vecinos { get; set; } = [];           // lo que se ve de manzanas vecinas
     public List<IndicadorCroquis> Indicadores { get; set; } = [];    // círculos "n | ∅" (el propio y los de vecinos)
     public List<ViaCroquis> Vias { get; set; } = [];                 // nombres de las vías, donde están escritos
@@ -27,6 +29,16 @@ public sealed class TextoCroquis
     public double X { get; set; }
     public double Y { get; set; }
     public double Giro { get; set; }   // grados: 0 horizontal, 90 vertical
+}
+
+// Una casa dibujada en el croquis: el rectángulo, con el techo (líneas de las esquinas a la cumbrera) si el croquis lo
+// dibuja, su rótulo («S.N.» = sin número, o el número) y si está en construcción.
+public sealed class CasaCroquis
+{
+    public double[] Caja { get; set; } = [];       // [x0, y0, x1, y1]
+    public string? Rotulo { get; set; }
+    public bool Techo { get; set; } = true;
+    public bool EnConstruccion { get; set; }
 }
 
 public sealed class VecinoCroquis
@@ -48,6 +60,7 @@ public sealed class ViaCroquis
     public string Nombre { get; set; } = string.Empty;  // formato NOMENK: "KR 34D - T.N."
     public double X { get; set; }
     public double Y { get; set; }
+    public double? Giro { get; set; }   // cómo está escrito: 0 horizontal (la calle va de lado a lado), 90 vertical
 }
 
 public sealed class TuberiaCroquis
@@ -89,7 +102,7 @@ public sealed class Plano
 
 public sealed class LineaPlano
 {
-    public string Tipo { get; set; } = "manzana";   // manzana, predio, construccion, vecino, tuberia_nueva, tuberia_existente
+    public string Tipo { get; set; } = "manzana";   // manzana, predio, construccion, casa, cerca, vecino, tuberia_nueva, tuberia_existente
     public List<double[]> Puntos { get; set; } = [];
     public bool Cerrada { get; set; }
 }
@@ -101,6 +114,8 @@ public sealed class TextoPlano
     public double Y { get; set; }
     public double Giro { get; set; }
     public string Tipo { get; set; } = "predial";   // predial, vial, libre
+    public double? Escala { get; set; }              // alto relativo al de su tipo (los rótulos chicos de una casa); null = 1
+    [System.Text.Json.Serialization.JsonIgnore] public bool Fijo { get; set; }   // ya ubicado (no se centra en el predio)
 }
 
 public sealed class CotaPlano

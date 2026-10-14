@@ -28,9 +28,11 @@ public static class Vista
             var azul = new Pen(Brushes.Blue, 1.6);
             var punteada = new Pen(Brushes.Blue, 1.4) { DashStyle = new DashStyle([6, 4], 0) };
             var verde = new Pen(new SolidColorBrush(Color.FromRgb(0, 150, 0)), 0.8);
+            var fina = new Pen(new SolidColorBrush(Color.FromRgb(60, 60, 60)), 0.8);
             foreach (LineaPlano l in plano.Lineas)
             {
-                Pen lapiz = l.Tipo switch { "tuberia_nueva" => azul, "tuberia_existente" => punteada, "vecino" => gris, "predio" or "construccion" => gris, _ => negro };
+                if (l.Tipo == "cerca") { Cerca(dc, l, Q); continue; }
+                Pen lapiz = l.Tipo switch { "tuberia_nueva" => azul, "tuberia_existente" => punteada, "vecino" => gris, "predio" or "construccion" => gris, "casa" => fina, _ => negro };
                 var figura = new StreamGeometry();
                 using (StreamGeometryContext g = figura.Open())
                 {
@@ -57,7 +59,7 @@ public static class Vista
             }
 
             foreach (TextoPlano t in plano.Textos)
-                Texto(dc, t.Texto, t.X, t.Y, t.Giro, t.Tipo == "vial" ? tamanos.Vial : tamanos.Predial, t.Tipo == "vial" ? Brushes.DarkSlateBlue : Brushes.Black, P, fondo: false);
+                Texto(dc, t.Texto, t.X, t.Y, t.Giro, (t.Tipo == "vial" ? tamanos.Vial : tamanos.Predial) * (t.Escala ?? 1), t.Tipo == "vial" ? Brushes.DarkSlateBlue : Brushes.Black, P, fondo: false);
 
             foreach (IndicadorPlano i in plano.Indicadores)
             {
@@ -82,6 +84,30 @@ public static class Vista
             }
         }
         return Imagen.Png(visual, ancho, alto);
+    }
+
+    // Cerca «x—x—x»: la línea cortada con una x en cada hueco (como linea_X_linea).
+    private static void Cerca(DrawingContext dc, LineaPlano l, Func<double[], Point> Q)
+    {
+        var lapiz = new Pen(Brushes.Black, 1.0);
+        for (int s = 0; s + 1 < l.Puntos.Count; s++)
+        {
+            Point a = Q(l.Puntos[s]), b = Q(l.Puntos[s + 1]);
+            Vector d = b - a;
+            double largo = d.Length;
+            if (largo < 1) continue;
+            d /= largo;
+            const double paso = 22, hueco = 9, brazo = 2.6;
+            for (double t = 0; t < largo; t += paso)
+            {
+                double fin = Math.Min(largo, t + paso - hueco);
+                dc.DrawLine(lapiz, a + d * t, a + d * fin);
+                if (fin + hueco / 2 >= largo) break;
+                Point c = a + d * (fin + hueco / 2);
+                dc.DrawLine(lapiz, c + new Vector(-brazo, -brazo), c + new Vector(brazo, brazo));
+                dc.DrawLine(lapiz, c + new Vector(-brazo, brazo), c + new Vector(brazo, -brazo));
+            }
+        }
     }
 
     private static void Texto(DrawingContext dc, string texto, double x, double y, double giro, double alto, Brush tinta, Func<double, double, Point> P, bool fondo)

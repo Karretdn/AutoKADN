@@ -30,11 +30,14 @@ public sealed class Parametros
     public string Superficie { get; set; } = "ZONA VERDE";
     public MotorConfig Motor { get; set; } = new();
 
+    // Los de fábrica (kitparametros.json) con lo que el usuario cambió en «Ajustes de la IA» encima (Ajustes). Con un
+    // archivo explícito (pruebas) solo ese archivo.
     public static Parametros Cargar(string? archivo = null)
     {
-        archivo ??= Path.Combine(AppContext.BaseDirectory, "kit", "parametros.json");
-        if (!File.Exists(archivo)) return new Parametros();
-        return JsonSerializer.Deserialize<Parametros>(File.ReadAllText(archivo), Json.Opciones) ?? new Parametros();
+        if (archivo != null) return File.Exists(archivo) ? JsonSerializer.Deserialize<Parametros>(File.ReadAllText(archivo), Json.Opciones) ?? new Parametros() : new Parametros();
+        System.Text.Json.Nodes.JsonObject parametros = Ajustes.DeFabrica();
+        if (Ajustes.Leer()["parametros"] is System.Text.Json.Nodes.JsonObject propios) Ajustes.Mezclar(parametros, propios);
+        return parametros.Deserialize<Parametros>(Json.Opciones) ?? new Parametros();
     }
 }
 
@@ -89,6 +92,7 @@ public sealed class Trabajo
 {
     private Imagen? _imagen;
     private LecturaDibujo? _lectura;
+    private readonly Dictionary<int, Imagen> _paginas = [];
 
     private Trabajo(string carpeta, Pedido pedido, Parametros parametros)
     {
@@ -100,6 +104,7 @@ public sealed class Trabajo
     public string Carpeta { get; }
     public Pedido Pedido { get; }
     public Parametros Parametros { get; }
+    public Costo? Costo { get; set; }   // lo que gastó la corrida (lo pone el motor al terminar)
 
     public string Archivo(string nombre) => Path.Combine(Carpeta, nombre);
 
@@ -120,6 +125,60 @@ public sealed class Trabajo
 
     // La imagen de la hoja a resolución completa (la de la página del PDF escaneado, tal cual).
     public Imagen Imagen => _imagen ??= Imagen.Cargar(ArchivoHoja());
+
+    public bool EsPdf => string.Equals(Path.GetExtension(Pedido.Fuente), ".pdf", StringComparison.OrdinalIgnoreCase);
+
+    // Páginas del PDF del que sale la hoja (el gasificado completo); 1 si la hoja es una imagen.
+    public int Paginas
+    {
+        get
+        {
+            if (!EsPdf) return 1;
+            using PdfDocument pdf = PdfDocument.Open(Pedido.Fuente);
+            return pdf.NumberOfPages;
+        }
+    }
+
+    // Otra página del mismo PDF (el plano del proyecto, el informe…), en memoria: no se guarda en la carpeta del trabajo.
+    public Imagen Pagina(int numero)
+    {
+        if (numero == Pedido.Pagina) return Imagen;
+        if (_paginas.TryGetValue(numero, out Imagen? imagen)) return imagen;
+        using PdfDocument pdf = AbrirPdf();
+        (byte[] bytes, _) = Extraer(pdf, numero);
+        return _paginas[numero] = Imagen.Cargar(new MemoryStream(bytes));
+    }
+
+    // Todas las páginas del PDF, en bruto (PNG o JPEG), una por una, para hacer miniaturas.
+    public IEnumerable<(int Numero, byte[] Bytes)> TodasLasPaginas()
+    {
+        using PdfDocument pdf = AbrirPdf();
+        for (int n = 1; n <= pdf.NumberOfPages; n++)
+        {
+            byte[]? bytes = null;
+            try { bytes = Extraer(pdf, n).Bytes; }
+            catch (InvalidDataException) { /* una página sin imagen escaneada */ }
+            if (bytes != null) yield return (n, bytes);
+        }
+    }
+
+    private PdfDocument AbrirPdf()
+    {
+        if (!EsPdf) throw new InvalidDataException("la hoja no viene de un PDF: no tiene otras páginas");
+        if (!File.Exists(Pedido.Fuente)) throw new FileNotFoundException("no se encontró el PDF de la hoja", Pedido.Fuente);
+        return PdfDocument.Open(Pedido.Fuente);
+    }
+
+    // La imagen escaneada de una página (la más grande): PNG si se puede, si no el JPEG tal cual.
+    private static (byte[] Bytes, string Extension) Extraer(PdfDocument pdf, int numero)
+    {
+        if (numero < 1 || numero > pdf.NumberOfPages) throw new InvalidDataException($"el PDF tiene {pdf.NumberOfPages} páginas; no existe la {numero}");
+        var pagina = pdf.GetPage(numero);
+        var imagen = pagina.GetImages().OrderByDescending(i => (long)i.WidthInSamples * i.HeightInSamples).FirstOrDefault()
+            ?? throw new InvalidDataException($"la página {numero} del PDF no tiene una imagen escaneada (¿es un PDF de AutoCAD?)");
+        if (imagen.TryGetPng(out byte[]? png) && png != null) return (png, ".png");
+        return (Jpeg(imagen.RawBytes.ToArray()), ".jpg"); // los escaneos traen la página como JPEG (DCT): se guarda tal cual
+    }
 
     // Zona de la hoja que eligió el usuario en CALCAR (px de la hoja completa); toda la hoja si no recortó.
     public Rect Recorte
@@ -159,21 +218,12 @@ public sealed class Trabajo
             return copia;
         }
 
-        using PdfDocument pdf = PdfDocument.Open(fuente);
-        if (Pedido.Pagina < 1 || Pedido.Pagina > pdf.NumberOfPages) throw new InvalidDataException($"el PDF tiene {pdf.NumberOfPages} páginas; no existe la {Pedido.Pagina}");
-        var pagina = pdf.GetPage(Pedido.Pagina);
         // La hoja escaneada es la imagen más grande de la página.
-        var imagen = pagina.GetImages().OrderByDescending(i => (long)i.WidthInSamples * i.HeightInSamples).FirstOrDefault()
-            ?? throw new InvalidDataException("la página del PDF no tiene una imagen escaneada (¿es un PDF de AutoCAD?)");
-        if (imagen.TryGetPng(out byte[]? png) && png != null)
-        {
-            string archivoPng = Archivo("hoja.png");
-            File.WriteAllBytes(archivoPng, png);
-            return archivoPng;
-        }
-        string archivoJpg = Archivo("hoja.jpg"); // los escaneos traen la página como JPEG (DCT): se guarda tal cual
-        File.WriteAllBytes(archivoJpg, Jpeg(imagen.RawBytes.ToArray()));
-        return archivoJpg;
+        using PdfDocument pdf = PdfDocument.Open(fuente);
+        (byte[] bytes, string extension) = Extraer(pdf, Pedido.Pagina);
+        string archivo = Archivo("hoja" + extension);
+        File.WriteAllBytes(archivo, bytes);
+        return archivo;
     }
 
     // Algunos PDF «comprimidos» guardan el JPEG de la página comprimido otra vez (filtros [/FlateDecode /DCTDecode]): los

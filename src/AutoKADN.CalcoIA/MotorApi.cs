@@ -43,7 +43,14 @@ public static class MotorApi
         };
         using var limite = new CancellationTokenSource(TimeSpan.FromMinutes(Math.Max(1, config.MinutosMaximos)));
         int empujones = 0;
-
+        // Lo que va costando: tokens de cada vuelta por el precio del modelo que respondió.
+        double usd = 0;
+        bool sinPrecio = false;
+        int vueltas = 0;
+        string respondio = modelo;
+        var reloj = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
         for (int turno = 1; turno <= Math.Max(1, config.TurnosMaximos); turno++)
         {
             BetaMessage respuesta;
@@ -72,6 +79,12 @@ public static class MotorApi
             catch (AnthropicApiException ex) { return "error de la API: " + ex.Message; }
 
             trabajo.Registrar($"api turno {turno}: stop {respuesta.StopReason}, entrada {respuesta.Usage.InputTokens} (caché leída {respuesta.Usage.CacheReadInputTokens}), salida {respuesta.Usage.OutputTokens}");
+            vueltas = turno;
+            respondio = respuesta.Model.ToString() is { Length: > 0 } m ? m : modelo;
+            if (Precio(respondio) is var (pEntrada, pSalida, pLeida, pEscrita))
+                usd += (N(respuesta.Usage.InputTokens) * pEntrada + N(respuesta.Usage.OutputTokens) * pSalida
+                        + N(respuesta.Usage.CacheReadInputTokens) * pLeida + N(respuesta.Usage.CacheCreationInputTokens) * pEscrita) / 1_000_000;
+            else sinPrecio = true;
             if (respuesta.StopReason == "refusal") return "el modelo no quiso procesar la hoja (rechazo de seguridad)";
 
             var asistente = new List<BetaContentBlockParam>();
@@ -122,7 +135,24 @@ public static class MotorApi
             if (entregado) return null;
         }
         return $"la IA no terminó en {config.TurnosMaximos} vueltas";
+        }
+        finally
+        {
+            trabajo.Costo = new Costo { Usd = sinPrecio ? null : Math.Round(usd, 4), Modelo = respondio, Turnos = vueltas, Segundos = Math.Round(reloj.Elapsed.TotalSeconds), Base = "api" };
+        }
     }
+
+    private static double N(object? valor) => valor == null ? 0 : Convert.ToDouble(valor, System.Globalization.CultureInfo.InvariantCulture);
+
+    // USD por millón de tokens: entrada, salida, caché leída y caché escrita (5 minutos, la que usa este motor). Los de la
+    // familia 5.5; otro modelo queda sin precio (el costo se muestra como desconocido). Haiku: la tarifa de hasta 100K.
+    private static (double, double, double, double)? Precio(string modelo) => modelo switch
+    {
+        _ when modelo.StartsWith("claude-opus-5-5", StringComparison.Ordinal) => (4, 20, 0.20, 5),
+        _ when modelo.StartsWith("claude-sonnet-5-5", StringComparison.Ordinal) => (2, 10, 0.20, 2.5),
+        _ when modelo.StartsWith("claude-haiku-5-5", StringComparison.Ordinal) => (0.10, 0.50, 0.01, 0.125),
+        _ => null,
+    };
 
     private static Effort Esfuerzo(string esfuerzo) => esfuerzo.Trim().ToLowerInvariant() switch
     {
@@ -154,4 +184,12 @@ public static class ClaveApi
         Directory.CreateDirectory(Path.GetDirectoryName(Archivo)!);
         File.WriteAllBytes(Archivo, ProtectedData.Protect(Encoding.UTF8.GetBytes(clave.Trim()), null, DataProtectionScope.CurrentUser));
     }
+
+    public static void Borrar() { if (File.Exists(Archivo)) File.Delete(Archivo); }
+
+    // Para la ventana de ajustes: de dónde saldría la clave (sin mostrarla).
+    public static string Estado() =>
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")) ? "Se usa la variable de entorno ANTHROPIC_API_KEY."
+        : File.Exists(Archivo) ? "Hay una clave guardada (cifrada para tu usuario de Windows)."
+        : "No hay clave guardada.";
 }

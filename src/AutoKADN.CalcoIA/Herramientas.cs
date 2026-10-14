@@ -22,7 +22,7 @@ public sealed class Herramientas
     private readonly Trabajo _trabajo;
     private int _enderezados;
     private int _superposiciones;
-    private bool _pidioSuperponer, _pidioRevisar;
+    private bool _pidioSuperponer, _pidioRevisar, _pidioPlano, _vioPlano;
 
     public Herramientas(Trabajo trabajo) { _trabajo = trabajo; }
 
@@ -41,11 +41,17 @@ public sealed class Herramientas
          "Endereza el croquis con las reglas de dibujo de AutoKADN (90°, tubería a la separación estándar, vías al doble, ajuste al marco, cruces, accesorios) y devuelve la vista previa del plano con un resumen y avisos. Úsela las veces que haga falta y compare la vista con la hoja antes de entregar.",
          """{"type":"object","properties":{"croquis":ESQUEMA_CROQUIS},"required":["croquis"],"additionalProperties":false}"""),
         ("superponer",
-         "Dibuja el croquis encima de la hoja (aclarada) para compararlo con lo que hay dibujado a mano: rojo la manzana, naranja los predios, café los vecinos, azul la tubería (continua la nueva con su cota en medio de cada tramo, punteada la existente), magenta el cruce y los accesorios (círculo con su letra), verde los números de predio y los indicadores, morado las vías. Todo lo de la hoja debe quedar cubierto y en su sitio. Sin x/y/ancho/alto muestra la zona elegida; con ellos, amplía esa parte. Úsela antes de entregar.",
+         "Dibuja el croquis encima de la hoja (aclarada) para compararlo con lo que hay dibujado a mano: rojo la manzana, naranja los predios, café los vecinos, azul la tubería (continua la nueva con su cota en medio de cada tramo, punteada la existente), magenta el cruce y los accesorios (círculo con su letra), verde los números de predio y los indicadores, morado las vías, verde azulado las cercas (con una x en cada punto) y café claro las casas (con su techo y su rótulo; punteadas si están en construcción). Todo lo de la hoja debe quedar cubierto y en su sitio. Sin x/y/ancho/alto muestra la zona elegida; con ellos, amplía esa parte. Úsela antes de entregar.",
          """{"type":"object","properties":{"croquis":ESQUEMA_CROQUIS,"x":{"type":"number"},"y":{"type":"number"},"ancho":{"type":"number"},"alto":{"type":"number"}},"required":["croquis"],"additionalProperties":false}"""),
         ("entregar",
          "Entrega el croquis final (lo endereza igual que 'enderezar' y lo deja listo para que AutoKADN lo dibuje). Llámela una sola vez, al final, con las dudas que el usuario deba revisar en el campo 'dudas' del croquis.",
          """{"type":"object","properties":{"croquis":ESQUEMA_CROQUIS},"required":["croquis"],"additionalProperties":false}"""),
+        ("ver_paginas",
+         "Miniaturas de todas las páginas del PDF de la hoja (el gasificado), con su número; la de este croquis va marcada. Sirve para encontrar el plano del proyecto (un plano impreso de Gases del Caribe, casi siempre girado, con los anillos numerados y resaltados).",
+         """{"type":"object","properties":{},"additionalProperties":false}"""),
+        ("ver_pagina",
+         "Muestra otra página del PDF (p. ej. el plano del proyecto), con cuadrícula en píxeles de esa página. Con x/y/ancho/alto amplía una zona; con giro (90, 180, 270, antihorario) la endereza para leer lo escrito de lado. Las coordenadas de esa página NO son las de la hoja del croquis: úsela para saber qué hay alrededor y cómo se llaman las vías, no para medir.",
+         """{"type":"object","properties":{"pagina":{"type":"integer"},"x":{"type":"number"},"y":{"type":"number"},"ancho":{"type":"number"},"alto":{"type":"number"},"giro":{"type":"integer","enum":[0,90,180,270]}},"required":["pagina"],"additionalProperties":false}"""),
     ];
 
     // Modo detallar: la hoja (ver_hoja, ampliar) y el anillo ya dibujado, con los ids a los que van los números.
@@ -87,11 +93,13 @@ public sealed class Herramientas
      "properties":{
       "manzana":{"type":"array","items":PUNTO,"description":"contorno de la manzana del anillo, en orden (con escalones si los tiene)"},
       "predios":{"type":"array","items":{"type":"array","items":PUNTO,"minItems":2,"maxItems":2},"description":"cada línea recta que separa predios, de extremo a extremo"},
-      "construcciones":{"type":"array","items":{"type":"array","items":PUNTO},"description":"polígonos cerrados dibujados dentro de un predio"},
-      "textos":{"type":"array","items":{"type":"object","properties":{"texto":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"},"giro":{"type":"number","description":"0 horizontal, 90 vertical"}},"required":["texto","x","y"]},"description":"número de cada predio (\"LOTE\" si no tiene) en el centro del predio"},
+      "construcciones":{"type":"array","items":{"type":"array","items":PUNTO},"description":"polígonos cerrados dibujados dentro de un predio que no son una casa (casetas, construcciones)"},
+      "casas":{"type":"array","items":{"type":"object","properties":{"caja":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[x0, y0, x1, y1]: el rectángulo de la casa"},"rotulo":{"type":"string","description":"lo que dice dentro: \"S.N.\" (sin número, en el croquis «SN») o el número de la casa (\"7BS-232\")"},"techo":{"type":"boolean","description":"el croquis la dibuja con el techo (líneas de las esquinas a una línea en medio); false si es un rectángulo solo o rayado"},"enConstruccion":{"type":"boolean","description":"el croquis dice «EN CONST» junto a ella o con una flecha a ella"}},"required":["caja"]},"description":"cada casa dibujada en el croquis (en la manzana del anillo o en las vecinas)"},
+      "cercas":{"type":"array","items":{"type":"array","items":PUNTO},"description":"cada cerca «x x x x», como polilínea abierta por donde va (casi siempre sobre el borde de una manzana: dé ese borde)"},
+      "textos":{"type":"array","items":{"type":"object","properties":{"texto":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"},"giro":{"type":"number","description":"0 horizontal, 90 vertical"}},"required":["texto","x","y"]},"description":"número de cada predio (\"LOTE\" si no tiene) en el centro del predio, y los textos de las manzanas vecinas como «LOTES» donde están escritos"},
       "vecinos":{"type":"array","items":{"type":"object","properties":{"borde":{"type":"array","items":PUNTO}},"required":["borde"]},"description":"lo que se ve de manzanas vecinas, como polilínea abierta"},
       "indicadores":{"type":"array","items":{"type":"object","properties":{"numero":{"type":"string"},"diametro":{"type":"string","description":"1/2 o 3/4"},"viviendas":{"type":"string","description":"\"10 VIVIENDAS\" (solo el anillo propio)"},"x":{"type":"number"},"y":{"type":"number"}},"required":["numero","diametro","x","y"]},"description":"círculos n | ∅: el del anillo y los de anillos vecinos"},
-      "vias":{"type":"array","items":{"type":"object","properties":{"nombre":{"type":"string","description":"formato NOMENK: \"KR 34D - T.N.\""},"x":{"type":"number"},"y":{"type":"number"}},"required":["nombre","x","y"]},"description":"nombre de cada vía, donde está escrito (para saber de qué lado va)"},
+      "vias":{"type":"array","items":{"type":"object","properties":{"nombre":{"type":"string","description":"formato NOMENK: \"KR 34D - T.N.\""},"x":{"type":"number"},"y":{"type":"number"},"giro":{"type":"number","description":"cómo está escrito el nombre: 0 horizontal, 90 vertical (sigue la dirección de la calle)"}},"required":["nombre","x","y"]},"description":"nombre de cada vía: un punto en medio de la calle que nombra, con su giro"},
       "tuberias":{"type":"array","items":{"type":"object","properties":{
          "tipo":{"type":"string","enum":["nueva","existente","cruce"],"description":"nueva: tramos con cota de longitud (continua); existente: sin cota (punteada); cruce: el tramo que atraviesa una calle entre dos redes"},
          "diametro":{"type":"string","description":"1/2 o 3/4 (nueva y existente)"},
@@ -124,6 +132,8 @@ public sealed class Herramientas
                 "enderezar" => Enderezar(entrada, final: false),
                 "entregar" => Enderezar(entrada, final: true),
                 "superponer" => Superponer(entrada),
+                "ver_paginas" => VerPaginas(),
+                "ver_pagina" => VerPagina(entrada),
                 "ver_dibujo" => VerDibujo(),
                 "revisar_detalle" => Detallar(entrada, final: false),
                 "entregar_detalle" => Detallar(entrada, final: true),
@@ -206,6 +216,16 @@ public sealed class Herramientas
             foreach (string aviso in r.Avisos) texto.AppendLine("- " + aviso);
         }
         // Si al entregar quedan avisos de lo que no cuadra con el cuadro de la hoja, se pide revisarlos una vez.
+        // Si quedan vías sin nombre o lados sin manzana de enfrente y la IA no miró el plano del proyecto, se le pide una vez.
+        if (final && !_vioPlano && !_pidioPlano && (r.ViasSinNombre.Count > 0 || r.SinVecina.Count > 0) && _trabajo.EsPdf && _trabajo.Paginas > 1)
+        {
+            _pidioPlano = true;
+            var pide = new StringBuilder("Todavía no se entregó: mire antes el plano del proyecto (ver_paginas y luego ver_pagina, con giro si está de lado).\n");
+            if (r.ViasSinNombre.Count > 0) pide.AppendLine($"- Vías sin nombre en el croquis (lado {string.Join(", ", r.ViasSinNombre)} de la manzana): tome el nombre del plano (regla 17).");
+            if (r.SinVecina.Count > 0) pide.AppendLine($"- Lados sin manzana de enfrente (lado {string.Join(", ", r.SinVecina)}): si el plano muestra manzana ahí, agréguela en vecinos (regla 21).");
+            pide.AppendLine("Si el plano no trae lo que falta, entregue de nuevo y anótelo en dudas.");
+            return new ResultadoHerramienta { Error = true, Texto = pide.ToString() };
+        }
         List<string> pendientes = r.Avisos.Where(a => a.StartsWith("el cuadro dice", StringComparison.Ordinal) || a.StartsWith("el layout es de", StringComparison.Ordinal)).ToList();
         if (final && pendientes.Count > 0 && !_pidioRevisar)
         {
@@ -234,6 +254,58 @@ public sealed class Herramientas
         {
             Png = png,
             Texto = FormattableString.Invariant($"Croquis encima de la hoja (x {zona.X}–{zona.X1}, y {zona.Y}–{zona.Y1}, escala {escala:0.###}). Busque lo que está en la hoja y no tiene color encima (una unión, un tramo, una vecina, un número), y lo que está corrido. Amplíe una parte con x/y/ancho/alto."),
+        };
+    }
+
+    private ResultadoHerramienta VerPaginas()
+    {
+        _vioPlano = true;
+        var paginas = _trabajo.TodasLasPaginas().ToList();
+        if (paginas.Count == 0) throw new InvalidDataException("el PDF no tiene páginas escaneadas");
+        // Tantas columnas como hagan falta para que la hoja de miniaturas no pase de ~1.15 veces el ancho.
+        int columnas = 4;
+        while (columnas < 12 && Math.Ceiling(paginas.Count / (double)columnas) * (LadoImagen / columnas * 1.4 + 18) > 1.15 * LadoImagen) columnas++;
+        int celda = LadoImagen / columnas, alto = (int)(celda * 1.4) + 18, filas = (int)Math.Ceiling(paginas.Count / (double)columnas);
+        var visual = new System.Windows.Media.DrawingVisual();
+        using (System.Windows.Media.DrawingContext dc = visual.RenderOpen())
+        {
+            dc.DrawRectangle(System.Windows.Media.Brushes.White, null, new System.Windows.Rect(0, 0, LadoImagen, filas * alto));
+            for (int i = 0; i < paginas.Count; i++)
+            {
+                (int numero, byte[] bytes) = paginas[i];
+                double x = i % columnas * celda, y = i / columnas * alto;
+                var mini = Imagen.Miniatura(bytes, celda - 8);
+                double escala = Math.Min((celda - 8.0) / mini.PixelWidth, (alto - 26.0) / mini.PixelHeight);
+                dc.DrawImage(mini, new System.Windows.Rect(x + 4, y + 22, mini.PixelWidth * escala, mini.PixelHeight * escala));
+                bool esta = numero == _trabajo.Pedido.Pagina;
+                var texto = new System.Windows.Media.FormattedText(esta ? $"p. {numero} (este croquis)" : $"p. {numero}", CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight,
+                    new System.Windows.Media.Typeface("Arial"), 13, esta ? System.Windows.Media.Brushes.DarkRed : System.Windows.Media.Brushes.Black, 1.0);
+                dc.DrawText(texto, new System.Windows.Point(x + 4, y + 3));
+                if (esta) dc.DrawRectangle(null, new System.Windows.Media.Pen(System.Windows.Media.Brushes.Red, 3), new System.Windows.Rect(x + 2, y + 20, celda - 4, alto - 22));
+            }
+        }
+        return new ResultadoHerramienta
+        {
+            Png = Imagen.Png(visual, LadoImagen, filas * alto),
+            Texto = $"{paginas.Count} páginas. Vea una con ver_pagina (con giro si está de lado).",
+        };
+    }
+
+    private ResultadoHerramienta VerPagina(JsonElement e)
+    {
+        int numero = (int)Numero(e, "pagina");
+        if (numero != _trabajo.Pedido.Pagina) _vioPlano = true;
+        Imagen pagina = _trabajo.Pagina(numero);
+        Rect zona = e.TryGetProperty("ancho", out _)
+            ? pagina.Recortar(new Rect((int)Numero(e, "x"), (int)Numero(e, "y"), (int)Numero(e, "ancho"), (int)Numero(e, "alto")))
+            : new Rect(0, 0, pagina.Ancho, pagina.Alto);
+        int giro = (int)Numero(e, "giro", 0);
+        byte[] png = Imagen.Girar(pagina.Zona(zona, LadoImagen, out double escala), giro);
+        return new ResultadoHerramienta
+        {
+            Png = png,
+            Texto = FormattableString.Invariant($"Página {numero} ({pagina.Ancho} × {pagina.Alto} px): x {zona.X}–{zona.X1}, y {zona.Y}–{zona.Y1} a escala {escala:0.###}") +
+                    (giro != 0 ? $", girada {giro}° para leerla (la cuadrícula sigue en píxeles de la página sin girar)." : "."),
         };
     }
 
